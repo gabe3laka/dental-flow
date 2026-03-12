@@ -15,13 +15,25 @@ import { toast } from "@/hooks/use-toast";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronDown, ChevronUp, Send, Camera, X } from "lucide-react";
 import { logError } from "@/lib/logger";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Form, FormField, FormItem, FormControl, FormMessage } from "@/components/ui/form";
+
+const costSchema = z.object({
+  estimatedCost: z.coerce.number().min(0, "Cost cannot be negative"),
+});
 
 function BillingTab({ patient, doctorId }: { patient: any; doctorId?: string }) {
   const [subscription, setSubscription] = useState<any>(null);
   const [practiceName, setPracticeName] = useState<string>("—");
-  const [estimatedCost, setEstimatedCost] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+
+  const costForm = useForm<{ estimatedCost: number }>({
+    resolver: zodResolver(costSchema),
+    defaultValues: { estimatedCost: 0 },
+  });
 
   useEffect(() => {
     if (!patient?.assigned_doctor_id) { setLoaded(true); return; }
@@ -38,17 +50,19 @@ function BillingTab({ patient, doctorId }: { patient: any; doctorId?: string }) 
       }
       setSubscription(subResult.status === "fulfilled" ? subResult.value.data : null);
       setPracticeName(profileResult.status === "fulfilled" ? (profileResult.value.data?.practice_name || "—") : "—");
-      setEstimatedCost(patient.estimated_cost?.toString() || "");
+      if (patient.estimated_cost != null) {
+        costForm.setValue("estimatedCost", patient.estimated_cost);
+      }
       setLoaded(true);
     })();
   }, [patient]);
 
-  const handleSaveCost = async () => {
+  const handleSaveCost = costForm.handleSubmit(async (values) => {
     setSaving(true);
-    await supabase.from("patients").update({ estimated_cost: estimatedCost ? parseFloat(estimatedCost) : null } as any).eq("id", patient.id);
+    await supabase.from("patients").update({ estimated_cost: values.estimatedCost } as any).eq("id", patient.id);
     setSaving(false);
     toast({ title: "Cost estimate saved" });
-  };
+  });
 
   if (!loaded) return <Skeleton className="h-48 rounded-card" />;
 
@@ -80,20 +94,35 @@ function BillingTab({ patient, doctorId }: { patient: any; doctorId?: string }) 
 
       <div className="rounded-card p-5" style={{ background: "hsl(220 24% 16%)" }}>
         <span className="mono-label mb-3 block" style={{ color: "hsl(38 23% 90% / 0.3)" }}>TREATMENT COST ESTIMATE</span>
-        <div className="flex items-center gap-3">
-          <span className="text-sm" style={{ color: "hsl(38 23% 90% / 0.5)" }}>$</span>
-          <Input
-            type="number"
-            value={estimatedCost}
-            onChange={(e) => setEstimatedCost(e.target.value)}
-            placeholder="0.00"
-            className="flex-1 text-sm"
-            style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)", color: "hsl(38 23% 90%)" }}
-          />
-          <Button onClick={handleSaveCost} disabled={saving} size="sm" className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
-            {saving ? "..." : "Save"}
-          </Button>
-        </div>
+        <Form {...costForm}>
+          <form onSubmit={handleSaveCost}>
+            <FormField
+              control={costForm.control}
+              name="estimatedCost"
+              render={({ field }) => (
+                <FormItem>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm" style={{ color: "hsl(38 23% 90% / 0.5)" }}>$</span>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder="0.00"
+                        className="flex-1 text-sm"
+                        style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)", color: "hsl(38 23% 90%)" }}
+                        {...field}
+                        onChange={(e) => field.onChange(e.target.value)}
+                      />
+                    </FormControl>
+                    <Button type="submit" disabled={saving} size="sm" className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
+                      {saving ? "..." : "Save"}
+                    </Button>
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </form>
+        </Form>
       </div>
 
       <div className="rounded-card p-5 text-center" style={{ background: "hsl(220 24% 16%)", border: "1px dashed hsl(0 0% 100% / 0.07)" }}>

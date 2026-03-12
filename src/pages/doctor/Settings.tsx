@@ -8,6 +8,14 @@ import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, X, Plus } from "lucide-react";
 import { logError } from "@/lib/logger";
+import { z } from "zod";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Form, FormField, FormItem, FormControl, FormMessage } from "@/components/ui/form";
+
+const inviteSchema = z.object({
+  inviteEmail: z.string().email("Enter a valid email"),
+});
 
 const SPECIALTY_OPTIONS = [
   "Orthodontist",
@@ -32,10 +40,14 @@ export default function DoctorSettings() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [teamInvites, setTeamInvites] = useState<any[]>([]);
-  const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("staff");
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviting, setInviting] = useState(false);
+
+  const inviteForm = useForm<{ inviteEmail: string }>({
+    resolver: zodResolver(inviteSchema),
+    defaultValues: { inviteEmail: "" },
+  });
   const [addingSlot, setAddingSlot] = useState(false);
   const [savingSpecialty, setSavingSpecialty] = useState(false);
 
@@ -129,18 +141,18 @@ export default function DoctorSettings() {
     }
   };
 
-  const handleInvite = async () => {
-    if (!inviteEmail.trim() || !user || inviting) return;
+  const handleInvite = inviteForm.handleSubmit(async (values) => {
+    if (!user || inviting) return;
     setInviting(true);
     try {
       const { error } = await supabase.from("team_invites").insert({
         practice_id: user.id,
-        invited_email: inviteEmail.trim(),
+        invited_email: values.inviteEmail.trim(),
         role: inviteRole,
       });
       if (error) throw error;
-      setTeamInvites([{ id: crypto.randomUUID(), practice_id: user.id, invited_email: inviteEmail.trim(), role: inviteRole, invited_at: new Date().toISOString(), accepted_at: null }, ...teamInvites]);
-      setInviteEmail("");
+      setTeamInvites([{ id: crypto.randomUUID(), practice_id: user.id, invited_email: values.inviteEmail.trim(), role: inviteRole, invited_at: new Date().toISOString(), accepted_at: null }, ...teamInvites]);
+      inviteForm.reset();
       setShowInviteModal(false);
       toast({ title: "Invite sent" });
     } catch (e: any) {
@@ -149,7 +161,7 @@ export default function DoctorSettings() {
     } finally {
       setInviting(false);
     }
-  };
+  });
 
   const handleAddSlot = async () => {
     if (!user || addingSlot) return;
@@ -428,32 +440,47 @@ export default function DoctorSettings() {
               </div>
               {showInviteModal && (
                 <div className="mb-4 p-4 rounded-tag space-y-3" style={{ background: "hsl(0 0% 100% / 0.03)" }}>
-                  <Input
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="team@example.com"
-                    className="text-sm"
-                    style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
-                  />
-                  <div className="flex gap-2">
-                    {["staff", "hygienist", "admin"].map((r) => (
-                      <button
-                        key={r}
-                        onClick={() => setInviteRole(r)}
-                        className="px-3 py-1 rounded-pill mono-label transition"
-                        style={{
-                          background: inviteRole === r ? "hsl(228 100% 62%)" : "transparent",
-                          color: inviteRole === r ? "white" : "hsl(38 23% 90% / 0.45)",
-                          border: `1px solid ${inviteRole === r ? "hsl(228 100% 62%)" : "hsl(0 0% 100% / 0.1)"}`,
-                        }}
-                      >
-                        {r.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                  <Button onClick={handleInvite} disabled={!inviteEmail.trim() || inviting} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
-                    {inviting ? "Sending..." : "Send Invite"}
-                  </Button>
+                  <Form {...inviteForm}>
+                    <form onSubmit={handleInvite} className="space-y-3">
+                      <FormField
+                        control={inviteForm.control}
+                        name="inviteEmail"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormControl>
+                              <Input
+                                placeholder="team@example.com"
+                                className="text-sm"
+                                style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="flex gap-2">
+                        {["staff", "hygienist", "admin"].map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setInviteRole(r)}
+                            className="px-3 py-1 rounded-pill mono-label transition"
+                            style={{
+                              background: inviteRole === r ? "hsl(228 100% 62%)" : "transparent",
+                              color: inviteRole === r ? "white" : "hsl(38 23% 90% / 0.45)",
+                              border: `1px solid ${inviteRole === r ? "hsl(228 100% 62%)" : "hsl(0 0% 100% / 0.1)"}`,
+                            }}
+                          >
+                            {r.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+                      <Button type="submit" disabled={inviting} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
+                        {inviting ? "Sending..." : "Send Invite"}
+                      </Button>
+                    </form>
+                  </Form>
                 </div>
               )}
               {teamInvites.length === 0 ? (
