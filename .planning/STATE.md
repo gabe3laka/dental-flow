@@ -2,31 +2,31 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 6 of N
+current_plan: 7 of N
 status: paused
-paused_at: Completed 01-05b-PLAN.md
-last_updated: "2026-03-12T16:28:42.949Z"
+paused_at: Completed 01-06b-PLAN.md
+last_updated: "2026-03-12T16:40:15.798Z"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 10
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State: Arcline v1.0
 
 **Milestone:** v1.0
 **Last Updated:** 2026-03-12
-**Status:** Executing Phase 1 (01-06 complete)
+**Status:** Executing Phase 1 (01-06b complete)
 
 ---
 
 ## Current Position
 
 - **Phase:** 1 — Platform Professionalization
-- **Current Plan:** 6 of N
-- **Paused At:** Completed 01-06-PLAN.md
-- **Last session:** 2026-03-12T16:28:42.945Z
+- **Current Plan:** 7 of N
+- **Paused At:** Completed 01-06b-PLAN.md
+- **Last session:** 2026-03-12T16:40:15.794Z
 
 ---
 
@@ -52,6 +52,8 @@ progress:
 | use-patient-data.ts already converted in 01-05 | File confirmed converted via git diff; no re-conversion needed in 01-06 | 2026-03-12 |
 - [Phase 01-platform-professionalization]: INSERT .single() calls left untouched in page files — insert-then-select patterns where row must exist if no error thrown
 - [Phase 01-platform-professionalization]: maybeSingle null guard pattern: logError + early return for missing-row scenarios across all 15 page files
+- [Phase 01-platform-professionalization]: doctor/Settings.tsx 5-way allSettled: each settings section loads independently on partial failure
+- [Phase 01-platform-professionalization]: NotFound.tsx console.error preserved as logError — intentional 404 tracking log upgraded not removed
 
 ## Blockers
 
@@ -72,6 +74,7 @@ progress:
 - 01-04: RecordResponse camera leak fixed (clearInterval + recorderRef.stop() on unmount); loading locks added to Settings handleInvite/handleAddSlot/saveSpecialty and Automations addAutomation/addTemplate; 7 tests passing
 - 01-05: use-patient-data.ts and use-feature-flag.ts converted to maybeSingle with null guards; Promise.allSettled in place; logError used throughout
 - 01-06: admin/Overview.tsx (7-way), admin/PracticeDetail.tsx (5-way), admin/Settings.tsx (3-way), admin/System.tsx (mutation chain) converted to Promise.allSettled with logError per rejection
+- 01-06b: remaining 11 doctor/patient/admin pages (12 call sites) converted to Promise.allSettled; 5 files converted for console.error; PROF-03 and PROF-06 complete
 - TDD pattern established: test stubs define contracts before implementation; avoid rendering full heavy pages in jsdom (OOM risk)
 
 ---
