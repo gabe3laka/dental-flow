@@ -2,7 +2,7 @@
 
 **Milestone:** v1.0
 **Last Updated:** 2026-03-12
-**Status:** Executing Phase 1
+**Status:** Executing Phase 1 (01-02 complete)
 
 ---
 
@@ -10,7 +10,7 @@
 
 - **Phase:** 1 — Platform Professionalization
 - **Current Plan:** 4 of N
-- **Paused At:** Completed 01-03-PLAN.md
+- **Paused At:** Completed 01-02-PLAN.md
 - **Last session:** 2026-03-12
 
 ---
@@ -29,6 +29,7 @@
 | Marketplace is publicly accessible (no login required to browse) | Drives top-of-funnel discovery; login required only to connect or book | 2026-03-10 |
 | Spread extra fields to top-level entry in logError | Flat log entries are simpler to parse than nested extra objects | 2026-03-12 |
 | Added css:false to vitest.config.ts | Prevents PostCSS loading errors in ESM context during unit tests | 2026-03-12 |
+| signOut from useAuth in ProtectedRoute suspended screen | Removes last direct supabase import from ProtectedRoute; consistent with single-source-of-truth auth pattern | 2026-03-12 |
 
 ---
 
@@ -46,6 +47,7 @@
 - 9-phase roadmap created covering all 62 v1 requirements (includes marketplace DB)
 - Platform has existing working features (scan capture, doctor review, messaging, video, analytics, billing) — this milestone adds 3D mapping and marketplace on top
 - 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
+- 01-02: suspended field added to useAuth AuthState; ProtectedRoute refactored to read from useAuth; race condition eliminated; 5 PROF-04 tests passing
 
 ---
 

@@ -12,7 +12,7 @@
 - [ ] **PROF-01**: Camera stream stops on component unmount in all capture pages (no lingering camera LED)
 - [ ] **PROF-02**: All `.single()` DB queries replaced with `.maybeSingle()` with null handling — no white-screen crashes on missing rows
 - [ ] **PROF-03**: `Promise.all()` data fetching chains replaced with `Promise.allSettled()` — partial data loads instead of full page errors
-- [ ] **PROF-04**: Suspension race condition fixed — `useAuth` includes suspension check so users cannot briefly access routes while check is in-flight
+- [x] **PROF-04**: Suspension race condition fixed — `useAuth` includes suspension check so users cannot briefly access routes while check is in-flight
 - [ ] **PROF-05**: Zod validation schemas added to all forms currently missing them — invalid data cannot be persisted
 - [x] **PROF-06**: Structured error logging utility replaces all raw `console.error()` calls — errors include operation context, user context, and timestamp
 - [ ] **PROF-07**: React Query caching implemented for patient lists, profiles, and subscription data — faster page transitions, reduced DB load
