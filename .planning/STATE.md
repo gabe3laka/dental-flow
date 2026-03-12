@@ -2,7 +2,7 @@
 
 **Milestone:** v1.0
 **Last Updated:** 2026-03-12
-**Status:** Executing Phase 1 (01-02 complete)
+**Status:** Executing Phase 1 (01-03 complete; 01-01 SUMMARY retroactively created)
 
 ---
 
@@ -46,8 +46,10 @@
 - 57 v1 requirements defined in REQUIREMENTS.md across 8 categories
 - 9-phase roadmap created covering all 62 v1 requirements (includes marketplace DB)
 - Platform has existing working features (scan capture, doctor review, messaging, video, analytics, billing) — this milestone adds 3D mapping and marketplace on top
-- 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
+- 01-01: Wave 0 TDD test stubs created for all 8 PROF requirements; 6 tests fail RED (correct); suite runs without parse errors
 - 01-02: suspended field added to useAuth AuthState; ProtectedRoute refactored to read from useAuth; race condition eliminated; 5 PROF-04 tests passing
+- 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
+- TDD pattern established: test stubs define contracts before implementation; avoid rendering full heavy pages in jsdom (OOM risk)
 
 ---
 
