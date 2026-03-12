@@ -50,17 +50,19 @@ Ship Arcline as a professional, production-ready dental AI SaaS with three diffe
 
 **Dependencies:** None — must run first.
 
-**Plans:** 8 plans
+**Plans:** 10 plans
 
 Plans:
 - [ ] 01-01-PLAN.md — Wave 0: Create all 8 test stub files (RED tests for all PROF requirements)
 - [ ] 01-02-PLAN.md — Wave 1: Fix suspension race condition (PROF-04) — move check into useAuth
 - [ ] 01-03-PLAN.md — Wave 1: Create structured error logger src/lib/logger.ts (PROF-06)
 - [ ] 01-04-PLAN.md — Wave 2: Camera cleanup + async submit loading locks (PROF-01, PROF-08)
-- [ ] 01-05-PLAN.md — Wave 2: .single() → .maybeSingle() sweep + console.error → logError (PROF-02, PROF-06)
-- [ ] 01-06-PLAN.md — Wave 2: Promise.all → Promise.allSettled sweep (PROF-03)
-- [ ] 01-07-PLAN.md — Wave 3: Zod validation schemas on all forms (PROF-05)
-- [ ] 01-08-PLAN.md — Wave 3: React Query caching for patient lists, profiles, subscription (PROF-07)
+- [ ] 01-05-PLAN.md — Wave 2: .single() → .maybeSingle() sweep in hooks only (PROF-02, PROF-06)
+- [ ] 01-05b-PLAN.md — Wave 3: .single() → .maybeSingle() sweep across 15 page files (PROF-02, PROF-06)
+- [ ] 01-06-PLAN.md — Wave 3: Promise.all → Promise.allSettled — hooks + high-value admin pages (PROF-03)
+- [ ] 01-06b-PLAN.md — Wave 4: Promise.all → Promise.allSettled — remaining doctor/patient/admin pages (PROF-03)
+- [ ] 01-07-PLAN.md — Wave 5: Zod validation schemas on all forms (PROF-05)
+- [ ] 01-08-PLAN.md — Wave 5: React Query caching for patient lists, profiles, subscription (PROF-07)
 
 ---
 
@@ -232,4 +234,4 @@ Plans:
 ---
 
 *Created: 2026-03-10*
-*Status: Active — Phase 1 planning complete, ready to execute*
+*Status: Active — Phase 1 planning revised (10 plans), ready to execute*
