@@ -5,12 +5,12 @@ milestone_name: milestone
 current_plan: 7 of N
 status: paused
 paused_at: Completed 01-06b-PLAN.md
-last_updated: "2026-03-12T16:40:15.798Z"
+last_updated: "2026-03-12T16:45:59.015Z"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State: Arcline v1.0
@@ -26,7 +26,7 @@ progress:
 - **Phase:** 1 — Platform Professionalization
 - **Current Plan:** 7 of N
 - **Paused At:** Completed 01-06b-PLAN.md
-- **Last session:** 2026-03-12T16:40:15.794Z
+- **Last session:** 2026-03-12T16:45:59.011Z
 
 ---
 
@@ -54,6 +54,8 @@ progress:
 - [Phase 01-platform-professionalization]: maybeSingle null guard pattern: logError + early return for missing-row scenarios across all 15 page files
 - [Phase 01-platform-professionalization]: doctor/Settings.tsx 5-way allSettled: each settings section loads independently on partial failure
 - [Phase 01-platform-professionalization]: NotFound.tsx console.error preserved as logError — intentional 404 tracking log upgraded not removed
+- [Phase 01-platform-professionalization]: PatientDetail BillingTab left as-is: fetches assigned doctor subscription (not logged-in user), useSubscription does not apply
+- [Phase 01-platform-professionalization]: useDoctorPatients select expanded to include all columns Overview.tsx needs
 
 ## Blockers
 
