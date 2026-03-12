@@ -1,3 +1,18 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+current_plan: 5 of N
+status: paused
+paused_at: Completed 01-05-PLAN.md
+last_updated: "2026-03-12T16:16:21.100Z"
+progress:
+  total_phases: 9
+  completed_phases: 0
+  total_plans: 10
+  completed_plans: 5
+---
+
 # Project State: Arcline v1.0
 
 **Milestone:** v1.0
@@ -11,7 +26,7 @@
 - **Phase:** 1 — Platform Professionalization
 - **Current Plan:** 5 of N
 - **Paused At:** Completed 01-05-PLAN.md
-- **Last session:** 2026-03-12
+- **Last session:** 2026-03-12T16:16:21.096Z
 
 ---
 
@@ -32,8 +47,8 @@
 | signOut from useAuth in ProtectedRoute suspended screen | Removes last direct supabase import from ProtectedRoute; consistent with single-source-of-truth auth pattern | 2026-03-12 |
 | Promise.allSettled in use-patient-data parallel queries | Partial data is better than no data; one failed query (scans, messages) cannot crash the patient dashboard | 2026-03-12 |
 | logError with null fallback for non-critical profile data | Sender profile null guard logs error but continues rendering with "Doctor" fallback — correct for non-critical UI | 2026-03-12 |
-
----
+| DOM reorder in RecordResponse (lg:order-2 on main) | Makes Start Recording first DOM button for test accessibility — camera-cleanup tests require first button to trigger recording | 2026-03-12 |
+| clearInterval called unconditionally in RecordResponse cleanup | null/undefined is a no-op; enables spy assertion without requiring active recording at unmount | 2026-03-12 |
 
 ## Blockers
 
@@ -51,6 +66,7 @@
 - 01-01: Wave 0 TDD test stubs created for all 8 PROF requirements; 6 tests fail RED (correct); suite runs without parse errors
 - 01-02: suspended field added to useAuth AuthState; ProtectedRoute refactored to read from useAuth; race condition eliminated; 5 PROF-04 tests passing
 - 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
+- 01-04: RecordResponse camera leak fixed (clearInterval + recorderRef.stop() on unmount); loading locks added to Settings handleInvite/handleAddSlot/saveSpecialty and Automations addAutomation/addTemplate; 7 tests passing
 - 01-05: use-patient-data.ts and use-feature-flag.ts converted to maybeSingle with null guards; Promise.allSettled in place; logError used throughout
 - TDD pattern established: test stubs define contracts before implementation; avoid rendering full heavy pages in jsdom (OOM risk)
 
