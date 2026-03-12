@@ -16,7 +16,7 @@ Ship Arcline as a professional, production-ready dental AI SaaS with three diffe
 
 | Phase | Name | Goal | Requirements |
 |-------|------|------|-------------|
-| 1 | 4/10 | In Progress|  |
+| 1 | 6/10 | In Progress|  |
 | 2 | 3D Infrastructure | Create all database tables, storage, edge function stub, and type extensions | INFRA-01–08 |
 | 3 | 3D Capture Pipeline | Build the patient-facing guided 3D capture flow end-to-end | CAP3D-01–07 |
 | 4 | Shared 3D Viewer | Build the reusable `MouthModelViewer` component with all core rendering features | VIEW3D-01–08 |
@@ -50,7 +50,7 @@ Ship Arcline as a professional, production-ready dental AI SaaS with three diffe
 
 **Dependencies:** None — must run first.
 
-**Plans:** 4/10 plans executed
+**Plans:** 6/10 plans executed
 
 Plans:
 - [ ] 01-01-PLAN.md — Wave 0: Create all 8 test stub files (RED tests for all PROF requirements)

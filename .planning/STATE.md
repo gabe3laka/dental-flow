@@ -2,31 +2,31 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 5 of N
+current_plan: 6 of N
 status: paused
-paused_at: Completed 01-05-PLAN.md
-last_updated: "2026-03-12T16:16:21.100Z"
+paused_at: Completed 01-06-PLAN.md
+last_updated: "2026-03-12T16:22:07.346Z"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 10
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State: Arcline v1.0
 
 **Milestone:** v1.0
 **Last Updated:** 2026-03-12
-**Status:** Executing Phase 1 (01-05 complete)
+**Status:** Executing Phase 1 (01-06 complete)
 
 ---
 
 ## Current Position
 
 - **Phase:** 1 — Platform Professionalization
-- **Current Plan:** 5 of N
-- **Paused At:** Completed 01-05-PLAN.md
-- **Last session:** 2026-03-12T16:16:21.096Z
+- **Current Plan:** 6 of N
+- **Paused At:** Completed 01-06-PLAN.md
+- **Last session:** 2026-03-12T16:22:03.790Z
 
 ---
 
@@ -49,6 +49,7 @@ progress:
 | logError with null fallback for non-critical profile data | Sender profile null guard logs error but continues rendering with "Doctor" fallback — correct for non-critical UI | 2026-03-12 |
 | DOM reorder in RecordResponse (lg:order-2 on main) | Makes Start Recording first DOM button for test accessibility — camera-cleanup tests require first button to trigger recording | 2026-03-12 |
 | clearInterval called unconditionally in RecordResponse cleanup | null/undefined is a no-op; enables spy assertion without requiring active recording at unmount | 2026-03-12 |
+| use-patient-data.ts already converted in 01-05 | File confirmed converted via git diff; no re-conversion needed in 01-06 | 2026-03-12 |
 
 ## Blockers
 
@@ -68,6 +69,7 @@ progress:
 - 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
 - 01-04: RecordResponse camera leak fixed (clearInterval + recorderRef.stop() on unmount); loading locks added to Settings handleInvite/handleAddSlot/saveSpecialty and Automations addAutomation/addTemplate; 7 tests passing
 - 01-05: use-patient-data.ts and use-feature-flag.ts converted to maybeSingle with null guards; Promise.allSettled in place; logError used throughout
+- 01-06: admin/Overview.tsx (7-way), admin/PracticeDetail.tsx (5-way), admin/Settings.tsx (3-way), admin/System.tsx (mutation chain) converted to Promise.allSettled with logError per rejection
 - TDD pattern established: test stubs define contracts before implementation; avoid rendering full heavy pages in jsdom (OOM risk)
 
 ---
