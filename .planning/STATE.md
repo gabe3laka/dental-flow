@@ -2,15 +2,15 @@
 
 **Milestone:** v1.0
 **Last Updated:** 2026-03-12
-**Status:** Executing Phase 1 (01-03 complete; 01-01 SUMMARY retroactively created)
+**Status:** Executing Phase 1 (01-05 complete)
 
 ---
 
 ## Current Position
 
 - **Phase:** 1 — Platform Professionalization
-- **Current Plan:** 4 of N
-- **Paused At:** Completed 01-02-PLAN.md
+- **Current Plan:** 5 of N
+- **Paused At:** Completed 01-05-PLAN.md
 - **Last session:** 2026-03-12
 
 ---
@@ -30,6 +30,8 @@
 | Spread extra fields to top-level entry in logError | Flat log entries are simpler to parse than nested extra objects | 2026-03-12 |
 | Added css:false to vitest.config.ts | Prevents PostCSS loading errors in ESM context during unit tests | 2026-03-12 |
 | signOut from useAuth in ProtectedRoute suspended screen | Removes last direct supabase import from ProtectedRoute; consistent with single-source-of-truth auth pattern | 2026-03-12 |
+| Promise.allSettled in use-patient-data parallel queries | Partial data is better than no data; one failed query (scans, messages) cannot crash the patient dashboard | 2026-03-12 |
+| logError with null fallback for non-critical profile data | Sender profile null guard logs error but continues rendering with "Doctor" fallback — correct for non-critical UI | 2026-03-12 |
 
 ---
 
@@ -49,6 +51,7 @@
 - 01-01: Wave 0 TDD test stubs created for all 8 PROF requirements; 6 tests fail RED (correct); suite runs without parse errors
 - 01-02: suspended field added to useAuth AuthState; ProtectedRoute refactored to read from useAuth; race condition eliminated; 5 PROF-04 tests passing
 - 01-03: logError utility created in src/lib/logger.ts; 8 tests passing
+- 01-05: use-patient-data.ts and use-feature-flag.ts converted to maybeSingle with null guards; Promise.allSettled in place; logError used throughout
 - TDD pattern established: test stubs define contracts before implementation; avoid rendering full heavy pages in jsdom (OOM risk)
 
 ---
