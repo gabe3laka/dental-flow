@@ -55,7 +55,7 @@ Ship Arcline as a professional, production-ready dental AI SaaS with three diffe
 Plans:
 - [ ] 01-01-PLAN.md — Wave 0: Create all 8 test stub files (RED tests for all PROF requirements)
 - [ ] 01-02-PLAN.md — Wave 1: Fix suspension race condition (PROF-04) — move check into useAuth
-- [ ] 01-03-PLAN.md — Wave 1: Create structured error logger src/lib/logger.ts (PROF-06)
+- [x] 01-03-PLAN.md — Wave 1: Create structured error logger src/lib/logger.ts (PROF-06)
 - [ ] 01-04-PLAN.md — Wave 2: Camera cleanup + async submit loading locks (PROF-01, PROF-08)
 - [ ] 01-05-PLAN.md — Wave 2: .single() → .maybeSingle() sweep in hooks only (PROF-02, PROF-06)
 - [ ] 01-05b-PLAN.md — Wave 3: .single() → .maybeSingle() sweep across 15 page files (PROF-02, PROF-06)
