@@ -1,0 +1,25 @@
+project_id = "qalegwgqtyleuaowvuje"
+
+[functions.seed-users]
+verify_jwt = false
+
+[functions.analyze-scan-quality]
+verify_jwt = false
+
+[functions.analyze-scan-teeth]
+verify_jwt = false
+
+[functions.generate-patient-summary]
+verify_jwt = false
+
+[functions.generate-copilot-note]
+verify_jwt = false
+
+[functions.run-automations]
+verify_jwt = false
+
+[functions.accept-team-invite]
+verify_jwt = false
+
+[functions.create-billing-portal]
+verify_jwt = false

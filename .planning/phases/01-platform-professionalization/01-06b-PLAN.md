@@ -16,8 +16,13 @@ files_modified:
   - src/pages/doctor/Settings.tsx
   - src/pages/patient/DoctorProfile.tsx
   - src/pages/public/SharedProgress.tsx
+  - src/components/doctor/DoctorChat.tsx
+  - src/pages/doctor/Analytics.tsx
+  - src/pages/doctor/Consults.tsx
+  - src/pages/admin/Billing.tsx
+  - src/pages/NotFound.tsx
 autonomous: true
-requirements: [PROF-03]
+requirements: [PROF-03, PROF-06]
 
 must_haves:
   truths:
@@ -42,10 +47,10 @@ must_haves:
 ---
 
 <objective>
-Replace Promise.all() with Promise.allSettled() and add per-rejection logError calls (PROF-03) in the remaining 11 doctor, patient, and admin pages. The hooks and high-value admin pages were already handled in 01-06.
+Replace Promise.all() with Promise.allSettled() and add per-rejection logError calls (PROF-03) in the remaining 11 doctor, patient, and admin pages. Also replace all raw console.error() calls with logError (PROF-06) in the 5 additional files that were not covered by prior plans. The hooks and high-value admin pages were already handled in 01-06.
 
-Purpose: Completes the PROF-03 sweep. After this plan, zero Promise.all() calls remain in pages/ or hooks/.
-Output: 11 files converted; grep for Promise.all() in src/pages/ and src/hooks/ returns empty.
+Purpose: Completes the PROF-03 sweep and the PROF-06 console.error sweep. After this plan, zero Promise.all() calls remain in pages/ or hooks/, and zero raw console.error() calls remain anywhere in src/.
+Output: 11 files converted for Promise.all; 5 additional files converted for console.error; all 16 files use logError throughout.
 </objective>
 
 <execution_context>
@@ -86,13 +91,20 @@ if (profileResult.status === "rejected") {
 // public/SharedProgress.tsx line 34 (3-way)
 
 <!-- NOTE: use-auth.ts line 68 — already converted in Plan 02; DO NOT TOUCH -->
+
+<!-- Additional files for PROF-06 console.error replacement -->
+// src/components/doctor/DoctorChat.tsx — has raw console.error calls
+// src/pages/doctor/Analytics.tsx — has raw console.error calls
+// src/pages/doctor/Consults.tsx — has raw console.error calls
+// src/pages/admin/Billing.tsx — has raw console.error calls
+// src/pages/NotFound.tsx — has 1 intentional error log; upgrade to logError, do NOT remove it
 </interfaces>
 </context>
 
 <tasks>
 
 <task type="auto" tdd="true">
-  <name>Task 1: Convert Promise.all() to Promise.allSettled() — remaining admin, doctor, and patient pages</name>
+  <name>Task 1: Convert Promise.all() to Promise.allSettled() — remaining admin, doctor, and patient pages; replace console.error with logError in 5 additional files</name>
   <files>
     src/pages/admin/Practices.tsx
     src/pages/admin/Patients.tsx
@@ -105,6 +117,11 @@ if (profileResult.status === "rejected") {
     src/pages/doctor/Settings.tsx
     src/pages/patient/DoctorProfile.tsx
     src/pages/public/SharedProgress.tsx
+    src/components/doctor/DoctorChat.tsx
+    src/pages/doctor/Analytics.tsx
+    src/pages/doctor/Consults.tsx
+    src/pages/admin/Billing.tsx
+    src/pages/NotFound.tsx
   </files>
   <behavior>
     - All 11 files converted from Promise.all to Promise.allSettled
@@ -113,12 +130,14 @@ if (profileResult.status === "rejected") {
     - ScanCompare.tsx: both sites at lines 22 and 30 converted
     - RecordResponse.tsx: site at line 39 converted (note: .maybeSingle() already applied to queries inside by 01-05b)
     - All rejections logged with logError
+    - DoctorChat.tsx, Analytics.tsx, Consults.tsx, Billing.tsx: all console.error calls replaced with logError
+    - NotFound.tsx: the 1 existing console.error upgraded to logError (intentional log — do NOT remove it)
     - Test: promise-resilience.test.ts GREEN
   </behavior>
   <action>
     Apply the same conversion pattern as 01-06 Task 1 to the remaining 11 files.
 
-    For each file in the list:
+    For each file in the Promise.all list:
     1. Check if logError is imported — add import if not present.
     2. Find the Promise.all() site(s) per line inventory.
     3. Convert to Promise.allSettled() with extraction and rejection logging.
@@ -132,14 +151,20 @@ if (profileResult.status === "rejected") {
 
     doctor/ScanCompare.tsx: Two Promise.all sites (lines 22 and 30). Convert both.
 
-    After completing all files, run a grep to confirm zero Promise.all remain (except in use-auth.ts which is already allSettled):
+    For the 5 console.error files (DoctorChat.tsx, Analytics.tsx, Consults.tsx, Billing.tsx, NotFound.tsx):
+    1. Add logError import from src/lib/logger if not already present.
+    2. Replace each console.error(err, ...) call with logError(err, { operation: "ComponentName/operationName" }).
+    3. NotFound.tsx: the existing console.error is intentional (logs 404 events) — upgrade it to logError with an appropriate operation context such as { operation: "NotFound/render" }. Do NOT remove it.
+
+    After completing all files, run greps to confirm zero raw console.error and zero Promise.all remain:
+    grep -rn "console\.error(" src/
     grep -rn "Promise\.all(" src/pages/ src/hooks/ | grep -v "allSettled"
-    Expected output: empty (no results).
+    Expected output for both: empty (no results).
   </action>
   <verify>
     <automated>npm test -- src/test/promise-resilience.test.ts 2>&1 | tail -20</automated>
   </verify>
-  <done>All 12 remaining Promise.all sites converted to Promise.allSettled; zero Promise.all remain in pages/ and hooks/ (excluding use-auth.ts already converted); all rejection paths log with logError; promise-resilience.test.ts GREEN; npm test suite passes</done>
+  <done>All 12 remaining Promise.all sites converted to Promise.allSettled; zero Promise.all remain in pages/ and hooks/ (excluding use-auth.ts already converted); all rejection paths log with logError; all console.error calls in DoctorChat.tsx, Analytics.tsx, Consults.tsx, Billing.tsx replaced with logError; NotFound.tsx console.error upgraded to logError (not removed); promise-resilience.test.ts GREEN; npm test suite passes</done>
 </task>
 
 </tasks>
@@ -147,10 +172,13 @@ if (profileResult.status === "rejected") {
 <verification>
 npm test -- src/test/promise-resilience.test.ts
 
-Grep confirmation (must return empty):
+Grep confirmation — must return empty:
 grep -rn "Promise\.all(" src/pages/ src/hooks/ | grep -v "allSettled"
 
-Expected: empty output (no Promise.all remaining outside use-auth.ts).
+Grep confirmation — must return empty:
+grep -rn "console\.error(" src/
+
+Expected: both commands return empty output.
 
 npx tsc --noEmit
 Expected: no TypeScript errors from allSettled result type changes.
@@ -161,6 +189,8 @@ Expected: no TypeScript errors from allSettled result type changes.
 - promise-resilience.test.ts passes GREEN
 - Each rejected result calls logError with operation context
 - No silent swallowing of errors
+- All raw console.error calls in DoctorChat.tsx, Analytics.tsx, Consults.tsx, Billing.tsx replaced with logError
+- NotFound.tsx console.error upgraded to logError (intentional log preserved)
 - Full npm test suite passes
 </success_criteria>
 

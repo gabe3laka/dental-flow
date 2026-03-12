@@ -91,7 +91,7 @@ describe("Login form — Zod validation (PROF-05)", () => {
 
     // Submit without filling in any fields
     const submitBtn = screen.getByRole("button", { name: /sign in/i });
-    fireEvent.click(submitBtn);
+    fireEvent.submit(submitBtn.closest("form")!);
 
     // PROF-05: Zod validation must show field-level error messages
     await waitFor(() => {
@@ -121,7 +121,7 @@ describe("Login form — Zod validation (PROF-05)", () => {
     });
 
     const submitBtn = screen.getByRole("button", { name: /sign in/i });
-    fireEvent.click(submitBtn);
+    fireEvent.submit(submitBtn.closest("form")!);
 
     // PROF-05: Zod must catch short password
     await waitFor(() => {
@@ -156,7 +156,7 @@ describe("Signup form — Zod validation (PROF-05)", () => {
     });
 
     const submitBtn = screen.getByRole("button", { name: /create account/i });
-    fireEvent.click(submitBtn);
+    fireEvent.submit(submitBtn.closest("form")!);
 
     // PROF-05: Zod must require full name
     await waitFor(() => {
@@ -186,7 +186,7 @@ describe("Signup form — Zod validation (PROF-05)", () => {
     });
 
     const submitBtn = screen.getByRole("button", { name: /create account/i });
-    fireEvent.click(submitBtn);
+    fireEvent.submit(submitBtn.closest("form")!);
 
     await waitFor(() => {
       const emailError = screen.queryByText(/valid email/i) ||

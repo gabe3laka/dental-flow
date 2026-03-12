@@ -1,0 +1,298 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 
+ * Arcline Design System
+ * Doctor theme: dark BREAK™ aesthetic
+ * Patient theme: warm health-app light
+ * All colors in HSL
+ */
+
+@layer base {
+  /* ═══════════════════════════════════════
+     PATIENT THEME (Light — default)
+     ═══════════════════════════════════════ */
+  :root {
+    /* Core surfaces */
+    --background: 36 47% 97%;          /* #faf7f2 */
+    --foreground: 240 30% 14%;         /* #1a1a2e */
+    --card: 0 0% 100%;                 /* #ffffff */
+    --card-foreground: 240 30% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 30% 14%;
+
+    /* Soft panel */
+    --soft-panel: 252 55% 95%;         /* #f0edf8 */
+
+    /* Brand blue (shared) */
+    --primary: 228 100% 62%;           /* #3d6dff */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 252 55% 95%;          /* #f0edf8 */
+    --secondary-foreground: 240 30% 14%;
+
+    /* Muted */
+    --muted: 252 55% 95%;
+    --muted-foreground: 245 17% 53%;   /* #5a5a7a */
+
+    /* Accent — lavender */
+    --accent: 256 67% 80%;             /* #b8a8f0 */
+    --accent-foreground: 240 30% 14%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders & inputs */
+    --border: 252 20% 90%;
+    --input: 252 20% 90%;
+    --ring: 228 100% 62%;
+
+    /* Radius */
+    --radius: 0.75rem;
+
+    /* Sidebar (patient bottom nav uses these) */
+    --sidebar-background: 36 47% 97%;
+    --sidebar-foreground: 245 17% 53%;
+    --sidebar-primary: 228 100% 62%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 252 55% 95%;
+    --sidebar-accent-foreground: 240 30% 14%;
+    --sidebar-border: 252 20% 90%;
+    --sidebar-ring: 228 100% 62%;
+
+    /* Custom tokens */
+    --text-light: 245 17% 66%;        /* #9898b8 */
+    --lavender: 256 67% 80%;          /* #b8a8f0 */
+    --pink-soft: 330 50% 81%;         /* #e8b4c8 */
+    --gold: 43 50% 54%;               /* #c9a84c */
+    --brand-blue: 228 100% 62%;       /* #3d6dff */
+
+    /* Gradient orb colors */
+    --orb-start: 256 67% 80%;
+    --orb-mid: 330 50% 81%;
+    --orb-end: 224 100% 71%;
+
+    /* Status colors */
+    --status-success: 142 71% 45%;
+    --status-warning: 38 92% 50%;
+    --status-danger: 0 84% 60%;
+  }
+
+  /* ═══════════════════════════════════════
+     DOCTOR THEME (Dark — BREAK™ aesthetic)
+     ═══════════════════════════════════════ */
+  .dark {
+    /* Core surfaces */
+    --background: 216 32% 7%;          /* #0d1117 */
+    --foreground: 38 23% 90%;          /* #edeae4 */
+    --card: 218 26% 11%;               /* #161b24 */
+    --card-foreground: 38 23% 90%;
+    --popover: 220 24% 16%;            /* #1e2535 */
+    --popover-foreground: 38 23% 90%;
+
+    /* Soft panel (elevated) */
+    --soft-panel: 220 24% 16%;
+
+    /* Brand blue */
+    --primary: 228 100% 62%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary */
+    --secondary: 218 26% 11%;
+    --secondary-foreground: 38 23% 90%;
+
+    /* Muted */
+    --muted: 220 24% 16%;
+    --muted-foreground: 38 23% 90% / 0.45;
+
+    /* Accent */
+    --accent: 218 26% 11%;
+    --accent-foreground: 38 23% 90%;
+
+    /* Destructive */
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders */
+    --border: 0 0% 100% / 0.07;
+    --input: 0 0% 100% / 0.07;
+    --ring: 228 100% 62%;
+
+    /* Sidebar (doctor nav) */
+    --sidebar-background: 218 26% 11%;
+    --sidebar-foreground: 38 23% 90% / 0.45;
+    --sidebar-primary: 228 100% 62%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 24% 16%;
+    --sidebar-accent-foreground: 38 23% 90%;
+    --sidebar-border: 0 0% 100% / 0.07;
+    --sidebar-ring: 228 100% 62%;
+
+    /* Custom tokens */
+    --text-light: 38 23% 90% / 0.45;
+    --gold: 43 50% 54%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Fraunces', serif;
+  }
+}
+
+/* ═══════════════════════════════════════
+   Noise texture overlay (global)
+   ═══════════════════════════════════════ */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  opacity: 0.03;
+  pointer-events: none;
+  z-index: 9999;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+@layer utilities {
+  /* Monospace technical label style */
+  .mono-label {
+    font-family: 'IBM Plex Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-size: 9px;
+    line-height: 1;
+  }
+
+  .mono-data {
+    font-family: 'IBM Plex Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+  }
+
+  .font-display {
+    font-family: 'Fraunces', serif;
+  }
+
+  .font-body {
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  .font-mono-label {
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Gradient orb float animation */
+  @keyframes orb-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
+  .animate-orb-float {
+    animation: orb-float 8s ease-in-out infinite;
+  }
+
+  /* Pulse animation for status indicators */
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+  }
+
+  .animate-status-pulse {
+    animation: status-pulse 2s ease-in-out infinite;
+  }
+
+  /* Nav dot pulse — slower, deeper */
+  @keyframes nav-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .animate-nav-dot-pulse {
+    animation: nav-dot-pulse 2.5s ease-in-out infinite;
+  }
+
+  /* Light ray drift */
+  @keyframes ray-drift {
+    0% { transform: translateX(calc(-50% - 15px)); }
+    100% { transform: translateX(calc(-50% + 15px)); }
+  }
+
+  .animate-ray-drift {
+    animation: ray-drift 8s ease-in-out infinite alternate;
+  }
+
+  /* Float slow — hero phone cards */
+  @keyframes float-slow {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-12px); }
+  }
+
+  .animate-float-slow {
+    animation: float-slow 8s ease-in-out infinite;
+  }
+
+  /* Pulse glow — decorative orbs */
+  @keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 20px 10px currentColor; }
+    50% { box-shadow: 0 0 40px 20px currentColor; }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+
+  /* Gradient background shift */
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  .animate-gradient-shift {
+    animation: gradient-shift 8s ease infinite;
+    background-size: 200% 200%;
+  }
+
+  /* Scan line sweep for phone mockup */
+  @keyframes scan-line {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+
+  .animate-scan-line {
+    animation: scan-line 3s ease-in-out infinite;
+  }
+
+  /* Bounce subtle */
+  @keyframes bounce-subtle {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
+  }
+
+  .animate-bounce-subtle {
+    animation: bounce-subtle 2s ease-in-out infinite;
+  }
+
+  /* Orbit */
+  @keyframes orbit {
+    0% { transform: rotate(0deg) translateX(40px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(40px) rotate(-360deg); }
+  }
+
+  .animate-orbit {
+    animation: orbit 20s linear infinite;
+  }
+}

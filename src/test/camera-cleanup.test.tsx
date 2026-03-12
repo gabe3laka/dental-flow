@@ -26,6 +26,7 @@ vi.mock("@/integrations/supabase/client", () => ({
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
       order: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue({ data: [], error: null }),
     })),
@@ -101,13 +102,6 @@ describe("RecordResponse — camera cleanup on unmount (PROF-01)", () => {
     (global as any).MediaStream = MockMediaStream;
     (global as any).MediaRecorder = MockMediaRecorder;
 
-    // Stub HTMLMediaElement.prototype.play (not implemented in jsdom)
-    Object.defineProperty(HTMLMediaElement.prototype, "play", {
-      configurable: true,
-      writable: true,
-      value: vi.fn().mockResolvedValue(undefined),
-    });
-
     // getUserMedia returns a mock stream
     Object.defineProperty(global.navigator, "mediaDevices", {
       configurable: true,
@@ -117,7 +111,7 @@ describe("RecordResponse — camera cleanup on unmount (PROF-01)", () => {
       },
     });
 
-    clearIntervalSpy = vi.spyOn(global, "clearInterval");
+    clearIntervalSpy = vi.spyOn(window, "clearInterval");
   });
 
   afterEach(() => {

@@ -1,14 +1,11 @@
 {
-  "mode": "yolo",
-  "granularity": "fine",
-  "parallelization": true,
+  "milestone_version": "v1.0",
+  "milestone_name": "3D Oral Mapping + Platform Professionalization + Marketplace",
+  "executor_model": "sonnet",
+  "planner_model": "inherit",
   "commit_docs": true,
-  "model_profile": "balanced",
+  "created": "2026-03-10",
   "workflow": {
-    "research": true,
-    "plan_check": true,
-    "verifier": true,
-    "nyquist_validation": true,
-    "auto_advance": false
+    "_auto_chain_active": false
   }
 }
