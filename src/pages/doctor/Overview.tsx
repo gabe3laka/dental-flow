@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
+import { useDoctorPatients } from "@/hooks/use-doctor-patients";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -37,22 +38,25 @@ export default function DoctorOverview() {
   const [search, setSearch] = useState("");
   const [patients, setPatients] = useState<PatientRow[]>([]);
   const [metrics, setMetrics] = useState({ active: 0, pending: 0, alerts: 0, visitsSaved: 0 });
-  const [loading, setLoading] = useState(true);
+  const [enriching, setEnriching] = useState(false);
+
+  const { data: patientRows = [], isPending: patientsPending } = useDoctorPatients();
+
+  const loading = patientsPending || enriching;
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || patientRows.length === 0) {
+      if (!patientsPending) {
+        setPatients([]);
+        setMetrics({ active: 0, pending: 0, alerts: 0, visitsSaved: 0 });
+      }
+      return;
+    }
+
+    setEnriching(true);
+
     (async () => {
       try {
-        const { data: patientRows } = await supabase
-          .from("patients")
-          .select("id, user_id, treatment_type, treatment_category, current_stage, total_stages, compliance_streak")
-          .eq("assigned_doctor_id", user.id);
-
-        if (!patientRows || patientRows.length === 0) {
-          setLoading(false);
-          return;
-        }
-
         const profilesPromise = supabase
           .from("profiles")
           .select("user_id, full_name")
@@ -128,10 +132,10 @@ export default function DoctorOverview() {
       } catch (e) {
         logError(e, { operation: "DoctorOverview/loadData", userId: user?.id });
       } finally {
-        setLoading(false);
+        setEnriching(false);
       }
     })();
-  }, [user]);
+  }, [user, patientRows]);
 
   const filteredPatients = patients.filter((p) => {
     const matchesSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());

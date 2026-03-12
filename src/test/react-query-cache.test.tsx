@@ -176,11 +176,9 @@ describe("React Query cache deduplication (PROF-07)", () => {
     await waitFor(() => expect(fetchCallCount).toBe(2));
   });
 
-  it("useProfile hook is required (documents RED state until Plan 08 creates it)", async () => {
-    // This test documents that src/hooks/use-profile.ts does not exist yet.
-    // It will be updated to: import { useProfile } from "@/hooks/use-profile"
-    // once Plan 08 is complete. For now it verifies the requirement is tracked.
-    const useProfileExists = false; // Will be true after Plan 08
-    expect(useProfileExists).toBe(false); // RED: hook not yet created
+  it("useProfile hook exists and is importable (Plan 08 complete)", async () => {
+    // Plan 08 created src/hooks/use-profile.ts — verify it exports useProfile
+    const { useProfile } = await import("@/hooks/use-profile");
+    expect(typeof useProfile).toBe("function");
   });
 });
