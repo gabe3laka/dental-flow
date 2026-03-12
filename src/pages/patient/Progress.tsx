@@ -1,0 +1,330 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
+import { GradientOrb } from "@/components/ui/gradient-orb";
+import { ToothArch } from "@/components/patient/ToothArch";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { usePatientData } from "@/hooks/use-patient-data";
+import { format } from "date-fns";
+import { toast } from "@/hooks/use-toast";
+import { ChevronRight } from "lucide-react";
+import { logError } from "@/lib/logger";
+
+interface Milestone {
+  id: string;
+  title: string;
+  target_date: string | null;
+  completed_at: string | null;
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  alignment: "Alignment",
+  whitening: "Whitening",
+  post_surgery: "Post-Surgery",
+  retainer: "Retainer",
+  periodontal: "Periodontal",
+  general: "General",
+};
+
+function getAiInsightFallback(complianceStreak: number, progressPercent: number): string {
+  if (complianceStreak > 14 && progressPercent > 60)
+    return "You're ahead of schedule — your consistency is paying off. Keep it up and you may finish early.";
+  if (complianceStreak > 7)
+    return "Great streak! Your compliance is above average. You're well on track for your estimated completion date.";
+  if (progressPercent > 50)
+    return "You're past the halfway mark. Stay consistent with your scans to maintain momentum.";
+  if (complianceStreak > 3)
+    return "Good start on building a scanning habit. Try to scan daily for the best results.";
+  return "Getting started is the hardest part. Submit a scan today to begin tracking your progress.";
+}
+
+export default function Progress() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { data: patientData, loading: patientLoading } = usePatientData();
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [loadingMilestones, setLoadingMilestones] = useState(true);
+  const [treatmentCategory, setTreatmentCategory] = useState<string | null>(null);
+  const [complianceStreak, setComplianceStreak] = useState(0);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [latestScan, setLatestScan] = useState<{ quality_score: number | null; detection_tags: string[] | null } | null>(null);
+  const [patientId, setPatientId] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const { data: patient } = await supabase
+          .from("patients")
+          .select("id, treatment_category, compliance_streak, start_date, estimated_end_date")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (!patient) {
+          logError("Patient record not found", { operation: "Progress/loadData", userId: user?.id });
+          return;
+        }
+
+        setPatientId(patient.id);
+        setTreatmentCategory(patient.treatment_category);
+        setComplianceStreak(patient.compliance_streak || 0);
+
+        const { data } = await supabase
+          .from("treatment_milestones")
+          .select("id, title, target_date, completed_at")
+          .eq("patient_id", patient.id)
+          .order("target_date", { ascending: true });
+
+        setMilestones(data || []);
+
+        const { data: scanData } = await supabase
+          .from("scans")
+          .select("quality_score, detection_tags")
+          .eq("patient_id", patient.id)
+          .order("submitted_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (scanData) {
+          setLatestScan({
+            quality_score: scanData.quality_score,
+            detection_tags: Array.isArray(scanData.detection_tags) ? (scanData.detection_tags as string[]) : null,
+          });
+        }
+
+        try {
+          const daysElapsed = patient.start_date ? Math.floor((Date.now() - new Date(patient.start_date).getTime()) / 86400000) : 0;
+          const daysRemaining = patient.estimated_end_date ? Math.max(0, Math.floor((new Date(patient.estimated_end_date).getTime() - Date.now()) / 86400000)) : null;
+          const { data: summaryData } = await supabase.functions.invoke("generate-patient-summary", {
+            body: {
+              compliance_streak: patient.compliance_streak || 0,
+              treatment_category: patient.treatment_category,
+              days_elapsed: daysElapsed,
+              days_remaining: daysRemaining,
+              recent_scan_status: "pending",
+            },
+          });
+          if (summaryData?.summary) setAiSummary(summaryData.summary);
+        } catch { /* use fallback */ }
+      } catch (e) {
+        logError(e, { operation: "Progress/loadData", userId: user?.id });
+      } finally {
+        setLoadingMilestones(false);
+      }
+    })();
+  }, [user]);
+
+  const handleShareProgress = async () => {
+    if (!patientId || sharing) return;
+    setSharing(true);
+    try {
+      const { data: share, error } = await supabase
+        .from("progress_shares" as any)
+        .insert({ patient_id: patientId } as any)
+        .select("share_token")
+        .single();
+      if (error) throw error;
+      const url = `${window.location.origin}/shared/progress/${(share as any).share_token}`;
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Link copied!", description: "Share this link with anyone. It expires in 7 days." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const progressPercent = patientData?.progressPercent ?? 0;
+  const notStarted = !patientData?.hasStarted && progressPercent === 0;
+
+  return (
+    <div className="min-h-screen bg-background px-6 py-8 max-w-lg mx-auto pb-24">
+      <span className="mono-label text-muted-foreground">TREATMENT</span>
+      <h1 className="font-display text-2xl font-semibold mt-1 mb-2">Your Progress</h1>
+
+      {treatmentCategory && (
+        <span
+          className="mono-label inline-block px-2.5 py-1 rounded-pill mb-6"
+          style={{ background: "hsl(228 100% 62% / 0.1)", color: "hsl(228 100% 62%)" }}
+        >
+          {CATEGORY_LABELS[treatmentCategory] || treatmentCategory}
+        </span>
+      )}
+
+      {patientLoading ? (
+        <div className="flex justify-center mb-8">
+          <Skeleton className="w-48 h-48 rounded-full" />
+        </div>
+      ) : (
+        <div className="flex flex-col items-center mb-8">
+          <GradientOrb
+            percentage={progressPercent}
+            status={notStarted ? "NOT STARTED" : progressPercent >= 50 ? "ON TRACK" : "IN PROGRESS"}
+            notStarted={notStarted}
+          />
+        </div>
+      )}
+
+      {/* AI Insight */}
+      <div
+        className="rounded-card p-5 mb-8"
+        style={{
+          background: "linear-gradient(135deg, hsl(228 100% 62% / 0.06), hsl(256 67% 80% / 0.08))",
+          border: "1px solid hsl(228 100% 62% / 0.1)",
+        }}
+      >
+        <span className="mono-label text-primary mb-2 block">AI INSIGHT</span>
+        <p className="font-display text-base italic text-foreground/80 leading-relaxed">
+          {aiSummary || getAiInsightFallback(complianceStreak, progressPercent)}
+        </p>
+      </div>
+
+      {/* Scan Visualization Card */}
+      <div className="mb-10">
+        <span className="mono-label text-muted-foreground mb-3 block">TOOTH MAP</span>
+        <div
+          className="rounded-card overflow-hidden"
+          style={{
+            background: "hsl(218 26% 11%)",
+            border: "1px solid hsl(0 0% 100% / 0.07)",
+          }}
+        >
+          <div className="px-4 pt-5 pb-2">
+            <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)]" />
+          </div>
+
+          <div className="px-5 pb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="font-mono text-[9px] tracking-[0.15em] uppercase" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
+                QUALITY
+              </span>
+              <span className="font-mono text-[11px] font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+                {latestScan?.quality_score != null ? `${Math.round(latestScan.quality_score)}%` : "—"}
+              </span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "hsl(220 24% 16%)" }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${latestScan?.quality_score ?? 0}%`,
+                  background:
+                    (latestScan?.quality_score ?? 0) >= 80
+                      ? "hsl(142 71% 45%)"
+                      : (latestScan?.quality_score ?? 0) >= 50
+                        ? "hsl(45 93% 47%)"
+                        : "hsl(0 84% 60%)",
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 px-5 pb-4">
+            <div className="rounded-lg px-3 py-3" style={{ background: "hsl(220 24% 16%)" }}>
+              <span className="font-mono text-[9px] tracking-[0.15em] block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
+                TEETH ANALYZED
+              </span>
+              <span className="font-display text-lg font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+                28<span className="text-xs font-normal" style={{ color: "hsl(38 23% 90% / 0.4)" }}>/32</span>
+              </span>
+            </div>
+            <div className="rounded-lg px-3 py-3" style={{ background: "hsl(220 24% 16%)" }}>
+              <span className="font-mono text-[9px] tracking-[0.15em] block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
+                ISSUES FOUND
+              </span>
+              <span className="font-display text-lg font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+                {latestScan?.detection_tags?.length ?? 0}
+              </span>
+            </div>
+          </div>
+
+          <div className="px-5 pb-5">
+            <Button
+              onClick={() => navigate("/patient/scans")}
+              className="w-full rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] bg-primary text-primary-foreground"
+            >
+              View Scan History
+              <ChevronRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Milestones */}
+      <div className="mb-8">
+        <span className="mono-label text-muted-foreground mb-3 block">MILESTONES</span>
+        {loadingMilestones ? (
+          <div className="flex gap-3 overflow-x-auto">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="w-40 h-24 rounded-card flex-shrink-0" />
+            ))}
+          </div>
+        ) : milestones.length === 0 ? (
+          <div>
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="w-[100px] h-[80px] rounded-[12px] flex-shrink-0 flex flex-col items-center justify-center gap-2"
+                  style={{
+                    background: "hsl(256 67% 95%)",
+                    border: "1px dashed hsl(256 67% 80% / 0.3)",
+                  }}
+                >
+                  <div className="w-3 h-3 rounded-full" style={{ background: "hsl(256 67% 70%)" }} />
+                  <div className="space-y-1.5 flex flex-col items-center">
+                    <div className="w-[60px] h-[6px] rounded-full" style={{ background: "hsl(256 67% 80% / 0.3)" }} />
+                    <div className="w-[40px] h-[6px] rounded-full" style={{ background: "hsl(256 67% 80% / 0.2)" }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-[13px] text-muted-foreground italic mt-3">
+              Your doctor will set treatment milestones here.
+            </p>
+          </div>
+        ) : (
+          <div className="flex gap-3 overflow-x-auto pb-4">
+            {milestones.map((m, idx) => (
+              <div key={m.id} className="relative flex items-center">
+                <div className="w-40 flex-shrink-0 bg-card rounded-card border border-border p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className="w-3 h-3 rounded-full border-2 flex-shrink-0"
+                      style={{
+                        borderColor: m.completed_at ? "hsl(var(--status-success))" : "hsl(var(--border))",
+                        background: m.completed_at ? "hsl(var(--status-success))" : "transparent",
+                      }}
+                    />
+                    <span className="font-body text-sm font-medium truncate">{m.title}</span>
+                  </div>
+                  {m.target_date && (
+                    <span className="mono-label text-muted-foreground">
+                      {format(new Date(m.target_date), "dd MMM yyyy").toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {idx < milestones.length - 1 && (
+                  <div className="w-3 h-px bg-border flex-shrink-0" />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Share Progress */}
+      <Button
+        onClick={handleShareProgress}
+        disabled={sharing || !patientId}
+        variant="outline"
+        className="w-full rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+      >
+        {sharing ? "Generating..." : "Share Progress"}
+      </Button>
+
+      <PatientBottomNav />
+    </div>
+  );
+}

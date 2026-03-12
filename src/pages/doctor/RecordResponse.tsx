@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { logError } from "@/lib/logger";
 
 export default function RecordResponse() {
   const { scanId } = useParams();
@@ -33,16 +34,19 @@ export default function RecordResponse() {
     if (!scanId) return;
     (async () => {
       try {
-        const { data: scan } = await supabase.from("scans").select("patient_id").eq("id", scanId).single();
-        if (!scan) return;
+        const { data: scan } = await supabase.from("scans").select("patient_id").eq("id", scanId).maybeSingle();
+        if (!scan) {
+          logError("Scan not found", { operation: "RecordResponse/loadData", userId: user?.id });
+          return;
+        }
 
         const [patientRes, reviewRes] = await Promise.all([
-          supabase.from("patients").select("user_id").eq("id", scan.patient_id).single(),
+          supabase.from("patients").select("user_id").eq("id", scan.patient_id).maybeSingle(),
           supabase.from("scan_reviews").select("review_notes, ai_analysis").eq("scan_id", scanId).order("reviewed_at", { ascending: false }).limit(1),
         ]);
 
         if (patientRes.data?.user_id) {
-          const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", patientRes.data.user_id).single();
+          const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", patientRes.data.user_id).maybeSingle();
           setPatientName(profile?.full_name || "Patient");
         }
 
@@ -52,7 +56,7 @@ export default function RecordResponse() {
         } else {
           setAiSummary(["Teeth alignment progressing well", "Minor crowding in lower arch", "No signs of decay detected"]);
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "RecordResponse/loadData", userId: user?.id }); }
     })();
   }, [scanId]);
 

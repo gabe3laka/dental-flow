@@ -27,8 +27,8 @@ export default function AdminPracticeDetail() {
     (async () => {
       try {
         const [profileResult, subResult, patientsResult, patientsListResult, msgsResult] = await Promise.allSettled([
-          supabase.from("profiles").select("*").eq("user_id", practiceId).single(),
-          supabase.from("subscriptions").select("*").eq("doctor_id", practiceId).single(),
+          supabase.from("profiles").select("*").eq("user_id", practiceId).maybeSingle(),
+          supabase.from("subscriptions").select("*").eq("doctor_id", practiceId).maybeSingle(),
           supabase.from("patients").select("id", { count: "exact", head: true }).eq("assigned_doctor_id", practiceId),
           supabase.from("patients").select("id, user_id").eq("assigned_doctor_id", practiceId).limit(20),
           supabase.from("messages").select("id", { count: "exact", head: true }).eq("sender_id", practiceId),
@@ -59,7 +59,7 @@ export default function AdminPracticeDetail() {
           (profiles || []).forEach((p) => { nameMap[p.user_id] = p.full_name || "Unknown"; });
           setPatients(patientsListData.map((p) => ({ ...p, name: nameMap[p.user_id] || "Unknown" })));
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "AdminPracticeDetail/loadData", userId: user?.id }); }
       finally { setLoading(false); }
     })();
   }, [practiceId]);

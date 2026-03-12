@@ -55,8 +55,8 @@ export default function DoctorSettings() {
     (async () => {
       try {
         const [profileRes, subRes, patientsRes, invitesRes, slotsRes] = await Promise.all([
-          supabase.from("profiles").select("*").eq("user_id", user.id).single(),
-          supabase.from("subscriptions").select("*").eq("doctor_id", user.id).single(),
+          supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
+          supabase.from("subscriptions").select("*").eq("doctor_id", user.id).maybeSingle(),
           supabase.from("patients").select("id", { count: "exact", head: true }).eq("assigned_doctor_id", user.id),
           supabase.from("team_invites").select("*").eq("practice_id", user.id).order("invited_at", { ascending: false }),
           supabase.from("doctor_availability" as any).select("*").eq("doctor_id", user.id).order("created_at", { ascending: true }),

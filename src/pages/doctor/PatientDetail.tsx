@@ -27,8 +27,8 @@ function BillingTab({ patient, doctorId }: { patient: any; doctorId?: string }) 
     if (!patient?.assigned_doctor_id) { setLoaded(true); return; }
     (async () => {
       const [subRes, profileRes] = await Promise.all([
-        supabase.from("subscriptions").select("plan_tier, status").eq("doctor_id", patient.assigned_doctor_id).single(),
-        supabase.from("profiles").select("practice_name").eq("user_id", patient.assigned_doctor_id).single(),
+        supabase.from("subscriptions").select("plan_tier, status").eq("doctor_id", patient.assigned_doctor_id).maybeSingle(),
+        supabase.from("profiles").select("practice_name").eq("user_id", patient.assigned_doctor_id).maybeSingle(),
       ]);
       setSubscription(subRes.data);
       setPracticeName(profileRes.data?.practice_name || "—");
@@ -136,12 +136,17 @@ export default function PatientDetail() {
           .from("patients")
           .select("*")
           .eq("id", patientId)
-          .single();
+          .maybeSingle();
+        if (!p) {
+          logError("Patient record not found", { operation: "PatientDetail/loadData", userId: user?.id });
+          setLoading(false);
+          return;
+        }
         setPatient(p);
 
         if (p) {
           const [profileRes, scansRes] = await Promise.all([
-            supabase.from("profiles").select("*").eq("user_id", p.user_id).single(),
+            supabase.from("profiles").select("*").eq("user_id", p.user_id).maybeSingle(),
             supabase.from("scans").select("*").eq("patient_id", p.id).order("submitted_at", { ascending: false }).limit(9),
           ]);
           setProfile(profileRes.data);
