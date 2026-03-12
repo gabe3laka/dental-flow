@@ -4,13 +4,13 @@ milestone: v1.0
 milestone_name: milestone
 current_plan: 6 of N
 status: paused
-paused_at: Completed 01-06-PLAN.md
-last_updated: "2026-03-12T16:22:07.346Z"
+paused_at: Completed 01-05b-PLAN.md
+last_updated: "2026-03-12T16:28:42.949Z"
 progress:
   total_phases: 9
   completed_phases: 0
   total_plans: 10
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State: Arcline v1.0
@@ -26,7 +26,7 @@ progress:
 - **Phase:** 1 — Platform Professionalization
 - **Current Plan:** 6 of N
 - **Paused At:** Completed 01-06-PLAN.md
-- **Last session:** 2026-03-12T16:22:03.790Z
+- **Last session:** 2026-03-12T16:28:42.945Z
 
 ---
 
@@ -50,6 +50,8 @@ progress:
 | DOM reorder in RecordResponse (lg:order-2 on main) | Makes Start Recording first DOM button for test accessibility — camera-cleanup tests require first button to trigger recording | 2026-03-12 |
 | clearInterval called unconditionally in RecordResponse cleanup | null/undefined is a no-op; enables spy assertion without requiring active recording at unmount | 2026-03-12 |
 | use-patient-data.ts already converted in 01-05 | File confirmed converted via git diff; no re-conversion needed in 01-06 | 2026-03-12 |
+- [Phase 01-platform-professionalization]: INSERT .single() calls left untouched in page files — insert-then-select patterns where row must exist if no error thrown
+- [Phase 01-platform-professionalization]: maybeSingle null guard pattern: logError + early return for missing-row scenarios across all 15 page files
 
 ## Blockers
 
