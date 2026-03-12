@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_plan: 7 of N
+current_plan: 8 of N
 status: paused
-paused_at: Completed 01-06b-PLAN.md
-last_updated: "2026-03-12T16:45:59.015Z"
+paused_at: Completed 01-07-PLAN.md
+last_updated: "2026-03-12T16:57:01.073Z"
 progress:
   total_phases: 9
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 10
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State: Arcline v1.0
@@ -25,8 +25,8 @@ progress:
 
 - **Phase:** 1 — Platform Professionalization
 - **Current Plan:** 7 of N
-- **Paused At:** Completed 01-06b-PLAN.md
-- **Last session:** 2026-03-12T16:45:59.011Z
+- **Paused At:** Completed 01-07-PLAN.md
+- **Last session:** 2026-03-12T16:57:01.069Z
 
 ---
 
@@ -56,6 +56,8 @@ progress:
 - [Phase 01-platform-professionalization]: NotFound.tsx console.error preserved as logError — intentional 404 tracking log upgraded not removed
 - [Phase 01-platform-professionalization]: PatientDetail BillingTab left as-is: fetches assigned doctor subscription (not logged-in user), useSubscription does not apply
 - [Phase 01-platform-professionalization]: useDoctorPatients select expanded to include all columns Overview.tsx needs
+- [Phase 01-platform-professionalization]: Remove type='email' from Signup email input: jsdom email input sanitization with react-hook-form — use plain text input + Zod .email() for testability
+- [Phase 01-platform-professionalization]: zodResolver pattern: define Zod schema at module scope, pass zodResolver(schema) to useForm — prevents inline schema recreation per render
 
 ## Blockers
 
