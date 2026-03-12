@@ -38,14 +38,23 @@ export default function SharedProgress() {
         setPatient(p);
 
         if (p) {
-          const [profileRes, milestonesRes, scanRes] = await Promise.all([
+          const [profileResult, milestonesResult, scanResult] = await Promise.allSettled([
             supabase.from("profiles").select("full_name").eq("user_id", p.user_id).maybeSingle(),
             supabase.from("treatment_milestones").select("*").eq("patient_id", p.id).order("target_date", { ascending: true }),
             supabase.from("scans").select("quality_score, detection_tags").eq("patient_id", p.id).order("submitted_at", { ascending: false }).limit(1).maybeSingle(),
           ]);
-          setProfile(profileRes.data);
-          setMilestones(milestonesRes.data || []);
-          setLatestScan(scanRes.data);
+          if (profileResult.status === "rejected") {
+            logError(profileResult.reason, { operation: "SharedProgress/fetchProfile" });
+          }
+          if (milestonesResult.status === "rejected") {
+            logError(milestonesResult.reason, { operation: "SharedProgress/fetchMilestones" });
+          }
+          if (scanResult.status === "rejected") {
+            logError(scanResult.reason, { operation: "SharedProgress/fetchLatestScan" });
+          }
+          setProfile(profileResult.status === "fulfilled" ? profileResult.value.data : null);
+          setMilestones(milestonesResult.status === "fulfilled" ? (milestonesResult.value.data || []) : []);
+          setLatestScan(scanResult.status === "fulfilled" ? scanResult.value.data : null);
         }
       } catch (e) { logError(e, { operation: "SharedProgress/loadData" }); }
       finally { setLoading(false); }

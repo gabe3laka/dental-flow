@@ -20,22 +20,38 @@ export default function ScanCompare() {
     if (!scanA || !scanB) return;
     (async () => {
       try {
-        const [resA, resB] = await Promise.all([
+        const [resResultA, resResultB] = await Promise.allSettled([
           supabase.from("scans").select("*").eq("id", scanA).maybeSingle(),
           supabase.from("scans").select("*").eq("id", scanB).maybeSingle(),
         ]);
-        if (!resA.data) logError("Scan A not found for comparison", { operation: "ScanCompare/loadData" });
-        if (!resB.data) logError("Scan B not found for comparison", { operation: "ScanCompare/loadData" });
-        setDataA(resA.data);
-        setDataB(resB.data);
+        if (resResultA.status === "rejected") {
+          logError(resResultA.reason, { operation: "ScanCompare/fetchScanA" });
+        }
+        if (resResultB.status === "rejected") {
+          logError(resResultB.reason, { operation: "ScanCompare/fetchScanB" });
+        }
+        const scanAData = resResultA.status === "fulfilled" ? resResultA.value.data : null;
+        const scanBData = resResultB.status === "fulfilled" ? resResultB.value.data : null;
+        if (!scanAData) logError("Scan A not found for comparison", { operation: "ScanCompare/loadData" });
+        if (!scanBData) logError("Scan B not found for comparison", { operation: "ScanCompare/loadData" });
+        setDataA(scanAData);
+        setDataB(scanBData);
 
         // Fetch AI analysis from latest reviews
-        const [revA, revB] = await Promise.all([
+        const [revResultA, revResultB] = await Promise.allSettled([
           supabase.from("scan_reviews").select("ai_analysis").eq("scan_id", scanA).order("reviewed_at", { ascending: false }).limit(1).maybeSingle(),
           supabase.from("scan_reviews").select("ai_analysis").eq("scan_id", scanB).order("reviewed_at", { ascending: false }).limit(1).maybeSingle(),
         ]);
-        if (revA.data?.ai_analysis) setDataA((prev: any) => ({ ...prev, aiAnalysis: revA.data.ai_analysis }));
-        if (revB.data?.ai_analysis) setDataB((prev: any) => ({ ...prev, aiAnalysis: revB.data.ai_analysis }));
+        if (revResultA.status === "rejected") {
+          logError(revResultA.reason, { operation: "ScanCompare/fetchReviewA" });
+        }
+        if (revResultB.status === "rejected") {
+          logError(revResultB.reason, { operation: "ScanCompare/fetchReviewB" });
+        }
+        const revAData = revResultA.status === "fulfilled" ? revResultA.value.data : null;
+        const revBData = revResultB.status === "fulfilled" ? revResultB.value.data : null;
+        if (revAData?.ai_analysis) setDataA((prev: any) => ({ ...prev, aiAnalysis: revAData.ai_analysis }));
+        if (revBData?.ai_analysis) setDataB((prev: any) => ({ ...prev, aiAnalysis: revBData.ai_analysis }));
       } catch (e) { logError(e, { operation: "ScanCompare/loadData" }); }
       finally { setLoading(false); }
     })();

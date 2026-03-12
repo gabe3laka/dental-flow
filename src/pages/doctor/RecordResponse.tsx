@@ -40,17 +40,27 @@ export default function RecordResponse() {
           return;
         }
 
-        const [patientRes, reviewRes] = await Promise.all([
+        const [patientResult, reviewResult] = await Promise.allSettled([
           supabase.from("patients").select("user_id").eq("id", scan.patient_id).maybeSingle(),
           supabase.from("scan_reviews").select("review_notes, ai_analysis").eq("scan_id", scanId).order("reviewed_at", { ascending: false }).limit(1),
         ]);
 
-        if (patientRes.data?.user_id) {
-          const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", patientRes.data.user_id).maybeSingle();
+        if (patientResult.status === "rejected") {
+          logError(patientResult.reason, { operation: "RecordResponse/fetchPatient", userId: user?.id });
+        }
+        if (reviewResult.status === "rejected") {
+          logError(reviewResult.reason, { operation: "RecordResponse/fetchReview", userId: user?.id });
+        }
+
+        const patientData = patientResult.status === "fulfilled" ? patientResult.value.data : null;
+        const reviewData = reviewResult.status === "fulfilled" ? reviewResult.value.data : null;
+
+        if (patientData?.user_id) {
+          const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", patientData.user_id).maybeSingle();
           setPatientName(profile?.full_name || "Patient");
         }
 
-        const review = reviewRes.data?.[0];
+        const review = reviewData?.[0];
         if (review?.ai_analysis && Array.isArray(review.ai_analysis)) {
           setAiSummary(review.ai_analysis.map((a: any) => `${a.id}: ${a.status || a.deviation || "OK"}`));
         } else {

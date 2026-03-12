@@ -44,7 +44,7 @@ export default function DoctorProfile() {
 
         if (!patient?.assigned_doctor_id) { setLoading(false); return; }
 
-        const [profileRes, slotsRes] = await Promise.all([
+        const [profileResult, slotsResult] = await Promise.allSettled([
           supabase
             .from("profiles")
             .select("full_name, specialty, bio, years_practice, rating, total_patients, avatar_url")
@@ -57,8 +57,15 @@ export default function DoctorProfile() {
             .order("day_of_week", { ascending: true }),
         ]);
 
-        setDoctor(profileRes.data);
-        setSlots((slotsRes.data as any[]) || []);
+        if (profileResult.status === "rejected") {
+          logError(profileResult.reason, { operation: "DoctorProfile/fetchProfile", userId: user?.id });
+        }
+        if (slotsResult.status === "rejected") {
+          logError(slotsResult.reason, { operation: "DoctorProfile/fetchSlots", userId: user?.id });
+        }
+
+        setDoctor(profileResult.status === "fulfilled" ? profileResult.value.data : null);
+        setSlots(slotsResult.status === "fulfilled" ? ((slotsResult.value.data as any[]) || []) : []);
       } catch (e) {
         logError(e, { operation: "DoctorProfile/loadData", userId: user?.id });
       } finally {

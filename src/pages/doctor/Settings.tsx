@@ -54,19 +54,39 @@ export default function DoctorSettings() {
     if (!user) return;
     (async () => {
       try {
-        const [profileRes, subRes, patientsRes, invitesRes, slotsRes] = await Promise.all([
+        const [profileResult, subResult, patientsResult, invitesResult, slotsResult] = await Promise.allSettled([
           supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle(),
           supabase.from("subscriptions").select("*").eq("doctor_id", user.id).maybeSingle(),
           supabase.from("patients").select("id", { count: "exact", head: true }).eq("assigned_doctor_id", user.id),
           supabase.from("team_invites").select("*").eq("practice_id", user.id).order("invited_at", { ascending: false }),
           supabase.from("doctor_availability" as any).select("*").eq("doctor_id", user.id).order("created_at", { ascending: true }),
         ]);
-        setProfile(profileRes.data);
-        setSubscription(subRes.data);
-        setPatientCount(patientsRes.count || 0);
-        setSpecialtyValue(profileRes.data?.specialty || "");
-        setTeamInvites(invitesRes.data || []);
-        setSlots((slotsRes.data as any[]) || []);
+        if (profileResult.status === "rejected") {
+          logError(profileResult.reason, { operation: "Settings/fetchProfile", userId: user?.id });
+        }
+        if (subResult.status === "rejected") {
+          logError(subResult.reason, { operation: "Settings/fetchSubscription", userId: user?.id });
+        }
+        if (patientsResult.status === "rejected") {
+          logError(patientsResult.reason, { operation: "Settings/fetchPatientCount", userId: user?.id });
+        }
+        if (invitesResult.status === "rejected") {
+          logError(invitesResult.reason, { operation: "Settings/fetchInvites", userId: user?.id });
+        }
+        if (slotsResult.status === "rejected") {
+          logError(slotsResult.reason, { operation: "Settings/fetchSlots", userId: user?.id });
+        }
+        const profileData = profileResult.status === "fulfilled" ? profileResult.value.data : null;
+        const subData = subResult.status === "fulfilled" ? subResult.value.data : null;
+        const patientsData = patientsResult.status === "fulfilled" ? patientsResult.value : null;
+        const invitesData = invitesResult.status === "fulfilled" ? invitesResult.value.data : null;
+        const slotsData = slotsResult.status === "fulfilled" ? slotsResult.value.data : null;
+        setProfile(profileData);
+        setSubscription(subData);
+        setPatientCount(patientsData?.count || 0);
+        setSpecialtyValue(profileData?.specialty || "");
+        setTeamInvites(invitesData || []);
+        setSlots((slotsData as any[]) || []);
       } catch (e) { logError(e, { operation: "Settings.loadData", userId: user?.id }); }
       finally { setLoading(false); }
     })();

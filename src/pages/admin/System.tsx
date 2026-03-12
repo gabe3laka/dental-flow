@@ -20,7 +20,7 @@ export default function AdminSystem() {
       try {
         const { data } = await supabase.from("feature_flags").select("*").order("flag_key");
         setFlags(data || []);
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "AdminSystem/loadData" }); }
       finally { setLoading(false); }
     })();
 
@@ -42,7 +42,7 @@ export default function AdminSystem() {
           }
         }
         setTableCounts(counts);
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "AdminSystem/loadData" }); }
       finally { setCountingTables(false); }
     })();
   }, []);

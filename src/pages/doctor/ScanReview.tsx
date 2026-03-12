@@ -62,24 +62,34 @@ export default function ScanReview() {
         }
         setScan(scanData as ScanData);
 
-        const [patientRes, reviewsRes] = await Promise.all([
+        const [patientResult, reviewsResult] = await Promise.allSettled([
           supabase.from("patients").select("user_id, treatment_category").eq("id", scanData.patient_id).maybeSingle(),
           supabase.from("scan_reviews").select("*").eq("scan_id", scanId).order("reviewed_at", { ascending: false }),
         ]);
 
-        setTreatmentCategory(patientRes.data?.treatment_category || null);
-        setReviews(reviewsRes.data || []);
+        if (patientResult.status === "rejected") {
+          logError(patientResult.reason, { operation: "ScanReview/fetchPatient", userId: user?.id });
+        }
+        if (reviewsResult.status === "rejected") {
+          logError(reviewsResult.reason, { operation: "ScanReview/fetchReviews", userId: user?.id });
+        }
 
-        const latestReview = reviewsRes.data?.[0];
+        const patientData = patientResult.status === "fulfilled" ? patientResult.value.data : null;
+        const reviewsData = reviewsResult.status === "fulfilled" ? reviewsResult.value.data : null;
+
+        setTreatmentCategory(patientData?.treatment_category || null);
+        setReviews(reviewsData || []);
+
+        const latestReview = reviewsData?.[0];
         if (latestReview?.ai_analysis && Array.isArray(latestReview.ai_analysis)) {
           setAiAnalysis(latestReview.ai_analysis);
         }
 
-        if (patientRes.data?.user_id) {
+        if (patientData?.user_id) {
           const { data: profile } = await supabase
             .from("profiles")
             .select("full_name")
-            .eq("user_id", patientRes.data.user_id)
+            .eq("user_id", patientData.user_id)
             .maybeSingle();
           setPatientName(profile?.full_name || "Patient");
         }

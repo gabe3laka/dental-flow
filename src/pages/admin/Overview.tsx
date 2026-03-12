@@ -71,7 +71,7 @@ export default function AdminOverview() {
         });
         feed.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
         setActivityFeed(feed.slice(0, 10));
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "AdminOverview/loadData" }); }
       finally { setLoading(false); }
     })();
   }, []);

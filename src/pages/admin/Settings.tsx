@@ -56,7 +56,7 @@ export default function AdminSettings() {
           setMaintenanceMode(flagsData[0].enabled);
           setMaintenanceFlagId(flagsData[0].id);
         }
-      } catch (e) { console.error(e); }
+      } catch (e) { logError(e, { operation: "AdminSettings/loadData" }); }
       finally { setLoading(false); }
     })();
   }, []);
