@@ -4,13 +4,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useDoctorPatients } from "@/hooks/use-doctor-patients";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Brain, Megaphone, X } from "lucide-react";
+import { Brain, Megaphone } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 const tabs = [
@@ -186,7 +187,7 @@ export default function DoctorOverview() {
   return (
     <div className="p-4 md:p-8">
       <div className="mb-8">
-        <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE OVERVIEW</span>
+        <span className="mono-label text-muted-foreground">PRACTICE OVERVIEW</span>
         <h1 className="font-display text-2xl md:text-3xl font-semibold mt-1">
           Welcome back, Dr. {firstName}
         </h1>
@@ -194,10 +195,10 @@ export default function DoctorOverview() {
 
       {/* AI Insights Card */}
       {!loading && (
-        <div className="rounded-card p-5 mb-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)", borderLeft: "3px solid hsl(228 100% 62%)" }}>
+        <div className="rounded-card p-5 mb-6 bg-card border border-border border-l-[3px] border-l-primary">
           <div className="flex items-center gap-2 mb-3">
-            <Brain className="w-4 h-4" style={{ color: "hsl(228 100% 62%)" }} />
-            <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>AI INSIGHTS</span>
+            <Brain className="w-4 h-4 text-primary" />
+            <span className="mono-label text-primary">AI INSIGHTS</span>
           </div>
           <ul className="space-y-2">
             {[
@@ -205,8 +206,8 @@ export default function DoctorOverview() {
               patients.length > 3 ? `${Math.max(1, Math.floor(patients.length * 0.2))} patients haven't scanned in over 2 weeks.` : "Encourage all patients to maintain scan streaks.",
               metrics.alerts > 0 ? `${metrics.alerts} patients need attention — review flagged scans today.` : "All patients are on track. Great work!",
             ].map((insight, i) => (
-              <li key={i} className="text-sm flex items-start gap-2" style={{ color: "hsl(38 23% 90% / 0.6)" }}>
-                <span style={{ color: "hsl(228 100% 62%)" }} className="mt-0.5">•</span>
+              <li key={i} className="text-sm flex items-start gap-2 text-foreground/60">
+                <span className="text-primary mt-0.5">•</span>
                 {insight}
               </li>
             ))}
@@ -220,11 +221,11 @@ export default function DoctorOverview() {
           [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24 rounded-card" />)
         ) : (
           metricsDisplay.map((m) => (
-            <div key={m.label} className="rounded-card p-4 md:p-5" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{m.label}</span>
+            <div key={m.label} className="rounded-card p-4 md:p-5 bg-card border border-border">
+              <span className="mono-label text-muted-foreground">{m.label}</span>
               <p className="font-display text-2xl md:text-3xl font-bold mt-2">{m.value}</p>
               {"sub" in m && m.sub && (
-                <span className="mono-label mt-1 block" style={{ color: "hsl(142 71% 45%)" }}>{m.sub}</span>
+                <span className="mono-label mt-1 block text-status-success">{m.sub}</span>
               )}
             </div>
           ))
@@ -232,48 +233,45 @@ export default function DoctorOverview() {
       </div>
 
       {/* Broadcast modal */}
-      {broadcastOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="rounded-card p-6 max-w-md w-full mx-4" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <span className="mono-label">BROADCAST MESSAGE</span>
-              <button onClick={() => setBroadcastOpen(false)}><X className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.45)" }} /></button>
-            </div>
-            <Textarea value={broadcastMsg} onChange={(e) => setBroadcastMsg(e.target.value)} placeholder="Type your message to all patients..." className="mb-4" style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)" }} />
-            <Button onClick={handleBroadcast} disabled={sending || !broadcastMsg.trim()} className="w-full rounded-pill">
-              {sending ? "Sending..." : `Send to ${patients.length} patients`}
-            </Button>
-          </div>
-        </div>
-      )}
+      <Dialog open={broadcastOpen} onOpenChange={setBroadcastOpen}>
+        <DialogContent className="bg-card border-border">
+          <DialogHeader>
+            <DialogTitle className="mono-label text-foreground">BROADCAST MESSAGE</DialogTitle>
+          </DialogHeader>
+          <Textarea value={broadcastMsg} onChange={(e) => setBroadcastMsg(e.target.value)} placeholder="Type your message to all patients..." className="mb-4 bg-background border-border" />
+          <Button onClick={handleBroadcast} disabled={sending || !broadcastMsg.trim()} className="w-full rounded-pill">
+            {sending ? "Sending..." : `Send to ${patients.length} patients`}
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       {/* Patient filters */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-4">
         <div className="overflow-x-auto w-full sm:w-auto scrollbar-hide">
           <PillNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
         </div>
-        <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs" style={{ background: "hsl(218 26% 11%)", borderColor: "hsl(0 0% 100% / 0.07)" }} />
-        <Button onClick={() => setBroadcastOpen(true)} variant="outline" className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] gap-1.5">
+        <Input placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-xs bg-card border-border" />
+        <Button onClick={() => setBroadcastOpen(true)} variant="outline" className="rounded-pill mono-label gap-1.5">
           <Megaphone className="w-3.5 h-3.5" /> Broadcast
         </Button>
       </div>
 
       {/* Desktop table */}
-      <div className="rounded-card overflow-hidden hidden md:block" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 p-4" style={{ borderBottom: "1px solid hsl(0 0% 100% / 0.07)" }}>
+      <div className="rounded-card overflow-hidden hidden md:block bg-card border border-border">
+        <div className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 p-4 border-b border-border">
           {["PATIENT", "TYPE", "PROGRESS", "LAST SCAN", "STATUS"].map((h) => (
-            <span key={h} className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{h}</span>
+            <span key={h} className="mono-label text-muted-foreground">{h}</span>
           ))}
         </div>
         {loading ? (
           [1, 2, 3].map((i) => (
-            <div key={i} className="p-4" style={{ borderBottom: "1px solid hsl(0 0% 100% / 0.07)" }}>
+            <div key={i} className="p-4 border-b border-border">
               <Skeleton className="h-8" />
             </div>
           ))
         ) : filteredPatients.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.45)" }}>No patients found.</p>
+            <p className="text-sm text-muted-foreground">No patients found.</p>
           </div>
         ) : (
           filteredPatients.map((p) => (
@@ -283,26 +281,25 @@ export default function DoctorOverview() {
                 if (p.latestScanId) navigate(`/doctor/scans/${p.latestScanId}`);
                 else navigate(`/doctor/patients/${p.patientId}`);
               }}
-              className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 p-4 hover:bg-white/[0.02] transition cursor-pointer items-center"
-              style={{ borderBottom: "1px solid hsl(0 0% 100% / 0.07)" }}
+              className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] gap-4 p-4 hover:bg-white/[0.02] transition cursor-pointer items-center border-b border-border"
             >
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px]" style={{ background: "hsl(0 0% 100% / 0.05)", color: "hsl(38 23% 90% / 0.45)" }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center mono-label bg-muted text-muted-foreground">
                   {p.name.split(" ").map((n) => n[0]).join("")}
                 </div>
                 <span className="text-sm font-medium">{p.name}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm" style={{ color: "hsl(38 23% 90% / 0.6)" }}>{p.type}</span>
-                {p.category && <span className="mono-label px-2 py-0.5 rounded-pill" style={{ background: "hsl(228 100% 62% / 0.1)", color: "hsl(228 100% 62%)" }}>{p.category.toUpperCase()}</span>}
+                <span className="text-sm text-foreground/60">{p.type}</span>
+                {p.category && <span className="mono-label px-2 py-0.5 rounded-pill bg-primary/10 text-primary">{p.category.toUpperCase()}</span>}
               </div>
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "hsl(0 0% 100% / 0.06)" }}>
-                  <div className="h-full rounded-full" style={{ width: `${p.progress}%`, background: "hsl(228 100% 62%)" }} />
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
                 </div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{p.progress}%</span>
+                <span className="mono-label text-muted-foreground">{p.progress}%</span>
               </div>
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{p.lastScan}</span>
+              <span className="mono-label text-muted-foreground">{p.lastScan}</span>
               <StatusBadge variant={p.status} />
             </div>
           ))
@@ -315,7 +312,7 @@ export default function DoctorOverview() {
           [1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-card" />)
         ) : filteredPatients.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.45)" }}>No patients found.</p>
+            <p className="text-sm text-muted-foreground">No patients found.</p>
           </div>
         ) : (
           filteredPatients.map((p) => (
@@ -325,12 +322,11 @@ export default function DoctorOverview() {
                 if (p.latestScanId) navigate(`/doctor/scans/${p.latestScanId}`);
                 else navigate(`/doctor/patients/${p.patientId}`);
               }}
-              className="rounded-card p-4 cursor-pointer hover:bg-white/[0.02] transition"
-              style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}
+              className="rounded-card p-4 cursor-pointer hover:bg-white/[0.02] transition bg-card border border-border"
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center font-mono text-[10px]" style={{ background: "hsl(0 0% 100% / 0.05)", color: "hsl(38 23% 90% / 0.45)" }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center mono-label bg-muted text-muted-foreground">
                     {p.name.split(" ").map((n) => n[0]).join("")}
                   </div>
                   <span className="text-sm font-medium">{p.name}</span>
@@ -338,14 +334,14 @@ export default function DoctorOverview() {
                 <StatusBadge variant={p.status} />
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{p.type}</span>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{p.lastScan}</span>
+                <span className="mono-label text-muted-foreground">{p.type}</span>
+                <span className="mono-label text-muted-foreground">{p.lastScan}</span>
               </div>
               <div className="flex items-center gap-2 mt-2">
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "hsl(0 0% 100% / 0.06)" }}>
-                  <div className="h-full rounded-full" style={{ width: `${p.progress}%`, background: "hsl(228 100% 62%)" }} />
+                <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-muted">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${p.progress}%` }} />
                 </div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{p.progress}%</span>
+                <span className="mono-label text-muted-foreground">{p.progress}%</span>
               </div>
             </div>
           ))
