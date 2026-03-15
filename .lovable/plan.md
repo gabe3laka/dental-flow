@@ -1,210 +1,146 @@
 
 
-# Fix 10 Known Gaps / Unimplemented Features
+# Arcline Complete Redesign — Batch 2: Doctor Portal + Landing + 3D Teeth
 
-## Overview
-
-This plan addresses every unimplemented feature identified in the audit. Each fix is scoped to be functional and production-appropriate.
+This is a large scope covering Phase B (3D Teeth), Phase D (Doctor Portal inline style cleanup), Phase E (Landing improvements), and Phase F (Accessibility). Given Lovable's per-message limits, this will be broken into sub-batches.
 
 ---
 
-## 1. Notification Toggles -- Persist to Database
+## Sub-Batch 2A: Doctor Portal Inline HSL Refactor + Dialog Standardization (This Session)
 
-**Problem:** Patient Profile toggles (`Switch`) use `defaultChecked` with no database storage. Changes are lost on refresh.
+The doctor portal has **hundreds** of inline `style={{ background: "hsl(218 26% 11%)", ... }}` across 6 pages + the layout. These should all use Tailwind's dark theme CSS variables that already exist (`bg-card`, `border-border`, `text-muted-foreground`, etc.).
 
-**Fix:**
-- Create a new `user_preferences` table with columns: `id`, `user_id`, `pref_key` (text), `pref_value` (boolean), `updated_at`
-- RLS: users can read/write their own rows, admins can read all
-- On Profile mount, fetch preferences and set toggle state
-- On toggle change, upsert into `user_preferences`
+### Files & Changes
 
-**Files:** Migration (new table), `src/pages/patient/Profile.tsx`
+#### 1. `src/layouts/DoctorLayout.tsx`
+- Replace `style={{ background: "hsl(216 32% 7%)", color: "hsl(38 23% 90%)" }}` on root div with `className="bg-background text-foreground"`
+- Replace sidebar `style={{ background: "hsl(218 26% 11%)" }}` with `className="bg-card"`
+- Replace sidebar border `style={{ borderRight: "1px solid hsl(0 0% 100% / 0.06)" }}` with `className="border-r border-border"`
+- Replace nav item inline styles with Tailwind classes using existing theme tokens
+- Replace `onMouseEnter`/`onMouseLeave` on sign-out button with `hover:bg-muted`
+- Fix email text size from `text-[9px]` to `mono-label`
 
----
+#### 2. `src/pages/doctor/Overview.tsx`
+- Replace all `style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}` → `className="bg-card border border-border"`
+- Replace `style={{ color: "hsl(38 23% 90% / 0.45)" }}` → `className="text-muted-foreground"`
+- Replace `style={{ color: "hsl(228 100% 62%)" }}` → `className="text-primary"`
+- Replace `style={{ color: "hsl(142 71% 45%)" }}` → `className="text-status-success"`
+- Replace `style={{ color: "hsl(38 23% 90% / 0.6)" }}` → `className="text-foreground/60"`
+- **Replace broadcast modal** (manual `fixed inset-0` overlay div) with `Dialog` component from `@/components/ui/dialog`
+- Replace search input inline styles with `className="bg-background border-border"`
+- Replace avatar inline styles with `className="bg-muted text-muted-foreground"`
+- Replace progress bar inline styles with `className="bg-primary"` and `className="bg-muted"`
+- Fix `text-[10px]` on avatar to `mono-label`
 
-## 2. Automations Execution Engine
+#### 3. `src/pages/doctor/ScanReview.tsx`
+- Replace root `style={{ background: "hsl(216 32% 7%)" }}` → `className="bg-background"`
+- Replace card `style={{ background: "hsl(218 26% 11%)" }}` → `className="bg-card border border-border"`
+- Replace all floating pill inline styles with Tailwind classes
+- Replace stat card `style={{ background: "hsl(220 24% 16%)" }}` → `className="bg-muted"`
+- Replace quality color variables with Tailwind conditional classes (`text-status-success`, `text-status-warning`, `text-status-danger`)
+- Replace detection tag inline colors with Tailwind
+- Replace tab content inline styles (backgrounds, colors) with theme tokens
+- Replace action button inline styles with proper Button variants
+- Fix `text-[10px]` across buttons to `mono-label`
 
-**Problem:** Automations are stored in the `automations` table but never run. No cron job or Edge Function exists.
+#### 4. `src/pages/doctor/Analytics.tsx`
+- Replace `chartCardStyle` object with `className="bg-card border border-border"`
+- Replace axis style inline font with Tailwind mono classes
+- Replace all label `style={{ color: "..." }}` with `className="text-muted-foreground"`
+- Replace shimmer placeholder inline styles with Tailwind `bg-primary/10`
 
-**Fix:**
-- Create Edge Function `run-automations/index.ts` that:
-  1. Fetches all enabled automations
-  2. For each `no_scan` type: finds patients of that doctor who haven't submitted a scan in `trigger_days` days
-  3. For each `low_compliance` type: finds patients with compliance_streak below a threshold
-  4. For each `recurring` type: checks if `trigger_days` have passed since last automated message
-  5. Inserts messages into the `messages` table using the `message_template` (replacing `{patient_name}` and `{days}` placeholders)
-- Register in `supabase/config.toml` with `verify_jwt = false`
-- Set up a `pg_cron` job to call this function daily via SQL insert (not migration)
+#### 5. `src/pages/doctor/Consults.tsx`
+- Replace all card inline styles with `className="bg-card border border-border"`
+- Replace all text color inline styles with Tailwind classes
+- Replace status badge inline styles with Tailwind conditional classes
+- Fix `text-[9px]` on button to `mono-label`
 
-**Files:** `supabase/functions/run-automations/index.ts`, `supabase/config.toml`
+#### 6. `src/pages/doctor/Automations.tsx`
+- Replace all card inline styles with `className="bg-card border border-border"`
+- Replace `onMouseEnter`/`onMouseLeave` on template cards with `hover:border-primary/30`
+- Replace all text color inline styles with Tailwind classes
+- Replace input inline styles with `className="bg-background border-border"`
+- Replace button inline `style={{ background: "hsl(228 100% 62%)" }}` with `className="bg-primary text-primary-foreground"`
 
----
+#### 7. `src/pages/doctor/Settings.tsx`
+- Replace all ~20 card `style={{ background: "hsl(218 26% 11%)", border: "..." }}` with `className="bg-card border border-border"`
+- Replace all `style={{ color: "hsl(38 23% 90% / 0.45)" }}` with `className="text-muted-foreground"`
+- Replace specialty pill buttons inline styles with Tailwind conditional classes
+- Replace availability slot inline styles with Tailwind
+- Replace team invite inline styles with Tailwind
+- Replace subscription progress bar inline styles with Tailwind
+- Replace danger zone border color with `border-destructive/30`
+- **Replace deactivation modal** (manual overlay div) with `Dialog` component
+- Replace input inline styles with `className="bg-background border-border"`
+- Fix `text-[9px]` font sizes to `mono-label`
 
-## 3. Team Invite Acceptance Flow
+### CSS Variable Additions
+Add to `.dark` in `src/index.css`:
+- `--bg-elevated: 220 24% 16%;` (for stat cards and input backgrounds — maps to current `hsl(220 24% 16%)`)
 
-**Problem:** Team invites stay PENDING forever. No mechanism for invited users to accept.
+Add to `tailwind.config.ts`:
+- `elevated: "hsl(var(--bg-elevated))"` under `colors`
 
-**Fix:**
-- After signup, check if the new user's email matches any `team_invites` record
-- Create Edge Function `accept-team-invite/index.ts` that:
-  1. Takes the authenticated user's email
-  2. Looks up pending invites matching that email
-  3. Updates `accepted_at` to `now()`
-  4. Optionally links the user to the practice
-- Call this function from the Login page after successful sign-in
-- Add a visual banner on doctor Settings when invites are accepted
-
-**Files:** `supabase/functions/accept-team-invite/index.ts`, `supabase/config.toml`, `src/pages/Login.tsx`
-
----
-
-## 4. Deactivate Practice Backend Logic
-
-**Problem:** The "Deactivate Practice" button in doctor Settings has no `onClick` handler.
-
-**Fix:**
-- Add confirmation dialog (type "DEACTIVATE" to confirm)
-- On confirm: update `profiles.suspended = true` and `profiles.suspension_reason = 'self_deactivated'` for the doctor
-- Show a toast and sign the user out
-- On login, if `suspended === true`, show a banner: "Your practice has been deactivated. Contact support to reactivate."
-
-**Files:** `src/pages/doctor/Settings.tsx`, `src/components/ProtectedRoute.tsx`
-
----
-
-## 5. Database-Driven Available Slots
-
-**Problem:** Doctor Profile page uses hardcoded `SLOT_PILLS` array.
-
-**Fix:**
-- Create `doctor_availability` table: `id`, `doctor_id` (uuid), `day_of_week` (text), `start_time` (text), `is_active` (boolean), `created_at`
-- RLS: doctors manage their own, patients can read their assigned doctor's slots
-- Doctor Settings: add an "Availability" card where doctors can add/remove/toggle time slots
-- Patient DoctorProfile: fetch from `doctor_availability` instead of hardcoded array
-
-**Files:** Migration (new table), `src/pages/doctor/Settings.tsx`, `src/pages/patient/DoctorProfile.tsx`
-
----
-
-## 6. Billing Tab -- Stripe Integration Placeholder with Real Data
-
-**Problem:** Patient Detail billing tab shows only a static placeholder.
-
-**Fix:**
-- Show the patient's assigned doctor's subscription tier and status
-- Display a treatment cost estimate section (editable by doctor) using a new `estimated_cost` column on `patients` table
-- Show payment status: "Managed by your practice" with practice name
-- Still note that full Stripe checkout is coming soon, but make the tab informative
-
-**Files:** Migration (add `estimated_cost` to `patients`), `src/pages/doctor/PatientDetail.tsx`
+This gives us `bg-elevated` as a Tailwind class for the slightly-lighter dark surfaces.
 
 ---
 
-## 7. Manage Billing -- Stripe Portal Link
+## Sub-Batch 2B: Landing Page + "How It Works" Section (Next Session)
 
-**Problem:** "Manage Billing" button just shows a "coming soon" toast.
+- Add "How It Works" 3-step section between Features and Pricing
+- Steps: Scan → AI Analysis → Doctor Review with connecting line
+- Clean up phone mockup font sizes (currently 7-8px, increase to 9-10px minimum)
+- Add mobile brand context on auth pages (show ARCLINE label above form on mobile)
 
-**Fix:**
-- Create Edge Function `create-billing-portal/index.ts` that:
-  1. Takes the doctor's `stripe_customer_id` from `subscriptions`
-  2. If it exists, creates a Stripe Billing Portal session and returns the URL
-  3. If no Stripe customer, returns an error prompting setup
-- On click: call the function and redirect to the Stripe portal URL
-- Fallback: if no Stripe secret is configured, keep the "coming soon" toast but with a clearer message
+## Sub-Batch 2C: 3D Teeth Visualization (Requires Spline URL)
 
-**Files:** `supabase/functions/create-billing-portal/index.ts`, `supabase/config.toml`, `src/pages/doctor/Settings.tsx`
+The 3D teeth component requires a Spline scene file. Two options:
+1. **With Spline**: Install `@splinetool/react-spline`, create wrapper component, integrate scene URL
+2. **Without Spline**: Create an enhanced SVG/CSS 3D-like visualization with perspective transforms and gradients as a placeholder
 
-*Note: This requires a `STRIPE_SECRET_KEY` secret. The plan will prompt you to add it if you want full Stripe integration, otherwise the button will show a more informative "Connect Stripe to manage billing" message.*
+The user will need to provide a Spline scene URL or confirm the placeholder approach.
 
----
+## Sub-Batch 2D: Accessibility Polish (Final Pass)
 
-## 8. Device Pairing -- Generate Unique Code
-
-**Problem:** Pairing modal always shows hardcoded `ARC-7F2K-9M`.
-
-**Fix:**
-- Generate a random pairing code on modal open: `ARC-XXXX-XX` format using `crypto.getRandomValues()`
-- Store the code in `patients` table (add `pairing_code` column, nullable text)
-- On "Done" click: save the code to the patient record and set `device_linked = true`
-- Display the stored code if device is already linked; allow "Unlink" to clear it
-
-**Files:** Migration (add `pairing_code` to `patients`), `src/pages/patient/Profile.tsx`
+- Ensure 44px touch targets on nav items, toggles
+- Add ARIA labels to icon-only buttons (close, attachment, camera)
+- Add visible focus rings
+- Standardize loading skeletons
 
 ---
 
-## 9. Share Progress -- Generate Real Shareable Link
+## Technical Approach
 
-**Problem:** Share Progress button only shows a toast, does not create an actual link.
+**Inline HSL → Tailwind mapping** (the core pattern for ~200 replacements):
+```
+"hsl(218 26% 11%)"     → bg-card
+"hsl(216 32% 7%)"      → bg-background
+"hsl(220 24% 16%)"     → bg-elevated (new) or bg-muted
+"hsl(0 0% 100% / 0.07)" → border-border
+"hsl(38 23% 90% / 0.45)" → text-muted-foreground
+"hsl(38 23% 90%)"      → text-foreground
+"hsl(228 100% 62%)"    → text-primary or bg-primary
+"hsl(142 71% 45%)"     → text-status-success
+"hsl(0 84% 60%)"       → text-destructive
+"hsl(43 50% 54%)"      → text-gold
+"hsl(0 0% 100% / 0.05)" → bg-muted or bg-white/5
+```
 
-**Fix:**
-- Create a `progress_shares` table: `id`, `patient_id`, `share_token` (text, unique), `created_at`, `expires_at` (default 7 days)
-- RLS: patients can insert their own, anyone can read by token
-- On "Share Progress" click: insert a row, generate a URL like `/shared/progress/{token}`, copy to clipboard
-- Create a new public page `/shared/progress/:token` that shows read-only progress data (ToothArch, quality, milestones)
+**Dialog migration**: Import `Dialog, DialogContent, DialogHeader, DialogTitle` from `@/components/ui/dialog`. Replace manual overlay div with controlled Dialog. Preserves exact same content/functionality.
 
-**Files:** Migration (new table), `src/pages/patient/Progress.tsx`, new file `src/pages/public/SharedProgress.tsx`, `src/App.tsx` (add route)
+## Files Modified (Sub-Batch 2A)
 
----
+| File | Estimated Inline Style Removals |
+|------|------|
+| `src/index.css` | Add `--bg-elevated` variable |
+| `tailwind.config.ts` | Add `elevated` color token |
+| `src/layouts/DoctorLayout.tsx` | ~15 inline styles → Tailwind |
+| `src/pages/doctor/Overview.tsx` | ~35 inline styles → Tailwind + Dialog migration |
+| `src/pages/doctor/ScanReview.tsx` | ~40 inline styles → Tailwind |
+| `src/pages/doctor/Analytics.tsx` | ~15 inline styles → Tailwind |
+| `src/pages/doctor/Consults.tsx` | ~12 inline styles → Tailwind |
+| `src/pages/doctor/Automations.tsx` | ~18 inline styles → Tailwind |
+| `src/pages/doctor/Settings.tsx` | ~50 inline styles → Tailwind + Dialog migration |
 
-## 10. Scan Compare URL Fix
-
-**Problem:** PatientDetail navigates to `/doctor/scans/compare?ids=id1,id2` but ScanCompare reads `?a=` and `?b=`.
-
-**Fix:**
-- Update `ScanCompare` to also parse the `ids` parameter: split by comma, assign first to `scanA` and second to `scanB`
-- Keep backward compatibility with `?a=` and `?b=` format
-- This is a one-line logic fix
-
-**Files:** `src/pages/doctor/ScanCompare.tsx`
-
----
-
-## Implementation Order
-
-| Priority | Item | Complexity |
-|----------|------|------------|
-| 1 | #10 Scan Compare URL fix | Trivial |
-| 2 | #1 Notification preferences | Low |
-| 3 | #8 Device pairing code | Low |
-| 4 | #9 Share Progress link | Medium |
-| 5 | #4 Deactivate Practice | Low |
-| 6 | #5 Available Slots | Medium |
-| 7 | #6 Billing tab | Low |
-| 8 | #3 Team invite acceptance | Medium |
-| 9 | #2 Automation engine | High |
-| 10 | #7 Stripe billing portal | Medium (requires secret) |
-
-## Database Changes Summary
-
-| Change | Type |
-|--------|------|
-| `user_preferences` table | New table |
-| `doctor_availability` table | New table |
-| `progress_shares` table | New table |
-| `patients.pairing_code` column | Add column |
-| `patients.estimated_cost` column | Add column |
-
-## New Files
-
-| File | Purpose |
-|------|---------|
-| `supabase/functions/run-automations/index.ts` | Cron-driven automation execution |
-| `supabase/functions/accept-team-invite/index.ts` | Team invite acceptance |
-| `supabase/functions/create-billing-portal/index.ts` | Stripe portal session |
-| `src/pages/public/SharedProgress.tsx` | Public progress sharing page |
-
-## Modified Files
-
-| File | Changes |
-|------|---------|
-| `src/pages/doctor/ScanCompare.tsx` | Parse `ids` param |
-| `src/pages/patient/Profile.tsx` | Persist toggles, dynamic pairing code |
-| `src/pages/patient/Progress.tsx` | Real share link generation |
-| `src/pages/patient/DoctorProfile.tsx` | Fetch slots from DB |
-| `src/pages/doctor/Settings.tsx` | Deactivate logic, availability editor, Stripe portal |
-| `src/pages/doctor/PatientDetail.tsx` | Billing tab with real data |
-| `src/pages/Login.tsx` | Call accept-team-invite after login |
-| `src/components/ProtectedRoute.tsx` | Suspended account check |
-| `src/App.tsx` | Add shared progress route |
-| `supabase/config.toml` | Register 3 new edge functions |
+Total: ~200 inline style removals across 9 files.
 
