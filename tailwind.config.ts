@@ -68,6 +68,7 @@ export default {
         "brand-blue": "hsl(var(--brand-blue))",
         lavender: "hsl(var(--lavender))",
         "pink-soft": "hsl(var(--pink-soft))",
+        elevated: "hsl(var(--elevated))",
         status: {
           success: "hsl(var(--status-success))",
           warning: "hsl(var(--status-warning))",

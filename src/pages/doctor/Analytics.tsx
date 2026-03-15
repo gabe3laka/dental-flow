@@ -51,12 +51,7 @@ export default function Analytics() {
     ? Math.round(((data[data.length - 1].scans_reviewed || 0) / Math.max(data[data.length - 1].active_patients || 1, 1)) * 100)
     : 0;
 
-  const axisStyle = { fontFamily: "IBM Plex Mono", fontSize: 9, fill: "hsl(38 23% 90% / 0.3)" };
-
-  const chartCardStyle = {
-    background: "hsl(218 26% 11%)",
-    border: "1px solid hsl(0 0% 100% / 0.07)",
-  };
+  const axisStyle = { fontFamily: "IBM Plex Mono", fontSize: 9, fill: "hsl(var(--muted-foreground))" };
 
   if (loading) {
     return (
@@ -73,17 +68,14 @@ export default function Analytics() {
     return (
       <div className="p-4 md:p-8">
         <div className="mb-8">
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE ANALYTICS</span>
+          <span className="mono-label text-muted-foreground">PRACTICE ANALYTICS</span>
           <h1 className="font-display text-2xl md:text-3xl font-semibold mt-1">Performance</h1>
         </div>
 
         {/* Info banner */}
-        <div
-          className="rounded-md p-4 mb-8 flex items-start gap-3"
-          style={{ background: "hsl(228 100% 62% / 0.06)", border: "1px solid hsl(228 100% 62% / 0.15)" }}
-        >
-          <Info className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "hsl(228 100% 62% / 0.6)" }} />
-          <p className="text-[13px]" style={{ color: "hsl(38 23% 90% / 0.6)" }}>
+        <div className="rounded-md p-4 mb-8 flex items-start gap-3 bg-primary/[0.06] border border-primary/15">
+          <Info className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary/60" />
+          <p className="text-[13px] text-foreground/60">
             Charts will populate once you have patient data. In the meantime, here's a preview of what you'll see.
           </p>
         </div>
@@ -96,36 +88,26 @@ export default function Analytics() {
             { title: "ACTIVE PATIENTS", heights: [50, 55, 60, 58, 70, 75] },
             { title: "PATIENT COMPLIANCE RATE", heights: [] },
           ].map((card, ci) => (
-            <div
-              key={ci}
-              className="rounded-card p-4 md:p-6"
-              style={chartCardStyle}
-            >
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{card.title}</span>
+            <div key={ci} className="rounded-card p-4 md:p-6 bg-card border border-border">
+              <span className="mono-label text-muted-foreground">{card.title}</span>
               {card.heights.length > 0 ? (
                 <div className="flex items-end gap-2 mt-6 h-24">
                   {card.heights.map((h, i) => (
                     <div
                       key={i}
-                      className="flex-1 rounded-sm animate-pulse"
-                      style={{
-                        height: h,
-                        background: "hsl(228 100% 62% / 0.08)",
-                      }}
+                      className="flex-1 rounded-sm animate-pulse bg-primary/[0.08]"
+                      style={{ height: h }}
                     />
                   ))}
                 </div>
               ) : (
                 <div className="flex items-center justify-center mt-6 h-24">
-                  <div
-                    className="w-20 h-20 rounded-full animate-pulse"
-                    style={{ border: "6px solid hsl(228 100% 62% / 0.1)", borderTopColor: "hsl(228 100% 62% / 0.3)" }}
-                  />
+                  <div className="w-20 h-20 rounded-full animate-pulse border-[6px] border-primary/10 border-t-primary/30" />
                 </div>
               )}
               <div className="flex gap-4 mt-4">
                 {["M", "T", "W", "T", "F", "S"].slice(0, card.heights.length || 4).map((d, i) => (
-                  <span key={i} className="flex-1 text-center mono-label" style={{ color: "hsl(38 23% 90% / 0.2)", fontSize: 8 }}>{d}</span>
+                  <span key={i} className="flex-1 text-center mono-label text-muted-foreground/50" style={{ fontSize: 8 }}>{d}</span>
                 ))}
               </div>
             </div>
@@ -135,13 +117,13 @@ export default function Analytics() {
     );
   }
 
-  const radialData = [{ name: "compliance", value: latestCompliance, fill: "hsl(228 100% 62%)" }];
+  const radialData = [{ name: "compliance", value: latestCompliance, fill: "hsl(var(--primary))" }];
 
   return (
     <div className="p-4 md:p-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
         <div>
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE ANALYTICS</span>
+          <span className="mono-label text-muted-foreground">PRACTICE ANALYTICS</span>
           <h1 className="font-display text-2xl md:text-3xl font-semibold mt-1">Performance</h1>
         </div>
         <PillNav tabs={rangeTabs} activeTab={range} onTabChange={setRange} />
@@ -149,59 +131,59 @@ export default function Analytics() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Scans Reviewed */}
-        <div className="rounded-card p-4 md:p-6" style={chartCardStyle}>
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SCANS REVIEWED</span>
+        <div className="rounded-card p-4 md:p-6 bg-card border border-border">
+          <span className="mono-label text-muted-foreground">SCANS REVIEWED</span>
           <div className="h-48 mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data}>
                 <defs>
                   <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(228 100% 62%)" stopOpacity={0.3} />
-                    <stop offset="100%" stopColor="hsl(228 100% 62%)" stopOpacity={0} />
+                    <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={(v) => format(new Date(v), "dd")} />
                 <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
                 <Tooltip />
-                <Area type="monotone" dataKey="scans_reviewed" stroke="hsl(228 100% 62%)" fill="url(#blueGrad)" strokeWidth={2} />
+                <Area type="monotone" dataKey="scans_reviewed" stroke="hsl(var(--primary))" fill="url(#blueGrad)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Chair Time Saved */}
-        <div className="rounded-card p-4 md:p-6" style={chartCardStyle}>
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>CHAIR TIME SAVED — EST.</span>
+        <div className="rounded-card p-4 md:p-6 bg-card border border-border">
+          <span className="mono-label text-muted-foreground">CHAIR TIME SAVED — EST.</span>
           <p className="font-display text-3xl md:text-4xl font-bold mt-2 mb-1">{totalVisitsSaved}</p>
-          <span className="mono-label" style={{ color: "hsl(228 100% 62% / 0.6)" }}>~50% REDUCTION</span>
+          <span className="mono-label text-primary/60">~50% REDUCTION</span>
           <div className="h-32 mt-2">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data}>
                 <XAxis dataKey="date" tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={(v) => format(new Date(v), "dd")} />
                 <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
-                <Bar dataKey="visits_avoided" fill="hsl(228 100% 62%)" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="visits_avoided" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Active Patients */}
-        <div className="rounded-card p-4 md:p-6" style={chartCardStyle}>
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>ACTIVE PATIENTS</span>
+        <div className="rounded-card p-4 md:p-6 bg-card border border-border">
+          <span className="mono-label text-muted-foreground">ACTIVE PATIENTS</span>
           <div className="h-48 mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={data}>
                 <XAxis dataKey="date" tick={axisStyle} axisLine={false} tickLine={false} tickFormatter={(v) => format(new Date(v), "dd")} />
                 <YAxis tick={axisStyle} axisLine={false} tickLine={false} />
-                <Line type="monotone" dataKey="active_patients" stroke="hsl(228 100% 62%)" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="active_patients" stroke="hsl(var(--primary))" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </div>
 
         {/* Compliance Rate */}
-        <div className="rounded-card p-4 md:p-6 flex flex-col items-center justify-center" style={chartCardStyle}>
-          <span className="mono-label mb-4" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PATIENT COMPLIANCE RATE</span>
+        <div className="rounded-card p-4 md:p-6 flex flex-col items-center justify-center bg-card border border-border">
+          <span className="mono-label mb-4 text-muted-foreground">PATIENT COMPLIANCE RATE</span>
           <div className="relative w-40 h-40">
             <ResponsiveContainer width="100%" height="100%">
               <RadialBarChart
@@ -212,7 +194,7 @@ export default function Analytics() {
               </RadialBarChart>
             </ResponsiveContainer>
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="font-display text-3xl font-bold text-white">{latestCompliance}%</span>
+              <span className="font-display text-3xl font-bold text-foreground">{latestCompliance}%</span>
             </div>
           </div>
         </div>

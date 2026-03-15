@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
+import { cn } from "@/lib/utils";
 
 const tabs = [
   { id: "analysis", label: "ANALYSIS" },
@@ -98,7 +99,6 @@ export default function ScanReview() {
     })();
   }, [scanId]);
 
-  // Load copilot note when tab is selected
   useEffect(() => {
     if (activeTab === "copilot" && !copilotNote && !copilotLoading) {
       setCopilotLoading(true);
@@ -187,7 +187,7 @@ export default function ScanReview() {
       toast({ title: "Error sharing scan", description: e.message, variant: "destructive" });
     }
   };
-  // Build tooth data from AI analysis
+
   const toothData = useMemo(() => {
     const data: Record<string, string> = {};
     if (aiAnalysis.length > 0) {
@@ -204,7 +204,7 @@ export default function ScanReview() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "hsl(216 32% 7%)" }}>
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Skeleton className="w-96 h-96 rounded-card" />
       </div>
     );
@@ -217,10 +217,9 @@ export default function ScanReview() {
 
   const detectedTags: string[] = (scan?.detection_tags as string[]) || [];
   const qualityScore = scan?.quality_score || 0;
-  const qualityColor = qualityScore >= 80 ? "hsl(142 71% 45%)" : qualityScore >= 50 ? "hsl(43 50% 54%)" : "hsl(0 84% 60%)";
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: "hsl(216 32% 7%)" }}>
+    <div className="min-h-screen flex flex-col lg:flex-row bg-background">
       {/* Left Panel */}
       <div className="w-full lg:w-[60%] relative p-4 md:p-8 flex flex-col items-center justify-center min-h-[50vh] lg:min-h-screen">
         <button onClick={() => navigate(-1)} className="absolute top-4 left-4 md:top-6 md:left-6 mono-label text-muted-foreground hover:text-foreground transition-colors z-10">
@@ -229,27 +228,18 @@ export default function ScanReview() {
         <VerticalLabel text={`SCAN · ${scan?.status?.toUpperCase() || "IN REVIEW"}`} className="left-4 right-auto hidden lg:flex" />
 
         {/* Main visualization card */}
-        <div
-          className="relative w-full max-w-xl rounded-card p-6 space-y-5"
-          style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}
-        >
+        <div className="relative w-full max-w-xl rounded-card p-6 space-y-5 bg-card border border-border">
           {/* Floating pill: Alignment */}
-          <div
-            className="absolute -top-3 left-4 rounded-pill px-3 py-1 backdrop-blur-md"
-            style={{ background: "hsl(0 0% 100% / 0.08)", border: "1px solid hsl(0 0% 100% / 0.1)" }}
-          >
-            <span className="mono-label" style={{ color: "hsl(142 71% 45%)" }}>
+          <div className="absolute -top-3 left-4 rounded-pill px-3 py-1 backdrop-blur-md bg-white/[0.08] border border-white/10">
+            <span className="mono-label text-status-success">
               ALIGNMENT {scan?.quality_score || 0}%
             </span>
           </div>
 
           {/* Floating pill: AI Analysis */}
           {reviews.length > 0 && (
-            <div
-              className="absolute -top-3 right-4 rounded-pill px-3 py-1 backdrop-blur-md"
-              style={{ background: "hsl(0 0% 100% / 0.08)", border: "1px solid hsl(0 0% 100% / 0.1)" }}
-            >
-              <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>
+            <div className="absolute -top-3 right-4 rounded-pill px-3 py-1 backdrop-blur-md bg-white/[0.08] border border-white/10">
+              <span className="mono-label text-primary">
                 AI ANALYSIS · {(() => {
                   const mins = Math.round((Date.now() - new Date(reviews[0].reviewed_at).getTime()) / 60000);
                   return mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
@@ -261,20 +251,17 @@ export default function ScanReview() {
           {/* Patient info row */}
           <div className="flex items-center justify-between pt-4">
             <div className="flex items-center gap-2.5">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ background: "hsl(142 71% 45%)" }} />
-              <span className="font-display text-sm font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+              <div className="w-2.5 h-2.5 rounded-full bg-status-success" />
+              <span className="font-display text-sm font-semibold text-foreground">
                 {patientName}
               </span>
               {treatmentCategory && (
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
+                <span className="mono-label text-muted-foreground">
                   · {treatmentCategory.toUpperCase()}
                 </span>
               )}
             </div>
-            <span
-              className="mono-label px-2 py-0.5 rounded-pill"
-              style={{ background: "hsl(142 71% 45% / 0.12)", color: "hsl(142 71% 45%)", border: "1px solid hsl(142 71% 45% / 0.2)" }}
-            >
+            <span className="mono-label px-2 py-0.5 rounded-pill bg-status-success/[0.12] text-status-success border border-status-success/20">
               ACTIVE
             </span>
           </div>
@@ -285,31 +272,37 @@ export default function ScanReview() {
           {/* Quality Progress Bar */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>QUALITY</span>
-              <span className="font-mono text-xs font-semibold" style={{ color: qualityColor }}>
+              <span className="mono-label text-muted-foreground">QUALITY</span>
+              <span className={cn(
+                "font-mono text-xs font-semibold",
+                qualityScore >= 80 ? "text-status-success" : qualityScore >= 50 ? "text-gold" : "text-destructive"
+              )}>
                 {scan?.quality_score || 0}%
               </span>
             </div>
-            <div className="w-full h-1.5 rounded-full" style={{ background: "hsl(0 0% 100% / 0.08)" }}>
+            <div className="w-full h-1.5 rounded-full bg-white/[0.08]">
               <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{ width: `${scan?.quality_score || 0}%`, background: qualityColor }}
+                className={cn(
+                  "h-full rounded-full transition-all duration-700",
+                  qualityScore >= 80 ? "bg-status-success" : qualityScore >= 50 ? "bg-gold" : "bg-destructive"
+                )}
+                style={{ width: `${scan?.quality_score || 0}%` }}
               />
             </div>
           </div>
 
           {/* Stat Cards */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-tag p-3" style={{ background: "hsl(220 24% 16%)" }}>
-              <span className="mono-label block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>TEETH ANALYZED</span>
-              <span className="font-mono text-lg font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+            <div className="rounded-tag p-3 bg-elevated">
+              <span className="mono-label block mb-1 text-muted-foreground">TEETH ANALYZED</span>
+              <span className="font-mono text-lg font-semibold text-foreground">
                 {aiAnalysis.length > 0 ? aiAnalysis.length : 28}
-                <span className="text-xs" style={{ color: "hsl(38 23% 90% / 0.3)" }}>/32</span>
+                <span className="text-xs text-foreground/30">/32</span>
               </span>
             </div>
-            <div className="rounded-tag p-3" style={{ background: "hsl(220 24% 16%)" }}>
-              <span className="mono-label block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>ISSUES FOUND</span>
-              <span className="font-mono text-lg font-semibold" style={{ color: detectedTags.length > 0 ? "hsl(0 84% 60%)" : "hsl(142 71% 45%)" }}>
+            <div className="rounded-tag p-3 bg-elevated">
+              <span className="mono-label block mb-1 text-muted-foreground">ISSUES FOUND</span>
+              <span className={cn("font-mono text-lg font-semibold", detectedTags.length > 0 ? "text-destructive" : "text-status-success")}>
                 {detectedTags.length}
               </span>
             </div>
@@ -318,8 +311,7 @@ export default function ScanReview() {
           {/* View Full Report Button */}
           <Button
             onClick={() => setActiveTab("analysis")}
-            className="w-full rounded-pill font-mono text-[10px] uppercase tracking-[0.15em]"
-            style={{ background: "hsl(228 100% 62%)", color: "white" }}
+            className="w-full rounded-pill mono-label bg-primary text-primary-foreground"
           >
             View Full Report
           </Button>
@@ -332,12 +324,12 @@ export default function ScanReview() {
             return (
               <span
                 key={tag}
-                className="mono-label px-2.5 py-1 rounded-pill"
-                style={{
-                  background: detected ? "hsl(0 84% 60% / 0.15)" : "hsl(142 71% 45% / 0.1)",
-                  color: detected ? "hsl(0 84% 60%)" : "hsl(142 71% 45%)",
-                  border: `1px solid ${detected ? "hsl(0 84% 60% / 0.3)" : "hsl(142 71% 45% / 0.2)"}`,
-                }}
+                className={cn(
+                  "mono-label px-2.5 py-1 rounded-pill border",
+                  detected
+                    ? "bg-destructive/15 text-destructive border-destructive/30"
+                    : "bg-status-success/10 text-status-success border-status-success/20"
+                )}
               >
                 {detected ? "⚠ " : "✓ "}{tag}
               </span>
@@ -347,10 +339,10 @@ export default function ScanReview() {
       </div>
 
       {/* Right Panel */}
-      <div className="w-full lg:w-[40%] flex flex-col relative" style={{ background: "hsl(218 26% 11%)" }}>
+      <div className="w-full lg:w-[40%] flex flex-col relative bg-card">
         <VerticalLabel text="AI ANALYSIS · LIVE" className="hidden lg:flex" />
 
-        <div className="p-4 md:p-6 border-b" style={{ borderColor: "hsl(0 0% 100% / 0.06)" }}>
+        <div className="p-4 md:p-6 border-b border-border">
           <PillNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
         </div>
 
@@ -358,7 +350,7 @@ export default function ScanReview() {
           {activeTab === "analysis" && (
             <div className="space-y-6">
               {aiAnalysis.length === 0 && (
-                <p className="mono-label mb-4" style={{ color: "hsl(38 23% 90% / 0.3)" }}>
+                <p className="mono-label mb-4 text-foreground/30">
                   No AI analysis available yet. Showing placeholder data.
                 </p>
               )}
@@ -367,7 +359,7 @@ export default function ScanReview() {
                   <h3 className="font-mono text-xs uppercase tracking-[0.15em] text-foreground mb-3">
                     TOOTH {(tooth.id || `T${idx}`).replace("T", "")}
                   </h3>
-                  <div className="rounded-tag p-4 space-y-2" style={{ background: "hsl(220 24% 16%)" }}>
+                  <div className="rounded-tag p-4 space-y-2 bg-elevated">
                     {[
                       ["DEVIATION", tooth.deviation || "—"],
                       ["PLAN TARGET", tooth.target || "0°"],
@@ -375,7 +367,7 @@ export default function ScanReview() {
                       ["STATUS", tooth.status || "PENDING"],
                     ].map(([label, value]) => (
                       <div key={label} className="flex justify-between items-center">
-                        <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{label}</span>
+                        <span className="mono-label text-muted-foreground">{label}</span>
                         <span className="font-mono text-[11px] tracking-[0.1em] text-foreground">{value}</span>
                       </div>
                     ))}
@@ -388,15 +380,15 @@ export default function ScanReview() {
           {activeTab === "history" && (
             <div className="space-y-3">
               {reviews.length === 0 ? (
-                <p className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>No previous reviews for this scan.</p>
+                <p className="mono-label text-foreground/30">No previous reviews for this scan.</p>
               ) : reviews.map((r) => (
-                <div key={r.id} className="rounded-tag p-4" style={{ background: "hsl(220 24% 16%)" }}>
+                <div key={r.id} className="rounded-tag p-4 bg-elevated">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>{r.action_type?.toUpperCase() || "REVIEW"}</span>
-                    <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>{new Date(r.reviewed_at).toLocaleDateString()}</span>
+                    <span className="mono-label text-primary">{r.action_type?.toUpperCase() || "REVIEW"}</span>
+                    <span className="mono-label text-foreground/30">{new Date(r.reviewed_at).toLocaleDateString()}</span>
                   </div>
                   {r.review_notes && (
-                    <p className="text-sm font-body" style={{ color: "hsl(38 23% 90% / 0.7)" }}>{r.review_notes}</p>
+                    <p className="text-sm font-body text-foreground/70">{r.review_notes}</p>
                   )}
                 </div>
               ))}
@@ -409,14 +401,12 @@ export default function ScanReview() {
                 value={reviewNotes}
                 onChange={(e) => setReviewNotes(e.target.value)}
                 placeholder="Add review notes..."
-                className="w-full h-40 rounded-tag p-4 font-mono text-xs resize-none text-foreground placeholder:text-muted-foreground"
-                style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}
+                className="w-full h-40 rounded-tag p-4 font-mono text-xs resize-none text-foreground placeholder:text-muted-foreground bg-elevated border border-border"
               />
               <Button
                 onClick={saveNotes}
                 disabled={!reviewNotes.trim()}
-                className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em]"
-                style={{ background: "hsl(228 100% 62%)", color: "white" }}
+                className="rounded-pill mono-label bg-primary text-primary-foreground"
               >
                 Save Notes
               </Button>
@@ -426,18 +416,18 @@ export default function ScanReview() {
           {activeTab === "copilot" && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 mb-2">
-                <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>AI COPILOT</span>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>· GENERATED NOTE</span>
+                <span className="mono-label text-primary">AI COPILOT</span>
+                <span className="mono-label text-foreground/30">· GENERATED NOTE</span>
               </div>
               {copilotLoading ? (
                 <div className="flex items-center gap-3 py-8 justify-center">
                   <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                  <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>GENERATING...</span>
+                  <span className="mono-label text-muted-foreground">GENERATING...</span>
                 </div>
               ) : copilotNote ? (
                 <>
-                  <div className="rounded-tag p-4" style={{ background: "hsl(220 24% 16%)" }}>
-                    <pre className="text-xs font-mono whitespace-pre-wrap" style={{ color: "hsl(38 23% 90% / 0.8)" }}>
+                  <div className="rounded-tag p-4 bg-elevated">
+                    <pre className="text-xs font-mono whitespace-pre-wrap text-foreground/80">
                       {copilotNote}
                     </pre>
                   </div>
@@ -448,7 +438,7 @@ export default function ScanReview() {
                         toast({ title: "Copied to clipboard" });
                       }}
                       variant="outline"
-                      className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] border-foreground/20 text-foreground"
+                      className="rounded-pill mono-label border-foreground/20 text-foreground"
                     >
                       Copy to Clipboard
                     </Button>
@@ -458,8 +448,7 @@ export default function ScanReview() {
                         setActiveTab("notes");
                         toast({ title: "Added to notes", description: "Switch to Notes tab to review and save." });
                       }}
-                      className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em]"
-                      style={{ background: "hsl(228 100% 62%)", color: "white" }}
+                      className="rounded-pill mono-label bg-primary text-primary-foreground"
                     >
                       Add to Patient Record
                     </Button>
@@ -471,9 +460,9 @@ export default function ScanReview() {
         </div>
 
         {/* Bottom actions */}
-        <div className="p-4 md:p-6 flex flex-col sm:flex-row gap-3 border-t" style={{ borderColor: "hsl(0 0% 100% / 0.06)" }}>
+        <div className="p-4 md:p-6 flex flex-col sm:flex-row gap-3 border-t border-border">
           <Button
-            className="flex-1 rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em]"
+            className="flex-1 rounded-pill bg-primary text-primary-foreground mono-label"
             disabled={updating}
             onClick={() => navigate(`/doctor/record/${scanId}`)}
           >
@@ -481,15 +470,14 @@ export default function ScanReview() {
           </Button>
           <Button
             variant="outline"
-            className="flex-1 rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] border-foreground/20 text-foreground"
+            className="flex-1 rounded-pill mono-label border-foreground/20 text-foreground"
             onClick={() => updateScanStatus("reviewed")}
             disabled={updating}
           >
             Mark Reviewed
           </Button>
           <Button
-            className="flex-1 rounded-pill font-mono text-[10px] uppercase tracking-[0.15em]"
-            style={{ background: "hsl(43 50% 54%)", color: "white" }}
+            className="flex-1 rounded-pill mono-label bg-gold text-white"
             onClick={() => updateScanStatus("flagged")}
             disabled={updating}
           >
@@ -497,7 +485,7 @@ export default function ScanReview() {
           </Button>
           <Button
             variant="outline"
-            className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] border-foreground/20 text-foreground"
+            className="rounded-pill mono-label border-foreground/20 text-foreground"
             onClick={handleShareScan}
           >
             Share

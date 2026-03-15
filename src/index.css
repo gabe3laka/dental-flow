@@ -134,6 +134,9 @@
     /* Custom tokens */
     --text-light: 38 23% 90% / 0.45;
     --gold: 43 50% 54%;
+
+    /* Elevated surface (slightly lighter than card) */
+    --elevated: 220 24% 16%;
   }
 }
 

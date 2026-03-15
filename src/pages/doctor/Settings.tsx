@@ -6,12 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, X, Plus } from "lucide-react";
+import { AlertTriangle, Plus } from "lucide-react";
 import { logError } from "@/lib/logger";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormField, FormItem, FormControl, FormMessage } from "@/components/ui/form";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 const inviteSchema = z.object({
   inviteEmail: z.string().email("Enter a valid email"),
@@ -51,13 +53,11 @@ export default function DoctorSettings() {
   const [addingSlot, setAddingSlot] = useState(false);
   const [savingSpecialty, setSavingSpecialty] = useState(false);
 
-  // Availability slots
   const [slots, setSlots] = useState<any[]>([]);
   const [newSlotDay, setNewSlotDay] = useState("MON");
   const [newSlotTime, setNewSlotTime] = useState("09:00");
   const [showAddSlot, setShowAddSlot] = useState(false);
 
-  // Deactivation
   const [showDeactivateModal, setShowDeactivateModal] = useState(false);
   const [deactivateConfirm, setDeactivateConfirm] = useState("");
   const [deactivating, setDeactivating] = useState(false);
@@ -73,21 +73,11 @@ export default function DoctorSettings() {
           supabase.from("team_invites").select("*").eq("practice_id", user.id).order("invited_at", { ascending: false }),
           supabase.from("doctor_availability" as any).select("*").eq("doctor_id", user.id).order("created_at", { ascending: true }),
         ]);
-        if (profileResult.status === "rejected") {
-          logError(profileResult.reason, { operation: "Settings/fetchProfile", userId: user?.id });
-        }
-        if (subResult.status === "rejected") {
-          logError(subResult.reason, { operation: "Settings/fetchSubscription", userId: user?.id });
-        }
-        if (patientsResult.status === "rejected") {
-          logError(patientsResult.reason, { operation: "Settings/fetchPatientCount", userId: user?.id });
-        }
-        if (invitesResult.status === "rejected") {
-          logError(invitesResult.reason, { operation: "Settings/fetchInvites", userId: user?.id });
-        }
-        if (slotsResult.status === "rejected") {
-          logError(slotsResult.reason, { operation: "Settings/fetchSlots", userId: user?.id });
-        }
+        if (profileResult.status === "rejected") logError(profileResult.reason, { operation: "Settings/fetchProfile", userId: user?.id });
+        if (subResult.status === "rejected") logError(subResult.reason, { operation: "Settings/fetchSubscription", userId: user?.id });
+        if (patientsResult.status === "rejected") logError(patientsResult.reason, { operation: "Settings/fetchPatientCount", userId: user?.id });
+        if (invitesResult.status === "rejected") logError(invitesResult.reason, { operation: "Settings/fetchInvites", userId: user?.id });
+        if (slotsResult.status === "rejected") logError(slotsResult.reason, { operation: "Settings/fetchSlots", userId: user?.id });
         const profileData = profileResult.status === "fulfilled" ? profileResult.value.data : null;
         const subData = subResult.status === "fulfilled" ? subResult.value.data : null;
         const patientsData = patientsResult.status === "fulfilled" ? patientsResult.value : null;
@@ -237,13 +227,13 @@ export default function DoctorSettings() {
   };
 
   function getStatusBadge() {
-    if (!subscription) return { label: "FREE TIER", color: "hsl(38 23% 90% / 0.45)", bg: "hsl(0 0% 100% / 0.05)" };
+    if (!subscription) return { label: "FREE TIER", classes: "text-muted-foreground bg-muted" };
     switch (subscription.status) {
-      case "active": return { label: "ACTIVE", color: "hsl(142 71% 45%)", bg: "hsl(142 71% 45% / 0.1)" };
-      case "trialing": return { label: "TRIAL", color: "hsl(43 50% 54%)", bg: "hsl(43 50% 54% / 0.1)" };
-      case "past_due": return { label: "PAST DUE", color: "hsl(0 84% 60%)", bg: "hsl(0 84% 60% / 0.1)" };
-      case "canceled": return { label: "CANCELED", color: "hsl(38 23% 90% / 0.45)", bg: "hsl(0 0% 100% / 0.05)" };
-      default: return { label: "FREE TIER", color: "hsl(38 23% 90% / 0.45)", bg: "hsl(0 0% 100% / 0.05)" };
+      case "active": return { label: "ACTIVE", classes: "text-status-success bg-status-success/10" };
+      case "trialing": return { label: "TRIAL", classes: "text-gold bg-gold/10" };
+      case "past_due": return { label: "PAST DUE", classes: "text-destructive bg-destructive/10" };
+      case "canceled": return { label: "CANCELED", classes: "text-muted-foreground bg-muted" };
+      default: return { label: "FREE TIER", classes: "text-muted-foreground bg-muted" };
     }
   }
 
@@ -252,23 +242,19 @@ export default function DoctorSettings() {
   return (
     <div className="p-4 md:p-8">
       <div className="max-w-2xl mx-auto">
-        <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SETTINGS</span>
+        <span className="mono-label text-muted-foreground">SETTINGS</span>
         <h1 className="font-display text-3xl font-semibold mt-1 mb-8">Practice Profile</h1>
 
         {!loading && profile && !profile.practice_setup_completed && (
-          <div
-            className="rounded-md p-4 mb-6 flex items-start gap-3"
-            style={{ background: "hsl(43 50% 54% / 0.1)", border: "1px solid hsl(43 50% 54% / 0.2)" }}
-          >
-            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "hsl(43 50% 54%)" }} />
+          <div className="rounded-md p-4 mb-6 flex items-start gap-3 bg-gold/10 border border-gold/20">
+            <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-gold" />
             <div>
-              <p className="text-[13px]" style={{ color: "hsl(43 50% 54%)" }}>
+              <p className="text-[13px] text-gold">
                 Your practice profile is incomplete. Complete setup to unlock all features.
               </p>
               <button
                 onClick={() => navigate("/doctor/setup")}
-                className="mono-label mt-2 hover:underline"
-                style={{ color: "hsl(43 50% 54%)" }}
+                className="mono-label mt-2 hover:underline text-gold"
               >
                 COMPLETE SETUP →
               </button>
@@ -283,17 +269,17 @@ export default function DoctorSettings() {
         ) : (
           <div className="space-y-6">
             {/* Account Info */}
-            <div className="rounded-card p-6 space-y-4" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
+            <div className="rounded-card p-6 space-y-4 bg-card border border-border">
               <div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>ACCOUNT EMAIL</span>
+                <span className="mono-label text-muted-foreground">ACCOUNT EMAIL</span>
                 <p className="text-sm mt-1">{user?.email}</p>
               </div>
               <div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>DISPLAY NAME</span>
+                <span className="mono-label text-muted-foreground">DISPLAY NAME</span>
                 <p className="text-sm mt-1">{user?.user_metadata?.full_name || "—"}</p>
               </div>
               <div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SPECIALTY</span>
+                <span className="mono-label text-muted-foreground">SPECIALTY</span>
                 {editingSpecialty ? (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {SPECIALTY_OPTIONS.map((opt) => (
@@ -301,74 +287,73 @@ export default function DoctorSettings() {
                         key={opt}
                         onClick={() => saveSpecialty(opt)}
                         disabled={savingSpecialty}
-                        className="px-3 py-1.5 rounded-pill mono-label transition"
-                        style={{
-                          background: specialtyValue === opt ? "hsl(228 100% 62%)" : "transparent",
-                          color: specialtyValue === opt ? "white" : "hsl(38 23% 90% / 0.6)",
-                          border: `1px solid ${specialtyValue === opt ? "hsl(228 100% 62%)" : "hsl(0 0% 100% / 0.1)"}`,
-                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-pill mono-label transition border",
+                          specialtyValue === opt
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-transparent text-foreground/60 border-border hover:border-primary/30"
+                        )}
                       >
                         {opt.toUpperCase()}
                       </button>
                     ))}
-                    <button onClick={() => setEditingSpecialty(false)} className="mono-label px-3 py-1.5" style={{ color: "hsl(38 23% 90% / 0.4)" }}>CANCEL</button>
+                    <button onClick={() => setEditingSpecialty(false)} className="mono-label px-3 py-1.5 text-muted-foreground">CANCEL</button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2 mt-1">
-                    <p className="text-sm" style={{ color: profile?.specialty ? undefined : "hsl(38 23% 90% / 0.3)" }}>
+                    <p className={cn("text-sm", !profile?.specialty && "text-foreground/30")}>
                       {profile?.specialty || "Not set"}
                     </p>
-                    <button onClick={() => setEditingSpecialty(true)} className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>EDIT</button>
+                    <button onClick={() => setEditingSpecialty(true)} className="mono-label text-primary">EDIT</button>
                   </div>
                 )}
               </div>
               <div>
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE NAME</span>
+                <span className="mono-label text-muted-foreground">PRACTICE NAME</span>
                 <p className="text-sm mt-1">{profile?.practice_name || "—"}</p>
               </div>
             </div>
 
             {/* Practice Logo */}
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-              <span className="mono-label mb-3 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE LOGO</span>
+            <div className="rounded-card p-6 bg-card border border-border">
+              <span className="mono-label mb-3 block text-muted-foreground">PRACTICE LOGO</span>
               <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
               <Button
                 variant="outline"
                 onClick={() => logoInputRef.current?.click()}
                 disabled={uploadingLogo}
-                className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+                className="rounded-pill mono-label"
               >
                 {uploadingLogo ? "Uploading..." : "Upload Logo"}
               </Button>
             </div>
 
             {/* Availability */}
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
+            <div className="rounded-card p-6 bg-card border border-border">
               <div className="flex items-center justify-between mb-4">
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>AVAILABILITY</span>
+                <span className="mono-label text-muted-foreground">AVAILABILITY</span>
                 <Button
                   size="sm"
                   onClick={() => setShowAddSlot(!showAddSlot)}
-                  className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em] gap-1"
-                  style={{ background: "hsl(228 100% 62%)", color: "white" }}
+                  className="rounded-pill mono-label gap-1 bg-primary text-primary-foreground"
                 >
                   <Plus className="w-3 h-3" /> Add Slot
                 </Button>
               </div>
               {showAddSlot && (
-                <div className="mb-4 p-4 rounded-tag space-y-3" style={{ background: "hsl(0 0% 100% / 0.03)" }}>
+                <div className="mb-4 p-4 rounded-tag space-y-3 bg-white/[0.03]">
                   <div className="flex gap-2">
                     {DAYS_OF_WEEK.map((d) => (
                       <button
                         key={d}
                         onClick={() => setNewSlotDay(d)}
-                        className="px-2 py-1 rounded-pill mono-label transition"
-                        style={{
-                          background: newSlotDay === d ? "hsl(228 100% 62%)" : "transparent",
-                          color: newSlotDay === d ? "white" : "hsl(38 23% 90% / 0.45)",
-                          border: `1px solid ${newSlotDay === d ? "hsl(228 100% 62%)" : "hsl(0 0% 100% / 0.1)"}`,
-                          fontSize: "9px",
-                        }}
+                        className={cn(
+                          "px-2 py-1 rounded-pill mono-label transition border",
+                          newSlotDay === d
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-transparent text-muted-foreground border-border"
+                        )}
+                        style={{ fontSize: "9px" }}
                       >
                         {d}
                       </button>
@@ -378,26 +363,26 @@ export default function DoctorSettings() {
                     type="time"
                     value={newSlotTime}
                     onChange={(e) => setNewSlotTime(e.target.value)}
-                    className="text-sm w-32"
-                    style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
+                    className="text-sm w-32 bg-background border-border"
                   />
-                  <Button onClick={handleAddSlot} disabled={addingSlot} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
+                  <Button onClick={handleAddSlot} disabled={addingSlot} className="rounded-pill mono-label bg-primary text-primary-foreground">
                     {addingSlot ? "Saving..." : "Save Slot"}
                   </Button>
                 </div>
               )}
               {slots.length === 0 ? (
-                <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.45)" }}>No availability slots set. Add slots so patients know when you're available.</p>
+                <p className="text-sm text-muted-foreground">No availability slots set. Add slots so patients know when you're available.</p>
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {slots.map((slot) => (
-                    <div key={slot.id} className="flex items-center gap-1 px-3 py-2 rounded-pill mono-label" style={{
-                      background: slot.is_active ? "hsl(228 100% 62% / 0.12)" : "hsl(0 0% 100% / 0.03)",
-                      color: slot.is_active ? "hsl(228 100% 62%)" : "hsl(38 23% 90% / 0.3)",
-                      border: `1px solid ${slot.is_active ? "hsl(228 100% 62% / 0.25)" : "hsl(0 0% 100% / 0.07)"}`,
-                    }}>
+                    <div key={slot.id} className={cn(
+                      "flex items-center gap-1 px-3 py-2 rounded-pill mono-label border",
+                      slot.is_active
+                        ? "bg-primary/[0.12] text-primary border-primary/25"
+                        : "bg-white/[0.03] text-foreground/30 border-border"
+                    )}>
                       <button onClick={() => handleToggleSlot(slot.id, slot.is_active)}>{slot.day_of_week} {slot.start_time}</button>
-                      <button onClick={() => handleDeleteSlot(slot.id)} className="ml-1 opacity-50 hover:opacity-100"><X className="w-3 h-3" /></button>
+                      <button onClick={() => handleDeleteSlot(slot.id)} className="ml-1 opacity-50 hover:opacity-100">×</button>
                     </div>
                   ))}
                 </div>
@@ -405,10 +390,10 @@ export default function DoctorSettings() {
             </div>
 
             {/* Virtual Consult Link */}
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-              <span className="mono-label mb-3 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>VIRTUAL CONSULT LINK</span>
+            <div className="rounded-card p-6 bg-card border border-border">
+              <span className="mono-label mb-3 block text-muted-foreground">VIRTUAL CONSULT LINK</span>
               <div className="flex items-center gap-2">
-                <code className="text-xs font-mono px-3 py-2 rounded-tag flex-1 truncate" style={{ background: "hsl(0 0% 100% / 0.05)" }}>
+                <code className="text-xs font-mono px-3 py-2 rounded-tag flex-1 truncate bg-muted">
                   {window.location.origin}/consult/{consultSlug}
                 </code>
                 <Button
@@ -418,7 +403,7 @@ export default function DoctorSettings() {
                     navigator.clipboard.writeText(`${window.location.origin}/consult/${consultSlug}`);
                     toast({ title: "Link copied" });
                   }}
-                  className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+                  className="rounded-pill mono-label"
                 >
                   Copy
                 </Button>
@@ -426,20 +411,19 @@ export default function DoctorSettings() {
             </div>
 
             {/* Practice Team */}
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
+            <div className="rounded-card p-6 bg-card border border-border">
               <div className="flex items-center justify-between mb-4">
-                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PRACTICE TEAM</span>
+                <span className="mono-label text-muted-foreground">PRACTICE TEAM</span>
                 <Button
                   size="sm"
                   onClick={() => setShowInviteModal(!showInviteModal)}
-                  className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em]"
-                  style={{ background: "hsl(228 100% 62%)", color: "white" }}
+                  className="rounded-pill mono-label bg-primary text-primary-foreground"
                 >
                   Invite Member
                 </Button>
               </div>
               {showInviteModal && (
-                <div className="mb-4 p-4 rounded-tag space-y-3" style={{ background: "hsl(0 0% 100% / 0.03)" }}>
+                <div className="mb-4 p-4 rounded-tag space-y-3 bg-white/[0.03]">
                   <Form {...inviteForm}>
                     <form onSubmit={handleInvite} className="space-y-3">
                       <FormField
@@ -450,8 +434,7 @@ export default function DoctorSettings() {
                             <FormControl>
                               <Input
                                 placeholder="team@example.com"
-                                className="text-sm"
-                                style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
+                                className="text-sm bg-background border-border"
                                 {...field}
                               />
                             </FormControl>
@@ -465,18 +448,18 @@ export default function DoctorSettings() {
                             key={r}
                             type="button"
                             onClick={() => setInviteRole(r)}
-                            className="px-3 py-1 rounded-pill mono-label transition"
-                            style={{
-                              background: inviteRole === r ? "hsl(228 100% 62%)" : "transparent",
-                              color: inviteRole === r ? "white" : "hsl(38 23% 90% / 0.45)",
-                              border: `1px solid ${inviteRole === r ? "hsl(228 100% 62%)" : "hsl(0 0% 100% / 0.1)"}`,
-                            }}
+                            className={cn(
+                              "px-3 py-1 rounded-pill mono-label transition border",
+                              inviteRole === r
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "bg-transparent text-muted-foreground border-border"
+                            )}
                           >
                             {r.toUpperCase()}
                           </button>
                         ))}
                       </div>
-                      <Button type="submit" disabled={inviting} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]" style={{ background: "hsl(228 100% 62%)", color: "white" }}>
+                      <Button type="submit" disabled={inviting} className="rounded-pill mono-label bg-primary text-primary-foreground">
                         {inviting ? "Sending..." : "Send Invite"}
                       </Button>
                     </form>
@@ -484,22 +467,21 @@ export default function DoctorSettings() {
                 </div>
               )}
               {teamInvites.length === 0 ? (
-                <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.45)" }}>No team members invited yet.</p>
+                <p className="text-sm text-muted-foreground">No team members invited yet.</p>
               ) : (
                 <div className="space-y-2">
                   {teamInvites.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between py-2" style={{ borderBottom: "1px solid hsl(0 0% 100% / 0.05)" }}>
+                    <div key={inv.id} className="flex items-center justify-between py-2 border-b border-white/5">
                       <div>
                         <p className="text-sm">{inv.invited_email}</p>
-                        <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{inv.role.toUpperCase()}</span>
+                        <span className="mono-label text-muted-foreground">{inv.role.toUpperCase()}</span>
                       </div>
-                      <span
-                        className="mono-label px-2 py-0.5 rounded-pill"
-                        style={{
-                          background: inv.accepted_at ? "hsl(142 71% 45% / 0.1)" : "hsl(43 50% 54% / 0.1)",
-                          color: inv.accepted_at ? "hsl(142 71% 45%)" : "hsl(43 50% 54%)",
-                        }}
-                      >
+                      <span className={cn(
+                        "mono-label px-2 py-0.5 rounded-pill",
+                        inv.accepted_at
+                          ? "bg-status-success/10 text-status-success"
+                          : "bg-gold/10 text-gold"
+                      )}>
                         {inv.accepted_at ? "ACCEPTED" : "PENDING"}
                       </span>
                     </div>
@@ -509,56 +491,55 @@ export default function DoctorSettings() {
             </div>
 
             {/* Subscription */}
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-              <span className="mono-label mb-4 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SUBSCRIPTION</span>
+            <div className="rounded-card p-6 bg-card border border-border">
+              <span className="mono-label mb-4 block text-muted-foreground">SUBSCRIPTION</span>
               <div className="flex items-baseline justify-between mb-4">
                 <h3 className="font-display text-xl font-semibold capitalize">{currentTier}</h3>
-                <span className="mono-label px-2 py-0.5 rounded-pill" style={{ background: statusBadge.bg, color: statusBadge.color }}>
+                <span className={cn("mono-label px-2 py-0.5 rounded-pill", statusBadge.classes)}>
                   {statusBadge.label}
                 </span>
               </div>
               {subscription?.current_period_end && (
-                <p className="text-xs mb-3" style={{ color: "hsl(38 23% 90% / 0.45)" }}>
+                <p className="text-xs mb-3 text-muted-foreground">
                   Next billing: {new Date(subscription.current_period_end).toLocaleDateString()}
                 </p>
               )}
               <div className="mb-4">
                 <div className="flex justify-between mb-1">
-                  <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>PATIENTS ENROLLED</span>
-                  <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{patientCount} / {limit}</span>
+                  <span className="mono-label text-muted-foreground">PATIENTS ENROLLED</span>
+                  <span className="mono-label text-muted-foreground">{patientCount} / {limit}</span>
                 </div>
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: "hsl(0 0% 100% / 0.06)" }}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, (patientCount / limit) * 100)}%`, background: "hsl(228 100% 62%)" }} />
+                <div className="h-2 rounded-full overflow-hidden bg-muted">
+                  <div className="h-full rounded-full transition-all bg-primary" style={{ width: `${Math.min(100, (patientCount / limit) * 100)}%` }} />
                 </div>
               </div>
 
-              <div className="mb-4 p-3 rounded-tag" style={{ background: "hsl(0 0% 100% / 0.03)" }}>
-                <span className="mono-label mb-1 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>INCLUDED FEATURES</span>
-                <p className="text-xs" style={{ color: "hsl(38 23% 90% / 0.6)" }}>{suiteFeatures[currentTier]?.[0] || suiteFeatures.starter[0]}</p>
+              <div className="mb-4 p-3 rounded-tag bg-white/[0.03]">
+                <span className="mono-label mb-1 block text-muted-foreground">INCLUDED FEATURES</span>
+                <p className="text-xs text-foreground/60">{suiteFeatures[currentTier]?.[0] || suiteFeatures.starter[0]}</p>
               </div>
 
               <Button
                 variant="outline"
-                className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+                className="rounded-pill mono-label"
                 onClick={handleManageBilling}
               >
                 Manage Billing
               </Button>
             </div>
 
-            <div className="rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>NOTIFICATIONS</span>
-              <p className="text-sm mt-1" style={{ color: "hsl(38 23% 90% / 0.45)" }}>Email notifications for new scans and flagged patients are enabled by default.</p>
+            <div className="rounded-card p-6 bg-card border border-border">
+              <span className="mono-label text-muted-foreground">NOTIFICATIONS</span>
+              <p className="text-sm mt-1 text-muted-foreground">Email notifications for new scans and flagged patients are enabled by default.</p>
             </div>
 
             {/* Danger zone */}
-            <div className="rounded-card p-6" style={{ border: "1px solid hsl(0 84% 60% / 0.3)", background: "hsl(218 26% 11%)" }}>
-              <span className="mono-label mb-2 block" style={{ color: "hsl(0 84% 60%)" }}>DANGER ZONE</span>
-              <p className="text-sm mb-4" style={{ color: "hsl(38 23% 90% / 0.45)" }}>Deactivating your practice will suspend all patient access. This action can be reversed by contacting support.</p>
+            <div className="rounded-card p-6 border border-destructive/30 bg-card">
+              <span className="mono-label mb-2 block text-destructive">DANGER ZONE</span>
+              <p className="text-sm mb-4 text-muted-foreground">Deactivating your practice will suspend all patient access. This action can be reversed by contacting support.</p>
               <Button
                 variant="outline"
-                className="rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
-                style={{ borderColor: "hsl(0 84% 60% / 0.3)", color: "hsl(0 84% 60%)" }}
+                className="rounded-pill mono-label border-destructive/30 text-destructive"
                 onClick={() => setShowDeactivateModal(true)}
               >
                 Deactivate Practice
@@ -568,37 +549,30 @@ export default function DoctorSettings() {
         )}
       </div>
 
-      {/* Deactivation Confirmation Modal */}
-      {showDeactivateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="rounded-card p-6 max-w-md w-full mx-4" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 84% 60% / 0.3)" }}>
-            <div className="flex items-center justify-between mb-4">
-              <span className="mono-label" style={{ color: "hsl(0 84% 60%)" }}>CONFIRM DEACTIVATION</span>
-              <button onClick={() => { setShowDeactivateModal(false); setDeactivateConfirm(""); }}>
-                <X className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.5)" }} />
-              </button>
-            </div>
-            <p className="text-sm mb-4" style={{ color: "hsl(38 23% 90% / 0.7)" }}>
-              This will suspend your practice and sign you out. Type <strong>DEACTIVATE</strong> to confirm.
-            </p>
-            <Input
-              value={deactivateConfirm}
-              onChange={(e) => setDeactivateConfirm(e.target.value)}
-              placeholder="Type DEACTIVATE"
-              className="mb-4 text-sm"
-              style={{ background: "hsl(216 32% 7%)", borderColor: "hsl(0 84% 60% / 0.3)" }}
-            />
-            <Button
-              onClick={handleDeactivate}
-              disabled={deactivateConfirm !== "DEACTIVATE" || deactivating}
-              className="w-full rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
-              style={{ background: "hsl(0 84% 60%)", color: "white" }}
-            >
-              {deactivating ? "Deactivating..." : "Confirm Deactivation"}
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Deactivation Confirmation Dialog */}
+      <Dialog open={showDeactivateModal} onOpenChange={(open) => { setShowDeactivateModal(open); if (!open) setDeactivateConfirm(""); }}>
+        <DialogContent className="bg-card border-destructive/30">
+          <DialogHeader>
+            <DialogTitle className="mono-label text-destructive">CONFIRM DEACTIVATION</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-foreground/70">
+            This will suspend your practice and sign you out. Type <strong>DEACTIVATE</strong> to confirm.
+          </p>
+          <Input
+            value={deactivateConfirm}
+            onChange={(e) => setDeactivateConfirm(e.target.value)}
+            placeholder="Type DEACTIVATE"
+            className="text-sm bg-background border-destructive/30"
+          />
+          <Button
+            onClick={handleDeactivate}
+            disabled={deactivateConfirm !== "DEACTIVATE" || deactivating}
+            className="w-full rounded-pill mono-label bg-destructive text-destructive-foreground"
+          >
+            {deactivating ? "Deactivating..." : "Confirm Deactivation"}
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
