@@ -904,7 +904,7 @@ export default function Landing() {
 
           {/* Bottom bar */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-black/[0.06]">
-            <div className="flex gap-4 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50">
+            <div className="flex gap-4 mono-label text-muted-foreground/50">
               <a href="#" className="hover:text-foreground transition-colors">Twitter</a>
               <a href="#" className="hover:text-foreground transition-colors">LinkedIn</a>
               <a href="#" className="hover:text-foreground transition-colors">Instagram</a>
