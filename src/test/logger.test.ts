@@ -24,7 +24,7 @@ describe("logError", () => {
   it("includes userId when provided", () => {
     logError(new Error("msg"), { operation: "test/op", userId: "u1" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.userId).toBe("u1");
   });
 
