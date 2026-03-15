@@ -61,7 +61,7 @@ function AnnotationBox({
           )
         )}
         <span
-          className="absolute top-2 left-2 font-mono uppercase tracking-[0.15em] text-[9px] px-1.5 py-0.5 rounded"
+          className="absolute top-2 left-2 font-mono uppercase tracking-[0.15em] text-[11px] px-1.5 py-0.5 rounded"
           style={{
             color: "#fff",
             background: "rgba(61,109,255,0.45)",
@@ -80,7 +80,7 @@ export default function HeroOverlays() {
       {/* Zone pill */}
       <div className="absolute top-6 left-6">
         <span
-          className="font-mono uppercase tracking-[0.15em] text-[8px] text-white/40 px-2 py-1 rounded-full"
+          className="font-mono uppercase tracking-[0.15em] text-[11px] text-white/40 px-2 py-1 rounded-full"
           style={{
             border: "1px solid rgba(255,255,255,0.12)",
             background: "rgba(255,255,255,0.05)",

@@ -1,6 +1,5 @@
-import { GradientOrb } from "@/components/ui/gradient-orb";
+import { ProgressRing } from "@/components/ui/progress-ring";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { usePatientData } from "@/hooks/use-patient-data";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +30,12 @@ function UserAvatar({ name }: { name?: string }) {
   );
 }
 
+function getProgressStatus(data: any, progressPercent: number) {
+  if (!data?.hasStarted && progressPercent === 0) return "not_started" as const;
+  if (progressPercent >= 50) return "on_track" as const;
+  return "needs_attention" as const;
+}
+
 export default function PatientHome() {
   const { user, signOut } = useAuth();
   const { data, loading } = usePatientData();
@@ -41,10 +46,10 @@ export default function PatientHome() {
   const fullName = user?.user_metadata?.full_name;
 
   const progressPercent = data?.progressPercent ?? 0;
-  const notStarted = !data?.hasStarted && progressPercent === 0;
+  const status = getProgressStatus(data, progressPercent);
 
   return (
-    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
+    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-28">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -61,15 +66,22 @@ export default function PatientHome() {
         </div>
       </div>
 
-      {/* Progress Orb */}
-      <div className="flex justify-center mb-8">
+      {/* Treatment Progress Card */}
+      <div className="bg-card rounded-card p-6 mb-4 border border-border shadow-sm">
+        <span className="mono-label text-muted-foreground block mb-4">TREATMENT PROGRESS</span>
         {loading ? (
-          <Skeleton className="w-48 h-48 rounded-full" />
+          <div className="flex justify-center">
+            <Skeleton className="w-[100px] h-[100px] rounded-full" />
+          </div>
         ) : (
-          <GradientOrb
-            percentage={progressPercent}
-            status={notStarted ? "NOT STARTED" : progressPercent >= 50 ? "ON TRACK" : "IN PROGRESS"}
-            notStarted={notStarted}
+          <ProgressRing
+            value={progressPercent}
+            status={status}
+            subtitle={
+              data?.complianceStreak
+                ? `${data.complianceStreak} scans completed`
+                : undefined
+            }
           />
         )}
       </div>
@@ -110,12 +122,12 @@ export default function PatientHome() {
           </div>
           <span className="mono-label text-primary flex-shrink-0">
             {!data?.hasScanData
-              ? "START SCAN →"
+              ? "START →"
               : !data?.doctorName
-              ? "UPDATE PROFILE →"
+              ? "UPDATE →"
               : !data?.latestMessage
-              ? "SEND MESSAGE →"
-              : "START SCAN →"}
+              ? "MESSAGE →"
+              : "SCAN →"}
           </span>
         </div>
       )}
@@ -176,19 +188,22 @@ export default function PatientHome() {
         </div>
       )}
 
-      {/* Empty state or Start Scan CTA */}
+      {/* Empty state */}
       {!loading && !data?.hasScanData && (
         <div className="text-center mb-4">
           <p className="text-sm text-muted-foreground mb-3">Submit your first scan to get started.</p>
         </div>
       )}
 
-      <Button
+      {/* Floating Action Button */}
+      <button
         onClick={() => navigate("/patient/scan")}
-        className="w-full rounded-pill bg-primary hover:bg-primary/90 text-primary-foreground font-mono uppercase tracking-[0.15em] text-sm py-6"
+        className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
+        style={{ boxShadow: "0 4px 20px hsl(var(--primary) / 0.3)" }}
+        aria-label="Start new scan"
       >
-        Start Scan
-      </Button>
+        <Camera className="w-6 h-6" />
+      </button>
 
       <PatientBottomNav />
     </div>

@@ -131,8 +131,11 @@ export default function PatientChat() {
             <h2 className="font-display text-base font-medium text-foreground mb-2">
               No doctor connected yet
             </h2>
-            <p className="text-sm text-muted-foreground text-center max-w-[280px] mb-5 leading-relaxed">
+            <p className="text-sm text-muted-foreground text-center max-w-[280px] mb-2 leading-relaxed">
               Once your doctor accepts your treatment plan, you'll be able to message them directly here.
+            </p>
+            <p className="text-xs text-muted-foreground/60 text-center max-w-[260px] mb-5 italic">
+              You'll see personalized feedback and scan results from your assigned doctor.
             </p>
             <button
               onClick={() => navigate("/patient/profile")}
@@ -154,7 +157,7 @@ export default function PatientChat() {
               <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
                 {!isOwn && (
                   <div className="w-7 h-7 rounded-full bg-soft-panel flex items-center justify-center mr-2 flex-shrink-0 mt-1">
-                    <span className="font-mono text-[10px] text-muted-foreground">DR</span>
+                    <span className="font-mono text-xs text-muted-foreground">DR</span>
                   </div>
                 )}
                 <div

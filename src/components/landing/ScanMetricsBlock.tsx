@@ -44,7 +44,7 @@ function MiniBar({ filled = true }: { filled?: boolean }) {
 export default function ScanMetricsBlock() {
   return (
     <div
-      className="font-mono text-[10px] uppercase tracking-[0.15em] text-white/90 space-y-2.5 select-none"
+      className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/90 space-y-2.5 select-none"
       style={{
         background: "rgba(0,0,0,0.25)",
         backdropFilter: "blur(12px)",
@@ -56,7 +56,7 @@ export default function ScanMetricsBlock() {
     >
       <div className="flex items-center gap-1.5 mb-1">
         <div className="w-1.5 h-1.5 rounded-full bg-white animate-nav-dot-pulse" />
-        <span className="text-white/50 text-[8px]">SCAN QUALITY</span>
+        <span className="text-white/50 text-[11px]">SCAN QUALITY</span>
       </div>
       <div
         className="w-full mb-2"
@@ -72,14 +72,14 @@ export default function ScanMetricsBlock() {
         <span className="text-white/50">LIGHTING</span>
         <div className="flex items-center gap-1.5">
           <MiniBar />
-          <span className="text-[8px] text-white/70">OPTIMAL</span>
+          <span className="text-[11px] text-white/70">OPTIMAL</span>
         </div>
       </div>
       <div className="flex items-center justify-between">
         <span className="text-white/50">COVERAGE</span>
         <div className="flex items-center gap-1.5">
           <MiniBar />
-          <span className="text-[8px] text-white/70">COMPLETE</span>
+          <span className="text-[11px] text-white/70">COMPLETE</span>
         </div>
       </div>
     </div>

@@ -59,7 +59,7 @@ export default function DoctorLayout() {
                 key={item.path}
                 onClick={() => navigate(item.path)}
                 className={cn(
-                  "w-full flex items-center gap-3 transition-colors font-mono text-[10px] tracking-[0.14em] uppercase rounded-tag",
+                  "w-full flex items-center gap-3 transition-colors mono-label rounded-tag",
                   active
                     ? "text-primary border-l-[3px] border-primary bg-primary/[0.08] pl-5 pr-3.5 py-2.5"
                     : "text-muted-foreground border-l-[3px] border-transparent px-3.5 py-2.5 hover:text-foreground/60"
@@ -79,7 +79,7 @@ export default function DoctorLayout() {
           </p>
           <button
             onClick={signOut}
-            className="w-full py-2 rounded-md font-mono text-[10px] uppercase tracking-[0.15em] transition-colors border border-border text-muted-foreground bg-transparent hover:bg-muted"
+            className="w-full py-2 rounded-md mono-label transition-colors border border-border text-muted-foreground bg-transparent hover:bg-muted"
           >
             Sign Out
           </button>

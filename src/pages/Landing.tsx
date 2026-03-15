@@ -201,13 +201,13 @@ function PricingCard({ plan }: { plan: typeof pricingPlans[number] }) {
     >
       {plan.popular && (
         <div
-          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-primary-foreground"
+          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1 mono-label text-primary-foreground"
           style={{ background: "hsl(228 100% 62%)", boxShadow: "0 4px 12px hsla(228,100%,62%,0.3)" }}
         >
           Most Popular
         </div>
       )}
-      <span className="font-mono text-[10px] uppercase tracking-[0.15em] block mb-1" style={{ color: plan.color }}>{plan.name}</span>
+      <span className="mono-label block mb-1" style={{ color: plan.color }}>{plan.name}</span>
       <span className="font-body text-muted-foreground text-xs font-light block mb-4">{plan.description}</span>
       <div className="flex items-baseline gap-1 mb-6">
         <span className="font-display text-4xl font-bold text-foreground">{plan.price}</span>
@@ -223,7 +223,7 @@ function PricingCard({ plan }: { plan: typeof pricingPlans[number] }) {
       </ul>
       <Link
         to="/signup"
-        className={`block w-full text-center rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 transition-colors ${
+        className={`block w-full text-center rounded-pill mono-label px-6 py-3 transition-colors ${
           plan.ctaStyle === "primary"
             ? "bg-primary text-primary-foreground hover:bg-primary/90"
             : "border border-border text-foreground hover:border-foreground/30"
@@ -275,7 +275,7 @@ export default function Landing() {
             <button
               key={link.target}
               onClick={() => scrollToSection(link.target)}
-              className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer"
+              className="mono-label text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer"
             >
               {link.label}
             </button>
@@ -283,18 +283,18 @@ export default function Landing() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/login" className="hidden md:inline font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground transition-colors px-4 py-2">
+          <Link to="/login" className="hidden md:inline mono-label text-muted-foreground hover:text-foreground transition-colors px-4 py-2">
             Sign In
           </Link>
           <button
             onClick={() => setDemoOpen(true)}
-            className="hidden md:inline rounded-pill border border-border text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-4 py-2 hover:border-foreground/30 transition-colors"
+            className="hidden md:inline rounded-pill border border-border text-foreground mono-label px-4 py-2 hover:border-foreground/30 transition-colors"
           >
             Book a Demo
           </button>
           <Link
             to="/signup"
-            className="hidden md:inline rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-4 md:px-6 py-2 md:py-2.5 hover:bg-primary/90 transition-colors"
+            className="hidden md:inline rounded-pill bg-primary text-primary-foreground mono-label px-4 md:px-6 py-2 md:py-2.5 hover:bg-primary/90 transition-colors"
             style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 4px 16px hsla(228,100%,62%,0.35)" }}
           >
             Get Started
@@ -331,7 +331,7 @@ export default function Landing() {
           <Link to="/login" className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground py-2">Sign In</Link>
           <Link
             to="/signup"
-            className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 text-center hover:bg-primary/90 transition-colors"
+            className="rounded-pill bg-primary text-primary-foreground mono-label px-6 py-3 text-center hover:bg-primary/90 transition-colors"
           >
             Get Started
           </Link>
@@ -364,13 +364,13 @@ export default function Landing() {
           <div className="flex flex-col gap-2.5">
             <Link
               to="/signup"
-              className="rounded-pill bg-white text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-white/90 transition-colors text-center"
+              className="rounded-pill bg-white text-foreground mono-label px-8 py-3.5 hover:bg-white/90 transition-colors text-center"
             >
               Start as Patient
             </Link>
             <button
               onClick={() => scrollToSection("cta")}
-              className="rounded-pill border border-white/50 text-white font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3.5 hover:border-white/70 transition-colors flex items-center justify-center gap-2"
+              className="rounded-pill border border-white/50 text-white mono-label px-6 py-3.5 hover:border-white/70 transition-colors flex items-center justify-center gap-2"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.2)" }}
             >
               <Play className="w-3.5 h-3.5" />
@@ -409,23 +409,23 @@ export default function Landing() {
             <div className="flex flex-wrap gap-3">
               <Link
                 to="/signup"
-                className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 hover:bg-primary/90 transition-colors"
+                className="rounded-pill bg-primary text-primary-foreground mono-label px-6 py-3 hover:bg-primary/90 transition-colors"
                 style={{ boxShadow: "0 4px 16px hsla(228,100%,62%,0.3)" }}
               >
                 Start as Patient
               </Link>
               <button
                 onClick={() => scrollToSection("cta")}
-                className="rounded-pill border border-border text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-5 py-3 hover:border-foreground/30 transition-colors flex items-center gap-2"
+                className="rounded-pill border border-border text-foreground mono-label px-5 py-3 hover:border-foreground/30 transition-colors flex items-center gap-2"
               >
                 <Play className="w-3.5 h-3.5" />
                 Watch Demo
               </button>
             </div>
             <div className="mt-6 flex items-center gap-4">
-              <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-muted-foreground/50">Trusted by</span>
+              <span className="mono-label text-muted-foreground/50">Trusted by</span>
               {["SmileDirect", "Invisalign", "Candid"].map((name) => (
-                <span key={name} className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/30">{name}</span>
+                <span key={name} className="mono-label text-muted-foreground/30">{name}</span>
               ))}
             </div>
           </ScrollReveal>
@@ -473,14 +473,14 @@ export default function Landing() {
             <div className="flex flex-wrap gap-3">
                 <Link
                   to="/signup"
-                  className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-primary/90 transition-colors"
+                  className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3.5 hover:bg-primary/90 transition-colors"
                   style={{ boxShadow: "0 4px 16px hsla(228,100%,62%,0.3)" }}
                 >
                   Get Started Free
                 </Link>
                 <button
                   onClick={() => setDemoOpen(true)}
-                  className="rounded-pill border border-border text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3.5 hover:border-foreground/30 transition-colors flex items-center gap-2"
+                  className="rounded-pill border border-border text-foreground mono-label px-6 py-3.5 hover:border-foreground/30 transition-colors flex items-center gap-2"
                 >
                   Book a Demo
                 </button>
@@ -491,9 +491,9 @@ export default function Landing() {
                 </Link>
               </div>
               <div className="mt-6 flex items-center gap-6">
-                <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-muted-foreground/50">Trusted by</span>
+                <span className="mono-label text-muted-foreground/50">Trusted by</span>
                 {["SmileDirect", "Invisalign", "Candid"].map((name) => (
-                  <span key={name} className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/30">{name}</span>
+                  <span key={name} className="mono-label text-muted-foreground/30">{name}</span>
                 ))}
             </div>
           </ScrollReveal>
@@ -545,7 +545,7 @@ export default function Landing() {
             ].map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-3">
                 <Icon className="w-4 h-4 text-primary flex-shrink-0" />
-                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{text}</span>
+                <span className="mono-label text-muted-foreground">{text}</span>
               </div>
             ))}
           </div>
@@ -594,7 +594,7 @@ export default function Landing() {
             </Accordion>
             <Link
               to="/features"
-              className="inline-flex items-center gap-2 mt-6 font-mono text-[10px] uppercase tracking-[0.15em] text-primary hover:text-primary/80 transition-colors"
+              className="inline-flex items-center gap-2 mt-6 mono-label text-primary hover:text-primary/80 transition-colors"
             >
               See all features <ArrowRight className="w-3.5 h-3.5" />
             </Link>
@@ -669,7 +669,7 @@ export default function Landing() {
                     suffix={s.suffix}
                     className="font-display font-black text-white block mb-3 text-6xl md:text-7xl relative z-10"
                   />
-                  <span className="font-mono uppercase text-[9px] tracking-[0.15em] whitespace-pre-line" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <span className="mono-label whitespace-pre-line" style={{ color: "rgba(255,255,255,0.35)" }}>
                     {s.label}
                   </span>
                 </div>
@@ -758,7 +758,7 @@ export default function Landing() {
           <div className="grid lg:grid-cols-2 gap-0 rounded-card overflow-hidden border border-border">
             <div className="p-10 lg:p-16 flex flex-col justify-center" style={{ background: "hsl(216 32% 7%)" }}>
               <ScrollReveal>
-                <span className="mono-label text-primary mb-4 block text-[9px]">HARDWARE</span>
+                <span className="mono-label text-primary mb-4 block">HARDWARE</span>
                 <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">Arcline Scope</h2>
                 <p className="font-body text-white/50 text-sm font-light leading-relaxed mb-8 max-w-sm">
                   Clinical-grade intraoral scanner designed for remote dental monitoring. Compact, precise, and effortless to use.
@@ -772,15 +772,15 @@ export default function Landing() {
                     <div key={label} className="flex items-center gap-2">
                       <Icon className="w-3.5 h-3.5 text-primary" />
                       <div>
-                        <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-white/30 block">{label}</span>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-white">{value}</span>
+                        <span className="mono-label text-white/30 block">{label}</span>
+                        <span className="mono-label text-white">{value}</span>
                       </div>
                     </div>
                   ))}
                 </div>
                 <button
                   onClick={() => setDemoOpen(true)}
-                  className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 text-white transition-colors w-fit"
+                  className="rounded-pill mono-label px-6 py-3 text-white transition-colors w-fit"
                   style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)" }}
                 >
                   Learn More
@@ -820,13 +820,13 @@ export default function Landing() {
             <div className="flex flex-col sm:flex-row justify-center gap-4 mb-10">
               <Link
                 to="/signup"
-                className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3.5 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                 style={{ boxShadow: "0 4px 24px hsla(228,100%,62%,0.35)" }}
               >
                 Start Free Trial <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <button
-                className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 text-white transition-colors"
+                className="rounded-pill mono-label px-8 py-3.5 text-white transition-colors"
                 style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)" }}
               >
                 Talk to Sales
@@ -835,7 +835,7 @@ export default function Landing() {
             {/* Trust badges */}
             <div className="flex flex-wrap justify-center gap-6">
               {["No credit card required", "14-day free trial", "Cancel anytime"].map((badge) => (
-                <span key={badge} className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.12em] text-white/40">
+                <span key={badge} className="flex items-center gap-2 mono-label text-white/40">
                   <Check className="w-3.5 h-3.5" /> {badge}
                 </span>
               ))}
@@ -852,7 +852,7 @@ export default function Landing() {
           </p>
           <button
             onClick={() => setDemoOpen(true)}
-            className="rounded-pill bg-white text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-white/90 transition-colors flex-shrink-0"
+            className="rounded-pill bg-white text-foreground mono-label px-8 py-3.5 hover:bg-white/90 transition-colors flex-shrink-0"
           >
             Book a Discovery Call
           </button>
@@ -872,12 +872,12 @@ export default function Landing() {
               <p className="font-body text-muted-foreground text-xs font-light leading-relaxed mb-4">
                 Premium virtual dental care for modern practices.
               </p>
-              <p className="font-body text-muted-foreground/50 text-[10px] font-light">© 2026 Arcline. All rights reserved.</p>
+              <p className="font-body text-muted-foreground/50 mono-label font-light">© 2026 Arcline. All rights reserved.</p>
             </div>
 
             {/* Product */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Product</span>
+              <span className="mono-label text-foreground/50 block mb-4">Product</span>
               <Link to="/features" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Features</Link>
               <button onClick={() => scrollToSection("pricing")} className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors cursor-pointer bg-transparent border-none text-left p-0">Pricing</button>
               <Link to="/integrations" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Integrations</Link>
@@ -885,7 +885,7 @@ export default function Landing() {
 
             {/* Company */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Company</span>
+              <span className="mono-label text-foreground/50 block mb-4">Company</span>
               <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors cursor-pointer bg-transparent border-none text-left p-0">About</button>
               <Link to="/blog" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Blog</Link>
               <Link to="/careers" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Careers</Link>
@@ -894,7 +894,7 @@ export default function Landing() {
 
             {/* Legal */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Legal</span>
+              <span className="mono-label text-foreground/50 block mb-4">Legal</span>
               <Link to="/privacy" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Privacy</Link>
               <Link to="/terms" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Terms</Link>
               <Link to="/hipaa" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">HIPAA</Link>
@@ -904,12 +904,12 @@ export default function Landing() {
 
           {/* Bottom bar */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-black/[0.06]">
-            <div className="flex gap-4 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50">
+            <div className="flex gap-4 mono-label text-muted-foreground/50">
               <a href="#" className="hover:text-foreground transition-colors">Twitter</a>
               <a href="#" className="hover:text-foreground transition-colors">LinkedIn</a>
               <a href="#" className="hover:text-foreground transition-colors">Instagram</a>
             </div>
-            <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50">
+            <span className="flex items-center gap-2 mono-label text-muted-foreground/50">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "hsl(142 71% 45%)" }} />
               All systems operational
             </span>
@@ -973,7 +973,7 @@ export default function Landing() {
               </select>
               <button
                 type="submit"
-                className="w-full rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] py-3 hover:bg-primary/90 transition-colors"
+                className="w-full rounded-pill bg-primary text-primary-foreground mono-label py-3 hover:bg-primary/90 transition-colors"
               >
                 Book Call
               </button>

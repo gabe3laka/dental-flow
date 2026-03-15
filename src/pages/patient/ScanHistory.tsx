@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp, Camera } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 type ScanRow = {
@@ -148,19 +148,39 @@ export default function ScanHistory() {
           ))}
         </div>
       ) : scans.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+        <div className="flex flex-col items-center justify-center py-12">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-5">
             <Camera className="w-7 h-7 text-primary" />
           </div>
           <h2 className="font-display text-base font-medium mb-2">No scans yet</h2>
-          <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[260px]">
-            Submit your first scan to get started tracking your dental progress.
+          <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[280px]">
+            Your first scan takes about 60 seconds and is reviewed within 24 hours.
           </p>
+
+          {/* How it works mini-guide */}
+          <div className="flex items-center gap-6 mb-6">
+            {[
+              { icon: Camera, label: "Position phone" },
+              { icon: RotateCw, label: "Capture 5 angles" },
+              { icon: Sparkles, label: "Get AI analysis" },
+            ].map((step, i) => (
+              <div key={step.label} className="flex flex-col items-center gap-2">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                  <step.icon className="w-4 h-4 text-primary" />
+                </div>
+                <span className="mono-label text-muted-foreground">{step.label}</span>
+                {i < 2 && (
+                  <div className="absolute" />
+                )}
+              </div>
+            ))}
+          </div>
+
           <Button
             onClick={() => navigate("/patient/scan")}
             className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3"
           >
-            Start Scan
+            Start Your First Scan
           </Button>
         </div>
       ) : (

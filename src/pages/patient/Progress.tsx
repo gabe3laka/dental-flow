@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
-import { GradientOrb } from "@/components/ui/gradient-orb";
+import { ProgressRing } from "@/components/ui/progress-ring";
 import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -150,19 +150,21 @@ export default function Progress() {
         </span>
       )}
 
-      {patientLoading ? (
-        <div className="flex justify-center mb-8">
-          <Skeleton className="w-48 h-48 rounded-full" />
-        </div>
-      ) : (
-        <div className="flex flex-col items-center mb-8">
-          <GradientOrb
-            percentage={progressPercent}
-            status={notStarted ? "NOT STARTED" : progressPercent >= 50 ? "ON TRACK" : "IN PROGRESS"}
-            notStarted={notStarted}
+      {/* Treatment Progress Card */}
+      <div className="bg-card rounded-card p-6 mb-8 border border-border shadow-sm">
+        <span className="mono-label text-muted-foreground block mb-4">TREATMENT PROGRESS</span>
+        {patientLoading ? (
+          <div className="flex justify-center">
+            <Skeleton className="w-[100px] h-[100px] rounded-full" />
+          </div>
+        ) : (
+          <ProgressRing
+            value={progressPercent}
+            status={notStarted ? "not_started" : progressPercent >= 50 ? "on_track" : "needs_attention"}
+            subtitle={`${complianceStreak} scans completed`}
           />
-        </div>
-      )}
+        )}
+      </div>
 
       {/* AI Insight */}
       <div className="rounded-card p-5 mb-8 bg-primary/5 border border-primary/10">
