@@ -877,7 +877,7 @@ export default function Landing() {
 
             {/* Product */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Product</span>
+              <span className="mono-label text-foreground/50 block mb-4">Product</span>
               <Link to="/features" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Features</Link>
               <button onClick={() => scrollToSection("pricing")} className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors cursor-pointer bg-transparent border-none text-left p-0">Pricing</button>
               <Link to="/integrations" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Integrations</Link>
