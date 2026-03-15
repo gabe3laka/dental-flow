@@ -283,7 +283,7 @@ export default function Landing() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Link to="/login" className="hidden md:inline font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground transition-colors px-4 py-2">
+          <Link to="/login" className="hidden md:inline mono-label text-muted-foreground hover:text-foreground transition-colors px-4 py-2">
             Sign In
           </Link>
           <button
