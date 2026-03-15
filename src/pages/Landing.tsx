@@ -364,7 +364,7 @@ export default function Landing() {
           <div className="flex flex-col gap-2.5">
             <Link
               to="/signup"
-              className="rounded-pill bg-white text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-white/90 transition-colors text-center"
+              className="rounded-pill bg-white text-foreground mono-label px-8 py-3.5 hover:bg-white/90 transition-colors text-center"
             >
               Start as Patient
             </Link>
