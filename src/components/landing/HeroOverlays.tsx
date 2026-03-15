@@ -80,7 +80,7 @@ export default function HeroOverlays() {
       {/* Zone pill */}
       <div className="absolute top-6 left-6">
         <span
-          className="font-mono uppercase tracking-[0.15em] text-[8px] text-white/40 px-2 py-1 rounded-full"
+          className="font-mono uppercase tracking-[0.15em] text-[11px] text-white/40 px-2 py-1 rounded-full"
           style={{
             border: "1px solid rgba(255,255,255,0.12)",
             background: "rgba(255,255,255,0.05)",
