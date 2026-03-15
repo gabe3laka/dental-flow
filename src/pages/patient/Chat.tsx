@@ -114,22 +114,19 @@ export default function PatientChat() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col max-w-lg mx-auto">
+    <div className="min-h-screen bg-background flex flex-col max-w-[480px] mx-auto pb-24">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-border">
+      <div className="px-5 py-4 border-b border-border">
         <span className="mono-label text-muted-foreground">{doctorId ? "CHAT WITH" : "MESSAGES"}</span>
         {doctorId && <h1 className="font-display text-lg font-semibold">{doctorName}</h1>}
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-6 py-4 space-y-2">
+      <div ref={scrollRef} className="flex-1 overflow-auto px-5 py-4 space-y-2">
         {!doctorId && (
           <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div
-              className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-              style={{ background: "hsl(256 67% 95%)" }}
-            >
-              <MessageCircle className="w-7 h-7" style={{ color: "hsl(256 67% 70%)" }} />
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-accent/20">
+              <MessageCircle className="w-7 h-7 text-accent" />
             </div>
             <h2 className="font-display text-base font-medium text-foreground mb-2">
               No doctor connected yet
@@ -139,7 +136,7 @@ export default function PatientChat() {
             </p>
             <button
               onClick={() => navigate("/patient/profile")}
-              className="rounded-pill px-5 py-2 font-mono text-[10px] uppercase tracking-[0.15em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition"
+              className="rounded-pill px-5 py-2 mono-label border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition"
             >
               Complete your profile →
             </button>
@@ -150,23 +147,22 @@ export default function PatientChat() {
           return (
             <div key={msg.id}>
               {shouldShowTimestamp(idx) && (
-                <p className="text-center font-mono text-[9px] tracking-[0.15em] text-muted-foreground my-3">
+                <p className="text-center mono-label text-muted-foreground my-3">
                   {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </p>
               )}
               <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
                 {!isOwn && (
                   <div className="w-7 h-7 rounded-full bg-soft-panel flex items-center justify-center mr-2 flex-shrink-0 mt-1">
-                    <span className="font-mono text-[8px] text-muted-foreground">DR</span>
+                    <span className="font-mono text-[10px] text-muted-foreground">DR</span>
                   </div>
                 )}
                 <div
-                  className="max-w-[75%] px-4 py-2.5 text-sm"
-                  style={{
-                    background: isOwn ? "hsl(228 100% 62%)" : "hsl(252 55% 95%)",
-                    color: isOwn ? "white" : "hsl(240 30% 14%)",
-                    borderRadius: isOwn ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-                  }}
+                  className={`max-w-[75%] px-4 py-2.5 text-sm ${
+                    isOwn
+                      ? "bg-primary text-primary-foreground rounded-[18px_18px_4px_18px]"
+                      : "bg-secondary text-secondary-foreground rounded-[18px_18px_18px_4px]"
+                  }`}
                 >
                   {msg.content}
                 </div>
@@ -178,9 +174,9 @@ export default function PatientChat() {
 
       {/* Input bar */}
       {doctorId && (
-        <div className="px-6 py-4 border-t border-border">
+        <div className="px-5 py-4 border-t border-border">
           <div className="flex items-center gap-2 bg-card rounded-pill border border-border px-4 py-2">
-            <label className="cursor-pointer">
+            <label className="cursor-pointer" aria-label="Attach file">
               <Paperclip className="w-4 h-4 text-muted-foreground hover:text-foreground transition" />
               <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
                 const file = e.target.files?.[0];
@@ -212,6 +208,7 @@ export default function PatientChat() {
               onClick={sendMessage}
               disabled={!input.trim() || sending}
               className="w-8 h-8 rounded-full bg-primary flex items-center justify-center disabled:opacity-50"
+              aria-label="Send message"
             >
               <Send className="w-3.5 h-3.5 text-primary-foreground" />
             </button>

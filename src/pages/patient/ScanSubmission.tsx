@@ -8,6 +8,13 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 
 const zones = ["UPPER", "LOWER", "LEFT", "RIGHT", "FRONT"];
+const ZONE_GUIDANCE: Record<string, string> = {
+  UPPER: "Position your upper teeth in the frame",
+  LOWER: "Position your lower teeth in the frame",
+  LEFT: "Position the left side of your bite in the frame",
+  RIGHT: "Position the right side of your bite in the frame",
+  FRONT: "Show your front smile in the frame",
+};
 const TIMER_DURATION = 60;
 
 function CircularTimer({ elapsed }: { elapsed: number }) {
@@ -60,23 +67,25 @@ export default function ScanSubmission() {
   const { user } = useAuth();
   const [currentZone, setCurrentZone] = useState(0);
   const [captured, setCaptured] = useState<(Blob | null)[]>(new Array(zones.length).fill(null));
+  const [thumbUrls, setThumbUrls] = useState<(string | null)[]>(new Array(zones.length).fill(null));
   const [submitting, setSubmitting] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [timerStarted, setTimerStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [qualityScore, setQualityScore] = useState(0);
+  const [showReview, setShowReview] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Start camera
+  // Start camera — rear camera for dental scans
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 960 } },
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } },
         });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
@@ -132,7 +141,41 @@ export default function ScanSubmission() {
     const next = [...captured];
     next[currentZone] = blob || new Blob();
     setCaptured(next);
-    if (currentZone < zones.length - 1) setCurrentZone(currentZone + 1);
+
+    // Generate thumbnail URL
+    if (blob) {
+      const urls = [...thumbUrls];
+      urls[currentZone] = URL.createObjectURL(blob);
+      setThumbUrls(urls);
+    }
+
+    if (currentZone < zones.length - 1) {
+      setCurrentZone(currentZone + 1);
+    } else {
+      // All zones captured
+      setShowReview(true);
+    }
+  };
+
+  // Allow re-capture of completed zones
+  const handleZoneClick = (i: number) => {
+    if (showReview) {
+      // Coming back from review to re-capture
+      setShowReview(false);
+    }
+    setCurrentZone(i);
+  };
+
+  const handleRetake = (i: number) => {
+    const next = [...captured];
+    next[i] = null;
+    setCaptured(next);
+    const urls = [...thumbUrls];
+    if (urls[i]) URL.revokeObjectURL(urls[i]!);
+    urls[i] = null;
+    setThumbUrls(urls);
+    setShowReview(false);
+    setCurrentZone(i);
   };
 
   const allCaptured = captured.every(Boolean);
@@ -168,7 +211,6 @@ export default function ScanSubmission() {
 
       await supabase.from("patients").update({ total_scans: (patient as any).total_scans ? (patient as any).total_scans + 1 : 1 }).eq("id", patient.id);
 
-      // Wire AI edge functions
       if (scanRow?.id) {
         try {
           const { data: qualityData } = await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } });
@@ -190,8 +232,60 @@ export default function ScanSubmission() {
     }
   };
 
+  // Review screen after all zones captured
+  if (showReview && allCaptured) {
+    return (
+      <div className="min-h-screen bg-background px-5 py-6 max-w-[480px] mx-auto pb-24">
+        <div className="flex items-center justify-between mb-6">
+          <button onClick={() => setShowReview(false)} className="mono-label text-muted-foreground hover:text-foreground transition">
+            ← BACK
+          </button>
+          <span className="mono-label text-primary">REVIEW SCAN</span>
+        </div>
+
+        <QualityScoreAnimation targetScore={qualityScore || 85} />
+
+        <div className="grid grid-cols-5 gap-2 mb-6">
+          {zones.map((zone, i) => (
+            <div key={zone} className="flex flex-col items-center gap-1">
+              <div className="w-full aspect-square rounded-lg bg-muted overflow-hidden border border-border">
+                {thumbUrls[i] ? (
+                  <img src={thumbUrls[i]!} alt={zone} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <span className="mono-label text-muted-foreground">—</span>
+                  </div>
+                )}
+              </div>
+              <span className="mono-label text-muted-foreground">{zone}</span>
+              <button
+                onClick={() => handleRetake(i)}
+                className="mono-label text-primary hover:underline"
+              >
+                RETAKE
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <Button
+          onClick={handleSubmit}
+          disabled={submitting}
+          className="w-full rounded-pill bg-primary hover:bg-primary/90 text-primary-foreground font-mono uppercase tracking-[0.15em] text-sm py-6"
+        >
+          {submitting ? "Uploading..." : "Submit Scan"}
+        </Button>
+        <p className="text-center text-xs text-muted-foreground mt-3">
+          Usually reviewed within 24 hours
+        </p>
+
+        <PatientBottomNav />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-background px-4 py-6 max-w-lg mx-auto pb-24">
+    <div className="min-h-screen bg-background px-4 py-6 max-w-[480px] mx-auto pb-24">
       <div className="flex items-center justify-between mb-4">
         <button onClick={() => navigate("/patient")} className="mono-label text-muted-foreground hover:text-foreground transition">CANCEL</button>
         {timerStarted && (
@@ -199,13 +293,18 @@ export default function ScanSubmission() {
         )}
       </div>
 
-      <div className="flex justify-center gap-4 mb-4">
-        <span className="mono-label text-primary">ZONE: {zones[currentZone]}</span>
+      <div className="flex justify-center gap-4 mb-2">
+        <span className="mono-label text-primary">ZONE {currentZone + 1} OF {zones.length}: {zones[currentZone]}</span>
         <span className="mono-label text-muted-foreground">·</span>
-        <span className="mono-label" style={{ color: cameraReady ? "hsl(142 71% 45%)" : "hsl(38 92% 50%)" }}>
+        <span className={`mono-label ${cameraReady ? "text-status-success" : cameraError ? "text-destructive" : "text-status-warning"}`}>
           {cameraReady ? "CAMERA READY" : cameraError ? "NO CAMERA" : "STARTING..."}
         </span>
       </div>
+
+      {/* Zone guidance text */}
+      <p className="text-center text-sm text-muted-foreground mb-4">
+        {ZONE_GUIDANCE[zones[currentZone]]}
+      </p>
 
       <div className="relative aspect-[3/4] rounded-card bg-card border border-border mb-4 flex items-center justify-center overflow-hidden">
         <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted style={{ display: cameraReady ? "block" : "none" }} />
@@ -218,7 +317,7 @@ export default function ScanSubmission() {
         )}
         <div className="absolute inset-3 rounded-lg flex items-center justify-center transition-all duration-300 z-10"
           style={{ border: captured[currentZone] ? "2px solid hsl(var(--status-success))" : "2px dashed hsl(var(--primary) / 0.4)" }}>
-          <span className="mono-label text-lg" style={{ color: captured[currentZone] ? "hsl(var(--status-success))" : "hsl(var(--primary))" }}>
+          <span className={`mono-label text-lg ${captured[currentZone] ? "text-status-success" : "text-primary"}`}>
             {captured[currentZone] ? "✓" : zones[currentZone]}
           </span>
         </div>
@@ -229,24 +328,26 @@ export default function ScanSubmission() {
 
       <div className="flex justify-center gap-2 mb-6">
         {zones.map((zone, i) => (
-          <button key={zone} onClick={() => setCurrentZone(i)}
-            className="px-3 py-1.5 rounded-pill mono-label transition"
-            style={{
-              background: i === currentZone ? "hsl(var(--primary))" : captured[i] ? "hsl(var(--status-success) / 0.2)" : "hsl(var(--muted))",
-              color: i === currentZone ? "hsl(var(--primary-foreground))" : captured[i] ? "hsl(var(--status-success))" : "hsl(var(--muted-foreground))",
-            }}>
+          <button key={zone} onClick={() => handleZoneClick(i)}
+            className={`px-3 py-1.5 rounded-pill mono-label transition ${
+              i === currentZone
+                ? "bg-primary text-primary-foreground"
+                : captured[i]
+                  ? "bg-status-success/20 text-status-success"
+                  : "bg-muted text-muted-foreground"
+            }`}
+          >
             {captured[i] ? "✓" : i + 1}
           </button>
         ))}
       </div>
 
-      {allCaptured && <QualityScoreAnimation targetScore={qualityScore} />}
-
       {allCaptured ? (
-        <div className="relative">
-          <Button onClick={handleSubmit} disabled={submitting}
+        <div className="flex flex-col items-center gap-3">
+          <QualityScoreAnimation targetScore={qualityScore} />
+          <Button onClick={() => setShowReview(true)}
             className="w-full rounded-pill bg-primary hover:bg-primary/90 text-primary-foreground font-mono uppercase tracking-[0.15em] text-sm py-6">
-            {submitting ? "Uploading..." : "Submit Scan"}
+            Review & Submit
           </Button>
         </div>
       ) : (
@@ -254,7 +355,9 @@ export default function ScanSubmission() {
           <div className="relative w-[120px] h-[120px] flex items-center justify-center">
             {timerStarted && <CircularTimer elapsed={elapsed} />}
             <Button onClick={handleCapture}
-              className="w-20 h-20 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-mono uppercase tracking-[0.15em] text-[10px] z-10">
+              className="w-20 h-20 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-mono uppercase tracking-[0.15em] mono-label z-10"
+              aria-label={`Capture ${zones[currentZone]} zone`}
+            >
               Capture
             </Button>
           </div>

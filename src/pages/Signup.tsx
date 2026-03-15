@@ -10,21 +10,65 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import { Eye, EyeOff, Check, X } from "lucide-react";
 
 type RoleOption = "doctor" | "patient";
 
 const signupSchema = z.object({
   fullName: z.string().min(1, "Name is required").min(2, "Name must be at least 2 characters"),
   email: z.string().email("Enter a valid email"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
   role: z.enum(["doctor", "patient"]),
   specialty: z.string().optional(),
 });
 
 type SignupFormValues = z.infer<typeof signupSchema>;
 
+function PasswordStrength({ password }: { password: string }) {
+  const checks = [
+    { label: "8+ characters", met: password.length >= 8 },
+    { label: "Contains a number", met: /\d/.test(password) },
+    { label: "Contains a special character", met: /[^a-zA-Z0-9]/.test(password) },
+  ];
+  const score = checks.filter((c) => c.met).length;
+  const colors = ["bg-destructive", "bg-status-warning", "bg-status-warning", "bg-status-success"];
+  const barColor = colors[score] || "bg-muted";
+
+  if (!password) return null;
+
+  return (
+    <div className="space-y-2 mt-2">
+      {/* Strength bar */}
+      <div className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className={`h-1 flex-1 rounded-full transition-colors ${i < score ? barColor : "bg-muted"}`}
+          />
+        ))}
+      </div>
+      {/* Requirements checklist */}
+      <div className="space-y-1">
+        {checks.map((check) => (
+          <div key={check.label} className="flex items-center gap-1.5">
+            {check.met ? (
+              <Check className="w-3 h-3 text-status-success" />
+            ) : (
+              <X className="w-3 h-3 text-muted-foreground" />
+            )}
+            <span className={`text-xs ${check.met ? "text-status-success" : "text-muted-foreground"}`}>
+              {check.label}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Signup() {
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const { signUp, user, role: authRole, loading } = useAuth();
   const navigate = useNavigate();
 
@@ -40,6 +84,7 @@ export default function Signup() {
   });
 
   const selectedRole = form.watch("role") as RoleOption;
+  const passwordValue = form.watch("password");
 
   // Redirect authenticated users to their dashboard
   if (!loading && user && authRole) {
@@ -71,7 +116,7 @@ export default function Signup() {
           style={{
             transform: "rotate(-90deg) translateX(50%)",
             transformOrigin: "right center",
-            fontSize: "9px",
+            fontSize: "11px",
             color: "rgba(255,255,255,0.15)",
             whiteSpace: "nowrap",
           }}
@@ -131,7 +176,7 @@ export default function Signup() {
                                 : "bg-transparent text-muted-foreground border-border hover:border-foreground/20"
                             )}
                           >
-                            <span className="font-mono text-[10px] uppercase tracking-[0.15em]">{r.value}</span>
+                            <span className="mono-label">{r.value}</span>
                             <span className={cn(
                               "font-body text-[10px] font-light leading-tight px-2 text-center",
                               field.value === r.value ? "text-primary-foreground/70" : "text-muted-foreground/60"
@@ -217,14 +262,25 @@ export default function Signup() {
                   <FormItem>
                     <FormLabel htmlFor="password" className="mono-label text-muted-foreground">PASSWORD</FormLabel>
                     <FormControl>
-                      <Input
-                        id="password"
-                        type="password"
-                        placeholder="••••••••"
-                        className="rounded-tag"
-                        {...field}
-                      />
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          className="rounded-tag pr-10"
+                          {...field}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </FormControl>
+                    <PasswordStrength password={passwordValue} />
                     <FormMessage />
                   </FormItem>
                 )}

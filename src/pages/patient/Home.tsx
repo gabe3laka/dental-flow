@@ -20,6 +20,17 @@ function formatStreak(streak: number) {
   return `${streak} 🔥🔥`;
 }
 
+function UserAvatar({ name }: { name?: string }) {
+  const initials = name
+    ? name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    : "?";
+  return (
+    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+      <span className="font-mono text-xs text-primary font-medium">{initials}</span>
+    </div>
+  );
+}
+
 export default function PatientHome() {
   const { user, signOut } = useAuth();
   const { data, loading } = usePatientData();
@@ -27,12 +38,13 @@ export default function PatientHome() {
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
   const firstName = user?.user_metadata?.full_name?.split(" ")[0];
+  const fullName = user?.user_metadata?.full_name;
 
   const progressPercent = data?.progressPercent ?? 0;
   const notStarted = !data?.hasStarted && progressPercent === 0;
 
   return (
-    <div className="min-h-screen bg-background px-6 py-8 max-w-lg mx-auto">
+    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -41,9 +53,12 @@ export default function PatientHome() {
             {getGreeting()}{firstName ? `, ${firstName}` : ""}
           </h1>
         </div>
-        <button onClick={signOut} className="mono-label text-muted-foreground hover:text-foreground transition">
-          SIGN OUT
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={signOut} className="mono-label text-muted-foreground hover:text-foreground transition">
+            SIGN OUT
+          </button>
+          <UserAvatar name={fullName} />
+        </div>
       </div>
 
       {/* Progress Orb */}
@@ -62,7 +77,7 @@ export default function PatientHome() {
       {/* YOUR NEXT STEP card */}
       {!loading && (
         <div
-          className="bg-card rounded-card p-5 mb-4 border border-border flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
+          className="bg-card rounded-card p-5 mb-4 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
           onClick={() => {
             if (!data?.hasScanData) navigate("/patient/scan");
             else if (!data?.doctorName) navigate("/patient/profile");
@@ -70,10 +85,7 @@ export default function PatientHome() {
             else navigate("/patient/scan");
           }}
         >
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "hsl(228 100% 62% / 0.1)" }}
-          >
+          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-primary/10">
             {!data?.hasScanData ? (
               <Camera className="w-4 h-4 text-primary" />
             ) : !data?.doctorName ? (
@@ -85,7 +97,7 @@ export default function PatientHome() {
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <span className="mono-label text-muted-foreground text-[9px]">YOUR NEXT STEP</span>
+            <span className="mono-label text-muted-foreground">YOUR NEXT STEP</span>
             <p className="text-sm font-medium mt-0.5">
               {!data?.hasScanData
                 ? "Submit your first scan to get started."
@@ -96,7 +108,7 @@ export default function PatientHome() {
                 : `Next scan due in ${data.nextCheckInDays ?? "—"} days. Keep your streak going!`}
             </p>
           </div>
-          <span className="mono-label text-primary text-[9px] flex-shrink-0">
+          <span className="mono-label text-primary flex-shrink-0">
             {!data?.hasScanData
               ? "START SCAN →"
               : !data?.doctorName
@@ -109,18 +121,19 @@ export default function PatientHome() {
       )}
 
       {/* Next check-in card */}
-      <div className="bg-card rounded-card p-6 mb-4 border border-border">
+      <div className="bg-card rounded-card p-5 mb-4 border border-border shadow-sm">
         {loading ? (
           <Skeleton className="h-12" />
         ) : (
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1">
               <span className="mono-label text-muted-foreground">NEXT CHECK-IN</span>
               <p className="font-display text-lg font-semibold mt-1">
                 {data?.nextCheckInDays !== null ? `${data?.nextCheckInDays} days` : "No scans yet"}
               </p>
             </div>
-            <div className="text-right">
+            <div className="w-px h-10 bg-border mx-4" />
+            <div className="flex-1 text-right">
               <span className="mono-label text-muted-foreground">SCAN STREAK</span>
               <p className="font-display text-lg font-semibold mt-1">{formatStreak(data?.complianceStreak ?? 0)}</p>
             </div>
@@ -133,7 +146,7 @@ export default function PatientHome() {
         <Skeleton className="h-16 rounded-card mb-6" />
       ) : data?.latestMessage ? (
         <div
-          className="bg-card rounded-card p-6 mb-6 border border-border flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
+          className="bg-card rounded-card p-5 mb-6 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
           onClick={() => navigate("/patient/chat")}
         >
           <div className="w-10 h-10 rounded-full bg-soft-panel flex items-center justify-center font-mono text-xs text-muted-foreground">
@@ -149,17 +162,17 @@ export default function PatientHome() {
         </div>
       ) : (
         <div
-          className="bg-card rounded-card p-5 mb-6 border border-border flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
+          className="bg-card rounded-card p-5 mb-6 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
           onClick={() => navigate("/patient/profile")}
         >
-          <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "hsl(256 67% 95%)" }}>
-            <MessageCircle className="w-4 h-4" style={{ color: "hsl(256 67% 70%)" }} />
+          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-accent/20">
+            <MessageCircle className="w-4 h-4 text-accent" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium">Your doctor will appear here</p>
             <p className="text-xs text-muted-foreground">Once assigned, you can message them directly.</p>
           </div>
-          <span className="mono-label text-primary text-[9px] flex-shrink-0">PROFILE →</span>
+          <span className="mono-label text-primary flex-shrink-0">PROFILE →</span>
         </div>
       )}
 
