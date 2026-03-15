@@ -78,8 +78,8 @@ export default function PatientHome() {
             value={progressPercent}
             status={status}
             subtitle={
-              data?.totalScans
-                ? `${data.totalScans} scans completed`
+              data?.complianceStreak
+                ? `${data.complianceStreak} scans completed`
                 : undefined
             }
           />
