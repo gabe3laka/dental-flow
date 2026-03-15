@@ -331,7 +331,7 @@ export default function Landing() {
           <Link to="/login" className="font-mono text-[11px] uppercase tracking-[0.15em] text-muted-foreground py-2">Sign In</Link>
           <Link
             to="/signup"
-            className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 text-center hover:bg-primary/90 transition-colors"
+            className="rounded-pill bg-primary text-primary-foreground mono-label px-6 py-3 text-center hover:bg-primary/90 transition-colors"
           >
             Get Started
           </Link>
