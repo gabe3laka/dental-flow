@@ -826,7 +826,7 @@ export default function Landing() {
                 Start Free Trial <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <button
-                className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 text-white transition-colors"
+                className="rounded-pill mono-label px-8 py-3.5 text-white transition-colors"
                 style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)" }}
               >
                 Talk to Sales
