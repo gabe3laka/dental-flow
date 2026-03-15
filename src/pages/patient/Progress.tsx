@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { GradientOrb } from "@/components/ui/gradient-orb";
-import { ToothArch } from "@/components/patient/ToothArch";
+import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
