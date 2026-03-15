@@ -491,7 +491,7 @@ export default function Landing() {
                 </Link>
               </div>
               <div className="mt-6 flex items-center gap-6">
-                <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-muted-foreground/50">Trusted by</span>
+                <span className="mono-label text-muted-foreground/50">Trusted by</span>
                 {["SmileDirect", "Invisalign", "Candid"].map((name) => (
                   <span key={name} className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground/30">{name}</span>
                 ))}
