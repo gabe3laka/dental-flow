@@ -63,7 +63,7 @@ describe("logError", () => {
   it("spreads extra fields to the top level of the entry object", () => {
     logError(new Error("msg"), { operation: "test/op", extra: { key: "val" } });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.key).toBe("val");
   });
 });

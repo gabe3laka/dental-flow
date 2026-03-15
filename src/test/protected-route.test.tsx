@@ -77,7 +77,7 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("no user redirects to /login", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ user: null, suspended: null }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ user: null, suspended: null }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOGIN PAGE")).toBeInTheDocument();
   });
