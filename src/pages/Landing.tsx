@@ -370,7 +370,7 @@ export default function Landing() {
             </Link>
             <button
               onClick={() => scrollToSection("cta")}
-              className="rounded-pill border border-white/50 text-white font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3.5 hover:border-white/70 transition-colors flex items-center justify-center gap-2"
+              className="rounded-pill border border-white/50 text-white mono-label px-6 py-3.5 hover:border-white/70 transition-colors flex items-center justify-center gap-2"
               style={{ textShadow: "0 1px 2px rgba(0,0,0,0.2)" }}
             >
               <Play className="w-3.5 h-3.5" />
