@@ -835,7 +835,7 @@ export default function Landing() {
             {/* Trust badges */}
             <div className="flex flex-wrap justify-center gap-6">
               {["No credit card required", "14-day free trial", "Cancel anytime"].map((badge) => (
-                <span key={badge} className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.12em] text-white/40">
+                <span key={badge} className="flex items-center gap-2 mono-label text-white/40">
                   <Check className="w-3.5 h-3.5" /> {badge}
                 </span>
               ))}
