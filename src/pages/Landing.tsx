@@ -909,7 +909,7 @@ export default function Landing() {
               <a href="#" className="hover:text-foreground transition-colors">LinkedIn</a>
               <a href="#" className="hover:text-foreground transition-colors">Instagram</a>
             </div>
-            <span className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/50">
+            <span className="flex items-center gap-2 mono-label text-muted-foreground/50">
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: "hsl(142 71% 45%)" }} />
               All systems operational
             </span>
