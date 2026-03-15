@@ -77,6 +77,8 @@ export default {
       spacing: {
         "18": "4.5rem",
         "22": "5.5rem",
+        "card": "1.25rem",
+        "section": "1.5rem",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -84,6 +86,7 @@ export default {
         sm: "calc(var(--radius) - 4px)",
         tag: "6px",
         card: "12px",
+        xl: "1rem",
         modal: "20px",
         pill: "100px",
       },

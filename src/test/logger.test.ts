@@ -16,7 +16,7 @@ describe("logError", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
-    const [tag, obj] = consoleErrorSpy.mock.calls[0];
+    const [tag, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(tag).toBe("[arcline]");
     expect(obj.operation).toBe("test/op");
   });
@@ -24,35 +24,35 @@ describe("logError", () => {
   it("includes userId when provided", () => {
     logError(new Error("msg"), { operation: "test/op", userId: "u1" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.userId).toBe("u1");
   });
 
   it("defaults userId to 'anonymous' when not provided", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.userId).toBe("anonymous");
   });
 
   it("includes a valid ISO timestamp", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z$/);
   });
 
   it("includes error.message for Error instances", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.error.message).toBe("msg");
   });
 
   it("does not throw and includes string error when passed a string", () => {
     expect(() => logError("string error", { operation: "test/op" })).not.toThrow();
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.error).toBe("string error");
   });
 
@@ -63,7 +63,7 @@ describe("logError", () => {
   it("spreads extra fields to the top level of the entry object", () => {
     logError(new Error("msg"), { operation: "test/op", extra: { key: "val" } });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.key).toBe("val");
   });
 });

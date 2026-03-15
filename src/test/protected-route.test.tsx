@@ -48,14 +48,14 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("suspended=true shows ACCOUNT SUSPENDED screen immediately", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ suspended: true }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ suspended: true }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("ACCOUNT SUSPENDED")).toBeInTheDocument();
     expect(screen.queryByText("DOCTOR CONTENT")).not.toBeInTheDocument();
   });
 
   it("suspended=null shows loading UI (not route content)", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ suspended: null }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ suspended: null }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOADING")).toBeInTheDocument();
     expect(screen.queryByText("DOCTOR CONTENT")).not.toBeInTheDocument();
@@ -63,7 +63,7 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("suspended=false renders protected route content", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ suspended: false }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ suspended: false }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("DOCTOR CONTENT")).toBeInTheDocument();
     expect(screen.queryByText("ACCOUNT SUSPENDED")).not.toBeInTheDocument();
@@ -71,13 +71,13 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("roleLoading=true shows loading UI regardless of suspended", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ roleLoading: true, suspended: false }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ roleLoading: true, suspended: false }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOADING")).toBeInTheDocument();
   });
 
   it("no user redirects to /login", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ user: null, suspended: null }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ user: null, suspended: null }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOGIN PAGE")).toBeInTheDocument();
   });
