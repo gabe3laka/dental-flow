@@ -48,6 +48,7 @@ import Contact from "@/pages/public/Contact";
 import Integrations from "@/pages/public/Integrations";
 import Features from "@/pages/public/Features";
 import SharedProgress from "@/pages/public/SharedProgress";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
