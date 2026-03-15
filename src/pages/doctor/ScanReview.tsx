@@ -266,8 +266,8 @@ export default function ScanReview() {
             </span>
           </div>
 
-          {/* Tooth Arch */}
-          <ToothArch data={toothData} className="text-foreground" />
+          {/* 3D Teeth Visualization */}
+          <TeethVisualization toothData={toothData} showToggle showLegend />
 
           {/* Quality Progress Bar */}
           <div className="space-y-2">

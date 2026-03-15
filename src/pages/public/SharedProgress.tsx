@@ -96,9 +96,9 @@ export default function SharedProgress() {
       </div>
 
       {/* Tooth Map */}
-      <div className="rounded-card overflow-hidden mb-8" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-        <div className="px-4 pt-5 pb-2">
-          <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)]" />
+      <div className="rounded-card overflow-hidden mb-8 bg-card border border-border dark">
+        <div className="px-4 pt-5 pb-2 bg-card">
+          <TeethVisualization showToggle={false} showLegend />
         </div>
         {latestScan?.quality_score != null && (
           <div className="px-5 pb-4">

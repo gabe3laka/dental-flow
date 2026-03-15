@@ -403,7 +403,7 @@ export default function PatientDetail() {
 
           {activeTab === "progress" && (
             <div>
-              <ToothArch className="text-foreground" />
+              <TeethVisualization showToggle showLegend />
             </div>
           )}
 

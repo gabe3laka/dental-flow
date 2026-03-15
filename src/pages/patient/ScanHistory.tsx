@@ -191,9 +191,9 @@ export default function ScanHistory() {
               {expandedId === scan.id && (
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
                   {/* Mini Scan Visualization Card */}
-                  <div className="rounded-lg overflow-hidden bg-card border border-border dark">
-                    <div className="px-3 pt-3 pb-1" style={{ background: "hsl(var(--card))" }}>
-                      <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)] max-w-[280px]" />
+                   <div className="rounded-lg overflow-hidden bg-card border border-border dark">
+                    <div className="px-3 pt-3 pb-1 bg-card">
+                      <TeethVisualization compact showLegend={false} showToggle={false} />
                     </div>
                     {/* Quality bar */}
                     <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
