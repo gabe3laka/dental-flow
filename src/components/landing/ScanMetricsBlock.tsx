@@ -56,7 +56,7 @@ export default function ScanMetricsBlock() {
     >
       <div className="flex items-center gap-1.5 mb-1">
         <div className="w-1.5 h-1.5 rounded-full bg-white animate-nav-dot-pulse" />
-        <span className="text-white/50 text-[8px]">SCAN QUALITY</span>
+        <span className="text-white/50 text-[11px]">SCAN QUALITY</span>
       </div>
       <div
         className="w-full mb-2"
