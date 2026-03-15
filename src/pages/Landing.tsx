@@ -473,7 +473,7 @@ export default function Landing() {
             <div className="flex flex-wrap gap-3">
                 <Link
                   to="/signup"
-                  className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-primary/90 transition-colors"
+                  className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3.5 hover:bg-primary/90 transition-colors"
                   style={{ boxShadow: "0 4px 16px hsla(228,100%,62%,0.3)" }}
                 >
                   Get Started Free
