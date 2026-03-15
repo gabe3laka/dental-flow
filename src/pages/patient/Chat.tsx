@@ -154,7 +154,7 @@ export default function PatientChat() {
               <div className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
                 {!isOwn && (
                   <div className="w-7 h-7 rounded-full bg-soft-panel flex items-center justify-center mr-2 flex-shrink-0 mt-1">
-                    <span className="font-mono text-[10px] text-muted-foreground">DR</span>
+                    <span className="font-mono text-xs text-muted-foreground">DR</span>
                   </div>
                 )}
                 <div

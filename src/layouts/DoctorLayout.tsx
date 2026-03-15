@@ -79,7 +79,7 @@ export default function DoctorLayout() {
           </p>
           <button
             onClick={signOut}
-            className="w-full py-2 rounded-md font-mono text-[10px] uppercase tracking-[0.15em] transition-colors border border-border text-muted-foreground bg-transparent hover:bg-muted"
+            className="w-full py-2 rounded-md mono-label transition-colors border border-border text-muted-foreground bg-transparent hover:bg-muted"
           >
             Sign Out
           </button>
