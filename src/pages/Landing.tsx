@@ -425,7 +425,7 @@ export default function Landing() {
             <div className="mt-6 flex items-center gap-4">
               <span className="mono-label text-muted-foreground/50">Trusted by</span>
               {["SmileDirect", "Invisalign", "Candid"].map((name) => (
-                <span key={name} className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/30">{name}</span>
+                <span key={name} className="mono-label text-muted-foreground/30">{name}</span>
               ))}
             </div>
           </ScrollReveal>
