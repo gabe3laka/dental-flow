@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
+import type { ToothStatus } from "@/components/3d/TeethVisualization";
 import { useParams, useNavigate } from "react-router-dom";
 import { PillNav } from "@/components/ui/pill-nav";
 import { VerticalLabel } from "@/components/ui/vertical-label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ToothArch } from "@/components/patient/ToothArch";
+import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
@@ -189,7 +190,7 @@ export default function ScanReview() {
   };
 
   const toothData = useMemo(() => {
-    const data: Record<string, string> = {};
+    const data: Record<string, ToothStatus> = {};
     if (aiAnalysis.length > 0) {
       aiAnalysis.forEach((item: any) => {
         const id = item.id || "";
@@ -266,8 +267,8 @@ export default function ScanReview() {
             </span>
           </div>
 
-          {/* Tooth Arch */}
-          <ToothArch data={toothData} className="text-foreground" />
+          {/* 3D Teeth Visualization */}
+          <TeethVisualization toothData={toothData} showToggle showLegend />
 
           {/* Quality Progress Bar */}
           <div className="space-y-2">

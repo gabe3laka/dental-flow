@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { GradientOrb } from "@/components/ui/gradient-orb";
-import { ToothArch } from "@/components/patient/ToothArch";
+import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
@@ -176,8 +176,8 @@ export default function Progress() {
       <div className="mb-10">
         <span className="mono-label text-muted-foreground mb-3 block">TOOTH MAP</span>
         <div className="rounded-card overflow-hidden bg-card border border-border dark">
-          <div className="px-4 pt-5 pb-2" style={{ background: "hsl(var(--card))" }}>
-            <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)]" />
+          <div className="px-4 pt-5 pb-2 bg-card">
+            <TeethVisualization showToggle showLegend />
           </div>
 
           <div className="px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
