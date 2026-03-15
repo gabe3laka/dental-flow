@@ -594,7 +594,7 @@ export default function Landing() {
             </Accordion>
             <Link
               to="/features"
-              className="inline-flex items-center gap-2 mt-6 font-mono text-[10px] uppercase tracking-[0.15em] text-primary hover:text-primary/80 transition-colors"
+              className="inline-flex items-center gap-2 mt-6 mono-label text-primary hover:text-primary/80 transition-colors"
             >
               See all features <ArrowRight className="w-3.5 h-3.5" />
             </Link>
