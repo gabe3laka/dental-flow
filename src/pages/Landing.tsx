@@ -480,7 +480,7 @@ export default function Landing() {
                 </Link>
                 <button
                   onClick={() => setDemoOpen(true)}
-                  className="rounded-pill border border-border text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3.5 hover:border-foreground/30 transition-colors flex items-center gap-2"
+                  className="rounded-pill border border-border text-foreground mono-label px-6 py-3.5 hover:border-foreground/30 transition-colors flex items-center gap-2"
                 >
                   Book a Demo
                 </button>
