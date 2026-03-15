@@ -780,7 +780,7 @@ export default function Landing() {
                 </div>
                 <button
                   onClick={() => setDemoOpen(true)}
-                  className="rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 text-white transition-colors w-fit"
+                  className="rounded-pill mono-label px-6 py-3 text-white transition-colors w-fit"
                   style={{ border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.05)" }}
                 >
                   Learn More
