@@ -872,7 +872,7 @@ export default function Landing() {
               <p className="font-body text-muted-foreground text-xs font-light leading-relaxed mb-4">
                 Premium virtual dental care for modern practices.
               </p>
-              <p className="font-body text-muted-foreground/50 text-[10px] font-light">© 2026 Arcline. All rights reserved.</p>
+              <p className="font-body text-muted-foreground/50 mono-label font-light">© 2026 Arcline. All rights reserved.</p>
             </div>
 
             {/* Product */}
