@@ -294,7 +294,7 @@ export default function Landing() {
           </button>
           <Link
             to="/signup"
-            className="hidden md:inline rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-4 md:px-6 py-2 md:py-2.5 hover:bg-primary/90 transition-colors"
+            className="hidden md:inline rounded-pill bg-primary text-primary-foreground mono-label px-4 md:px-6 py-2 md:py-2.5 hover:bg-primary/90 transition-colors"
             style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 4px 16px hsla(228,100%,62%,0.35)" }}
           >
             Get Started
