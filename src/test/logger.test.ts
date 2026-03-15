@@ -31,7 +31,7 @@ describe("logError", () => {
   it("defaults userId to 'anonymous' when not provided", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.userId).toBe("anonymous");
   });
 
