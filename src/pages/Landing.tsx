@@ -973,7 +973,7 @@ export default function Landing() {
               </select>
               <button
                 type="submit"
-                className="w-full rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] py-3 hover:bg-primary/90 transition-colors"
+                className="w-full rounded-pill bg-primary text-primary-foreground mono-label py-3 hover:bg-primary/90 transition-colors"
               >
                 Book Call
               </button>
