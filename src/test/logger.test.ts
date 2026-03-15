@@ -38,7 +38,7 @@ describe("logError", () => {
   it("includes a valid ISO timestamp", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z$/);
   });
 
