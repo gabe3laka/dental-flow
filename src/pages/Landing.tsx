@@ -852,7 +852,7 @@ export default function Landing() {
           </p>
           <button
             onClick={() => setDemoOpen(true)}
-            className="rounded-pill bg-white text-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-white/90 transition-colors flex-shrink-0"
+            className="rounded-pill bg-white text-foreground mono-label px-8 py-3.5 hover:bg-white/90 transition-colors flex-shrink-0"
           >
             Book a Discovery Call
           </button>
