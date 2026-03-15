@@ -669,7 +669,7 @@ export default function Landing() {
                     suffix={s.suffix}
                     className="font-display font-black text-white block mb-3 text-6xl md:text-7xl relative z-10"
                   />
-                  <span className="font-mono uppercase text-[9px] tracking-[0.15em] whitespace-pre-line" style={{ color: "rgba(255,255,255,0.35)" }}>
+                  <span className="mono-label whitespace-pre-line" style={{ color: "rgba(255,255,255,0.35)" }}>
                     {s.label}
                   </span>
                 </div>
