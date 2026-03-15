@@ -758,7 +758,7 @@ export default function Landing() {
           <div className="grid lg:grid-cols-2 gap-0 rounded-card overflow-hidden border border-border">
             <div className="p-10 lg:p-16 flex flex-col justify-center" style={{ background: "hsl(216 32% 7%)" }}>
               <ScrollReveal>
-                <span className="mono-label text-primary mb-4 block text-[9px]">HARDWARE</span>
+                <span className="mono-label text-primary mb-4 block">HARDWARE</span>
                 <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">Arcline Scope</h2>
                 <p className="font-body text-white/50 text-sm font-light leading-relaxed mb-8 max-w-sm">
                   Clinical-grade intraoral scanner designed for remote dental monitoring. Compact, precise, and effortless to use.
