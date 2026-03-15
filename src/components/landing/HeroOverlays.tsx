@@ -61,7 +61,7 @@ function AnnotationBox({
           )
         )}
         <span
-          className="absolute top-2 left-2 font-mono uppercase tracking-[0.15em] text-[9px] px-1.5 py-0.5 rounded"
+          className="absolute top-2 left-2 font-mono uppercase tracking-[0.15em] text-[11px] px-1.5 py-0.5 rounded"
           style={{
             color: "#fff",
             background: "rgba(61,109,255,0.45)",

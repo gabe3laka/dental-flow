@@ -79,7 +79,7 @@ export default function ScanMetricsBlock() {
         <span className="text-white/50">COVERAGE</span>
         <div className="flex items-center gap-1.5">
           <MiniBar />
-          <span className="text-[8px] text-white/70">COMPLETE</span>
+          <span className="text-[11px] text-white/70">COMPLETE</span>
         </div>
       </div>
     </div>
