@@ -4,7 +4,7 @@ import { PillNav } from "@/components/ui/pill-nav";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { ToothArch } from "@/components/patient/ToothArch";
+import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
