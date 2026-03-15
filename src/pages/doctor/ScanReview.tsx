@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import type { ToothStatus } from "@/components/3d/TeethVisualization";
 import { useParams, useNavigate } from "react-router-dom";
 import { PillNav } from "@/components/ui/pill-nav";
 import { VerticalLabel } from "@/components/ui/vertical-label";
