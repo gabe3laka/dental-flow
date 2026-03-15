@@ -190,7 +190,7 @@ export default function ScanReview() {
   };
 
   const toothData = useMemo(() => {
-    const data: Record<string, string> = {};
+    const data: Record<string, ToothStatus> = {};
     if (aiAnalysis.length > 0) {
       aiAnalysis.forEach((item: any) => {
         const id = item.id || "";
