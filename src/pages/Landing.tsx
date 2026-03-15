@@ -207,7 +207,7 @@ function PricingCard({ plan }: { plan: typeof pricingPlans[number] }) {
           Most Popular
         </div>
       )}
-      <span className="font-mono text-[10px] uppercase tracking-[0.15em] block mb-1" style={{ color: plan.color }}>{plan.name}</span>
+      <span className="mono-label block mb-1" style={{ color: plan.color }}>{plan.name}</span>
       <span className="font-body text-muted-foreground text-xs font-light block mb-4">{plan.description}</span>
       <div className="flex items-baseline gap-1 mb-6">
         <span className="font-display text-4xl font-bold text-foreground">{plan.price}</span>
