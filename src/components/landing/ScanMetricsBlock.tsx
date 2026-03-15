@@ -72,7 +72,7 @@ export default function ScanMetricsBlock() {
         <span className="text-white/50">LIGHTING</span>
         <div className="flex items-center gap-1.5">
           <MiniBar />
-          <span className="text-[8px] text-white/70">OPTIMAL</span>
+          <span className="text-[11px] text-white/70">OPTIMAL</span>
         </div>
       </div>
       <div className="flex items-center justify-between">
