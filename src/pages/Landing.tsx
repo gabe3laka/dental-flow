@@ -894,7 +894,7 @@ export default function Landing() {
 
             {/* Legal */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Legal</span>
+              <span className="mono-label text-foreground/50 block mb-4">Legal</span>
               <Link to="/privacy" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Privacy</Link>
               <Link to="/terms" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Terms</Link>
               <Link to="/hipaa" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">HIPAA</Link>
