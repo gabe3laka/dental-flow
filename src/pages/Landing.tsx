@@ -820,7 +820,7 @@ export default function Landing() {
             <div className="flex flex-col sm:flex-row justify-center gap-4 mb-10">
               <Link
                 to="/signup"
-                className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3.5 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
+                className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3.5 hover:bg-primary/90 transition-colors flex items-center justify-center gap-2"
                 style={{ boxShadow: "0 4px 24px hsla(228,100%,62%,0.35)" }}
               >
                 Start Free Trial <ArrowRight className="w-3.5 h-3.5" />
