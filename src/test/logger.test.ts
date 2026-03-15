@@ -16,7 +16,7 @@ describe("logError", () => {
     logError(new Error("msg"), { operation: "test/op" });
 
     expect(consoleErrorSpy).toHaveBeenCalledOnce();
-    const [tag, obj] = consoleErrorSpy.mock.calls[0];
+    const [tag, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(tag).toBe("[arcline]");
     expect(obj.operation).toBe("test/op");
   });
