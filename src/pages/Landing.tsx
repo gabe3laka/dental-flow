@@ -73,10 +73,10 @@ const pricingPlans = [
   {
     name: "Starter",
     description: "For small practices",
-    price: "$199",
+    price: "$149",
     period: "/mo",
     color: "hsl(228 100% 62%)",
-    features: ["Up to 100 patients", "AI scan analysis", "Video responses", "Secure messaging", "Basic analytics", "Email support"],
+    features: ["Up to 50 patients", "Basic scan review", "Patient messaging", "Email support"],
     cta: "Start Free Trial",
     ctaStyle: "outline" as const,
   },
