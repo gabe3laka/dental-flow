@@ -223,7 +223,7 @@ function PricingCard({ plan }: { plan: typeof pricingPlans[number] }) {
       </ul>
       <Link
         to="/signup"
-        className={`block w-full text-center rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] px-6 py-3 transition-colors ${
+        className={`block w-full text-center rounded-pill mono-label px-6 py-3 transition-colors ${
           plan.ctaStyle === "primary"
             ? "bg-primary text-primary-foreground hover:bg-primary/90"
             : "border border-border text-foreground hover:border-foreground/30"
