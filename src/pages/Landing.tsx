@@ -772,8 +772,8 @@ export default function Landing() {
                     <div key={label} className="flex items-center gap-2">
                       <Icon className="w-3.5 h-3.5 text-primary" />
                       <div>
-                        <span className="font-mono text-[8px] uppercase tracking-[0.15em] text-white/30 block">{label}</span>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-white">{value}</span>
+                        <span className="mono-label text-white/30 block">{label}</span>
+                        <span className="mono-label text-white">{value}</span>
                       </div>
                     </div>
                   ))}
