@@ -52,7 +52,7 @@ describe("logError", () => {
   it("does not throw and includes string error when passed a string", () => {
     expect(() => logError("string error", { operation: "test/op" })).not.toThrow();
 
-    const [, obj] = consoleErrorSpy.mock.calls[0];
+    const [, obj] = consoleErrorSpy.mock.calls[0] as [string, Record<string, any>];
     expect(obj.error).toBe("string error");
   });
 
