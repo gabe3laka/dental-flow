@@ -181,7 +181,7 @@ describe("Signup form — Zod validation (PROF-05)", () => {
     fireEvent.change(screen.getByLabelText(/email/i), {
       target: { value: "not-an-email" },
     });
-    fireEvent.change(screen.getByLabelText(/password/i), {
+    fireEvent.change(screen.getByPlaceholderText("••••••••"), {
       target: { value: "secret123" },
     });
 
