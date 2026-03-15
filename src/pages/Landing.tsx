@@ -201,7 +201,7 @@ function PricingCard({ plan }: { plan: typeof pricingPlans[number] }) {
     >
       {plan.popular && (
         <div
-          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1 font-mono text-[9px] uppercase tracking-[0.15em] text-primary-foreground"
+          className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1 mono-label text-primary-foreground"
           style={{ background: "hsl(228 100% 62%)", boxShadow: "0 4px 12px hsla(228,100%,62%,0.3)" }}
         >
           Most Popular
