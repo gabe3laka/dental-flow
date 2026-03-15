@@ -55,7 +55,7 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("suspended=null shows loading UI (not route content)", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ suspended: null }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ suspended: null }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOADING")).toBeInTheDocument();
     expect(screen.queryByText("DOCTOR CONTENT")).not.toBeInTheDocument();
