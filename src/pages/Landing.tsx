@@ -885,7 +885,7 @@ export default function Landing() {
 
             {/* Company */}
             <div>
-              <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-foreground/50 block mb-4">Company</span>
+              <span className="mono-label text-foreground/50 block mb-4">Company</span>
               <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors cursor-pointer bg-transparent border-none text-left p-0">About</button>
               <Link to="/blog" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Blog</Link>
               <Link to="/careers" className="block font-body text-muted-foreground text-sm font-light mb-2 hover:text-foreground transition-colors">Careers</Link>
