@@ -86,6 +86,7 @@ export default {
         sm: "calc(var(--radius) - 4px)",
         tag: "6px",
         card: "12px",
+        xl: "1rem",
         modal: "20px",
         pill: "100px",
       },

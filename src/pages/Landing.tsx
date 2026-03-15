@@ -83,11 +83,11 @@ const pricingPlans = [
   {
     name: "Professional",
     description: "For growing practices",
-    price: "$499",
+    price: "$349",
     period: "/mo",
     color: "hsl(228 100% 62%)",
     popular: true,
-    features: ["Up to 500 patients", "Everything in Starter", "Virtual consultations", "Advanced analytics", "Smart automations", "Priority support", "API access"],
+    features: ["Up to 200 patients", "AI scan analysis", "Video responses", "Analytics dashboard", "Priority support"],
     cta: "Start Free Trial",
     ctaStyle: "primary" as const,
   },
