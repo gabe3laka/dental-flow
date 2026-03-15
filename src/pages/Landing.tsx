@@ -275,7 +275,7 @@ export default function Landing() {
             <button
               key={link.target}
               onClick={() => scrollToSection(link.target)}
-              className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer"
+              className="mono-label text-muted-foreground hover:text-foreground transition-colors bg-transparent border-none cursor-pointer"
             >
               {link.label}
             </button>
