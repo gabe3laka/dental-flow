@@ -48,7 +48,7 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("suspended=true shows ACCOUNT SUSPENDED screen immediately", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ suspended: true }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ suspended: true }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("ACCOUNT SUSPENDED")).toBeInTheDocument();
     expect(screen.queryByText("DOCTOR CONTENT")).not.toBeInTheDocument();
