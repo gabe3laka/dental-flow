@@ -4,7 +4,7 @@ import { PillNav } from "@/components/ui/pill-nav";
 import { VerticalLabel } from "@/components/ui/vertical-label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ToothArch } from "@/components/patient/ToothArch";
+import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
