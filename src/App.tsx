@@ -48,6 +48,7 @@ import Contact from "@/pages/public/Contact";
 import Integrations from "@/pages/public/Integrations";
 import Features from "@/pages/public/Features";
 import SharedProgress from "@/pages/public/SharedProgress";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -64,6 +65,7 @@ const App = () => (
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/consult/:doctorSlug" element={<PublicConsult />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />

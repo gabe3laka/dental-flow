@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
@@ -80,7 +81,6 @@ export default function PatientProfile() {
         if (profile) setDoctor({ name: profile.full_name || "Doctor", specialty: profile.specialty || "—" });
       }
 
-      // Load notification preferences
       const { data: prefs } = await supabase.from("user_preferences" as any).select("pref_key, pref_value").eq("user_id", user.id);
       const prefsMap: Record<string, boolean> = {};
       NOTIFICATION_PREFS.forEach((p) => { prefsMap[p.key] = p.defaultValue; });
@@ -144,24 +144,26 @@ export default function PatientProfile() {
   const hasStarted = data?.hasStarted;
 
   return (
-    <div className="min-h-screen bg-background px-6 py-8 max-w-lg mx-auto pb-24">
+    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       <span className="mono-label text-muted-foreground">PROFILE</span>
       <h1 className="font-display text-2xl font-semibold mt-1 mb-8">Your Account</h1>
 
       <div className="space-y-4">
-        <div className="bg-card rounded-card border border-border p-6">
-          <span className="mono-label text-muted-foreground">NAME</span>
-          <p className="text-sm mt-1">{user?.user_metadata?.full_name || "—"}</p>
-        </div>
-
-        <div className="bg-card rounded-card border border-border p-6">
-          <span className="mono-label text-muted-foreground">EMAIL</span>
-          <p className="text-sm mt-1">{user?.email}</p>
+        {/* Personal Info — consolidated */}
+        <div className="bg-card rounded-card border border-border p-5 space-y-3">
+          <div>
+            <span className="mono-label text-muted-foreground">NAME</span>
+            <p className="text-sm mt-1">{user?.user_metadata?.full_name || "—"}</p>
+          </div>
+          <div className="border-t border-border pt-3">
+            <span className="mono-label text-muted-foreground">EMAIL</span>
+            <p className="text-sm mt-1">{user?.email}</p>
+          </div>
         </div>
 
         {/* Doctor card */}
         {doctor && (
-          <div className="bg-card rounded-card border border-border p-6">
+          <div className="bg-card rounded-card border border-border p-5">
             <span className="mono-label text-muted-foreground mb-2 block">YOUR DOCTOR</span>
             <div className="flex items-center justify-between">
               <div>
@@ -176,7 +178,7 @@ export default function PatientProfile() {
         )}
 
         {/* Device Management */}
-        <div className="bg-card rounded-card border border-border p-6">
+        <div className="bg-card rounded-card border border-border p-5">
           <span className="mono-label text-muted-foreground mb-3 block">LINKED DEVICE</span>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -185,12 +187,7 @@ export default function PatientProfile() {
               </div>
               <div>
                 <p className="text-sm font-medium">Arcline Scope</p>
-                <span
-                  className="mono-label"
-                  style={{
-                    color: patientExtra?.device_linked ? "hsl(var(--status-success))" : "hsl(var(--muted-foreground))",
-                  }}
-                >
+                <span className={`mono-label ${patientExtra?.device_linked ? "text-status-success" : "text-muted-foreground"}`}>
                   {patientExtra?.device_linked ? "LINKED" : "NOT LINKED"}
                 </span>
               </div>
@@ -201,7 +198,7 @@ export default function PatientProfile() {
                   size="sm"
                   variant="ghost"
                   onClick={handleUnlink}
-                  className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em] text-destructive"
+                  className="rounded-pill mono-label text-destructive"
                 >
                   Unlink
                 </Button>
@@ -210,7 +207,7 @@ export default function PatientProfile() {
                 size="sm"
                 variant="outline"
                 onClick={handleOpenPairing}
-                className="rounded-pill font-mono text-[9px] uppercase tracking-[0.15em]"
+                className="rounded-pill mono-label"
               >
                 {patientExtra?.device_linked ? "View Code" : "Link Device"}
               </Button>
@@ -218,26 +215,28 @@ export default function PatientProfile() {
           </div>
         </div>
 
-        {/* Pairing Modal */}
-        {showPairingModal && (
-          <div className="bg-card rounded-card border-2 border-primary/20 p-6">
-            <span className="mono-label text-primary mb-2 block">PAIRING CODE</span>
+        {/* Pairing Modal — Dialog */}
+        <Dialog open={showPairingModal} onOpenChange={setShowPairingModal}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="mono-label text-primary">PAIRING CODE</DialogTitle>
+            </DialogHeader>
             <p className="font-mono text-2xl font-bold text-center py-4 tracking-widest">{pairingCode}</p>
             <p className="text-xs text-muted-foreground text-center mb-4">Enter this code on your Arcline Scope device to pair.</p>
             <Button
               size="sm"
               variant="outline"
               onClick={handlePairingDone}
-              className="w-full rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+              className="w-full rounded-pill mono-label"
             >
               {patientExtra?.device_linked ? "Close" : "Done"}
             </Button>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
         {/* Treatment Timeline */}
         {startDate && (
-          <div className="bg-card rounded-card border border-border p-6">
+          <div className="bg-card rounded-card border border-border p-5">
             <span className="mono-label text-muted-foreground mb-3 block">TREATMENT TIMELINE</span>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
@@ -270,7 +269,7 @@ export default function PatientProfile() {
         {loading ? (
           <Skeleton className="h-24 rounded-card" />
         ) : (
-          <div className="bg-card rounded-card border border-border p-6 space-y-4">
+          <div className="bg-card rounded-card border border-border p-5 space-y-4">
             <div>
               <span className="mono-label text-muted-foreground">TREATMENT TYPE</span>
               <p className="text-sm mt-1">{data?.treatmentType || "—"}</p>
@@ -282,8 +281,7 @@ export default function PatientProfile() {
               ) : (
                 <button
                   onClick={() => setShowCategoryModal(true)}
-                  className="text-sm mt-1 block"
-                  style={{ color: "hsl(228 100% 62%)" }}
+                  className="text-sm mt-1 block text-primary"
                 >
                   Not set — tap to update
                 </button>
@@ -304,33 +302,28 @@ export default function PatientProfile() {
           </div>
         )}
 
-        {/* Treatment Category Modal */}
-        {showCategoryModal && (
-          <div className="bg-card rounded-card border-2 border-primary/20 p-6">
-            <span className="mono-label text-primary mb-3 block">SELECT TREATMENT CATEGORY</span>
+        {/* Treatment Category Modal — Dialog */}
+        <Dialog open={showCategoryModal} onOpenChange={setShowCategoryModal}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="mono-label text-primary">SELECT TREATMENT CATEGORY</DialogTitle>
+            </DialogHeader>
             <div className="space-y-2">
               {TREATMENT_CATEGORIES.map((cat) => (
                 <button
                   key={cat.value}
                   onClick={() => handleCategoryUpdate(cat.value)}
-                  className="w-full text-left px-4 py-3 rounded-tag text-sm font-body transition hover:bg-primary/10"
-                  style={{ border: "1px solid hsl(var(--border))" }}
+                  className="w-full text-left px-4 py-3 rounded-tag text-sm font-body transition hover:bg-primary/10 border border-border"
                 >
                   {cat.label}
                 </button>
               ))}
             </div>
-            <button
-              onClick={() => setShowCategoryModal(false)}
-              className="mono-label text-muted-foreground mt-3 block"
-            >
-              CANCEL
-            </button>
-          </div>
-        )}
+          </DialogContent>
+        </Dialog>
 
-        {/* Notification toggles — persisted */}
-        <div className="bg-card rounded-card border border-border p-6 space-y-4">
+        {/* Notification toggles */}
+        <div className="bg-card rounded-card border border-border p-5 space-y-4">
           <span className="mono-label text-muted-foreground">NOTIFICATIONS</span>
           {NOTIFICATION_PREFS.map((n) => (
             <div key={n.key} className="flex items-center justify-between">
@@ -346,7 +339,7 @@ export default function PatientProfile() {
       </div>
 
       <div className="mt-8">
-        <Button variant="outline" onClick={signOut} className="w-full rounded-pill font-mono text-xs uppercase tracking-[0.15em]">
+        <Button variant="outline" onClick={signOut} className="w-full rounded-pill mono-label">
           Sign Out
         </Button>
       </div>

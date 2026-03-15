@@ -140,15 +140,12 @@ export default function Progress() {
   const notStarted = !patientData?.hasStarted && progressPercent === 0;
 
   return (
-    <div className="min-h-screen bg-background px-6 py-8 max-w-lg mx-auto pb-24">
+    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       <span className="mono-label text-muted-foreground">TREATMENT</span>
       <h1 className="font-display text-2xl font-semibold mt-1 mb-2">Your Progress</h1>
 
       {treatmentCategory && (
-        <span
-          className="mono-label inline-block px-2.5 py-1 rounded-pill mb-6"
-          style={{ background: "hsl(228 100% 62% / 0.1)", color: "hsl(228 100% 62%)" }}
-        >
+        <span className="mono-label inline-block px-2.5 py-1 rounded-pill mb-6 bg-primary/10 text-primary">
           {CATEGORY_LABELS[treatmentCategory] || treatmentCategory}
         </span>
       )}
@@ -168,13 +165,7 @@ export default function Progress() {
       )}
 
       {/* AI Insight */}
-      <div
-        className="rounded-card p-5 mb-8"
-        style={{
-          background: "linear-gradient(135deg, hsl(228 100% 62% / 0.06), hsl(256 67% 80% / 0.08))",
-          border: "1px solid hsl(228 100% 62% / 0.1)",
-        }}
-      >
+      <div className="rounded-card p-5 mb-8 bg-primary/5 border border-primary/10">
         <span className="mono-label text-primary mb-2 block">AI INSIGHT</span>
         <p className="font-display text-base italic text-foreground/80 leading-relaxed">
           {aiSummary || getAiInsightFallback(complianceStreak, progressPercent)}
@@ -184,65 +175,51 @@ export default function Progress() {
       {/* Scan Visualization Card */}
       <div className="mb-10">
         <span className="mono-label text-muted-foreground mb-3 block">TOOTH MAP</span>
-        <div
-          className="rounded-card overflow-hidden"
-          style={{
-            background: "hsl(218 26% 11%)",
-            border: "1px solid hsl(0 0% 100% / 0.07)",
-          }}
-        >
-          <div className="px-4 pt-5 pb-2">
+        <div className="rounded-card overflow-hidden bg-card border border-border dark">
+          <div className="px-4 pt-5 pb-2" style={{ background: "hsl(var(--card))" }}>
             <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)]" />
           </div>
 
-          <div className="px-5 pb-4">
+          <div className="px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
             <div className="flex items-center justify-between mb-1.5">
-              <span className="font-mono text-[9px] tracking-[0.15em] uppercase" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
-                QUALITY
-              </span>
-              <span className="font-mono text-[11px] font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+              <span className="mono-label text-muted-foreground">QUALITY</span>
+              <span className="font-mono text-xs font-semibold text-foreground">
                 {latestScan?.quality_score != null ? `${Math.round(latestScan.quality_score)}%` : "—"}
               </span>
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "hsl(220 24% 16%)" }}>
+            <div className="h-1.5 rounded-full overflow-hidden bg-muted">
               <div
-                className="h-full rounded-full transition-all duration-500"
-                style={{
-                  width: `${latestScan?.quality_score ?? 0}%`,
-                  background:
-                    (latestScan?.quality_score ?? 0) >= 80
-                      ? "hsl(142 71% 45%)"
-                      : (latestScan?.quality_score ?? 0) >= 50
-                        ? "hsl(45 93% 47%)"
-                        : "hsl(0 84% 60%)",
-                }}
+                className={`h-full rounded-full transition-all duration-500 ${
+                  (latestScan?.quality_score ?? 0) >= 80
+                    ? "bg-status-success"
+                    : (latestScan?.quality_score ?? 0) >= 50
+                      ? "bg-status-warning"
+                      : "bg-status-danger"
+                }`}
+                style={{ width: `${latestScan?.quality_score ?? 0}%` }}
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2.5 px-5 pb-4">
-            <div className="rounded-lg px-3 py-3" style={{ background: "hsl(220 24% 16%)" }}>
-              <span className="font-mono text-[9px] tracking-[0.15em] block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
-                TEETH ANALYZED
-              </span>
-              <span className="font-display text-lg font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
-                28<span className="text-xs font-normal" style={{ color: "hsl(38 23% 90% / 0.4)" }}>/32</span>
+          <div className="grid grid-cols-2 gap-2.5 px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
+            <div className="rounded-lg px-3 py-3 bg-muted">
+              <span className="mono-label text-muted-foreground block mb-1">TEETH ANALYZED</span>
+              <span className="font-display text-lg font-semibold text-foreground">
+                28<span className="text-xs font-normal text-muted-foreground">/32</span>
               </span>
             </div>
-            <div className="rounded-lg px-3 py-3" style={{ background: "hsl(220 24% 16%)" }}>
-              <span className="font-mono text-[9px] tracking-[0.15em] block mb-1" style={{ color: "hsl(38 23% 90% / 0.4)" }}>
-                ISSUES FOUND
-              </span>
-              <span className="font-display text-lg font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+            <div className="rounded-lg px-3 py-3 bg-muted">
+              <span className="mono-label text-muted-foreground block mb-1">ISSUES FOUND</span>
+              <span className="font-display text-lg font-semibold text-foreground">
                 {latestScan?.detection_tags?.length ?? 0}
               </span>
             </div>
           </div>
 
-          <div className="px-5 pb-5">
+          <div className="px-5 pb-5" style={{ background: "hsl(var(--card))" }}>
             <Button
               onClick={() => navigate("/patient/scans")}
-              className="w-full rounded-pill font-mono text-[10px] uppercase tracking-[0.15em] bg-primary text-primary-foreground"
+              className="w-full rounded-pill mono-label bg-primary text-primary-foreground"
             >
               View Scan History
               <ChevronRight className="w-3.5 h-3.5 ml-1" />
@@ -266,16 +243,12 @@ export default function Progress() {
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="w-[100px] h-[80px] rounded-[12px] flex-shrink-0 flex flex-col items-center justify-center gap-2"
-                  style={{
-                    background: "hsl(256 67% 95%)",
-                    border: "1px dashed hsl(256 67% 80% / 0.3)",
-                  }}
+                  className="w-[100px] h-[80px] rounded-card flex-shrink-0 flex flex-col items-center justify-center gap-2 bg-accent/10 border border-dashed border-accent/30"
                 >
-                  <div className="w-3 h-3 rounded-full" style={{ background: "hsl(256 67% 70%)" }} />
+                  <div className="w-3 h-3 rounded-full bg-accent" />
                   <div className="space-y-1.5 flex flex-col items-center">
-                    <div className="w-[60px] h-[6px] rounded-full" style={{ background: "hsl(256 67% 80% / 0.3)" }} />
-                    <div className="w-[40px] h-[6px] rounded-full" style={{ background: "hsl(256 67% 80% / 0.2)" }} />
+                    <div className="w-[60px] h-[6px] rounded-full bg-accent/30" />
+                    <div className="w-[40px] h-[6px] rounded-full bg-accent/20" />
                   </div>
                 </div>
               ))}
@@ -285,17 +258,23 @@ export default function Progress() {
             </p>
           </div>
         ) : (
-          <div className="flex gap-3 overflow-x-auto pb-4">
+          <div
+            className="flex gap-3 overflow-x-auto pb-4"
+            style={{
+              maskImage: "linear-gradient(to right, black 85%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(to right, black 85%, transparent 100%)",
+            }}
+          >
             {milestones.map((m, idx) => (
               <div key={m.id} className="relative flex items-center">
                 <div className="w-40 flex-shrink-0 bg-card rounded-card border border-border p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <div
-                      className="w-3 h-3 rounded-full border-2 flex-shrink-0"
-                      style={{
-                        borderColor: m.completed_at ? "hsl(var(--status-success))" : "hsl(var(--border))",
-                        background: m.completed_at ? "hsl(var(--status-success))" : "transparent",
-                      }}
+                      className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
+                        m.completed_at
+                          ? "border-status-success bg-status-success"
+                          : "border-border bg-transparent"
+                      }`}
                     />
                     <span className="font-body text-sm font-medium truncate">{m.title}</span>
                   </div>
@@ -319,7 +298,7 @@ export default function Progress() {
         onClick={handleShareProgress}
         disabled={sharing || !patientId}
         variant="outline"
-        className="w-full rounded-pill font-mono text-xs uppercase tracking-[0.15em]"
+        className="w-full rounded-pill mono-label"
       >
         {sharing ? "Generating..." : "Share Progress"}
       </Button>

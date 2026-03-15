@@ -7,16 +7,10 @@ import { Button } from "@/components/ui/button";
 import { ToothArch } from "@/components/patient/ToothArch";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera } from "lucide-react";
 import { logError } from "@/lib/logger";
-
-const tabs = [
-  { id: "all", label: "ALL" },
-  { id: "reviewed", label: "REVIEWED" },
-  { id: "pending", label: "PENDING" },
-  { id: "flagged", label: "FLAGGED" },
-];
 
 type ScanRow = {
   id: string;
@@ -35,11 +29,33 @@ type ReviewRow = {
 
 export default function ScanHistory() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("all");
   const [scans, setScans] = useState<ScanRow[]>([]);
+  const [allScans, setAllScans] = useState<ScanRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewRow | null>>({});
+
+  // Load all scans once for badge counts
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const { data: patient } = await supabase
+        .from("patients").select("id").eq("user_id", user.id).maybeSingle();
+      if (!patient) return;
+      const { data } = await supabase
+        .from("scans")
+        .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags")
+        .eq("patient_id", patient.id)
+        .order("submitted_at", { ascending: false });
+      const mapped = (data || []).map((s: any) => ({
+        ...s,
+        detection_tags: Array.isArray(s.detection_tags) ? s.detection_tags : null,
+      }));
+      setAllScans(mapped);
+    })();
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -103,8 +119,23 @@ export default function ScanHistory() {
     return format(new Date(d), "dd MMM · HH:mm").toUpperCase();
   };
 
+  // Badge counts
+  const counts = {
+    all: allScans.length,
+    reviewed: allScans.filter((s) => s.status === "reviewed").length,
+    pending: allScans.filter((s) => s.status === "pending").length,
+    flagged: allScans.filter((s) => s.status === "flagged" || s.status === "action_required").length,
+  };
+
+  const tabs = [
+    { id: "all", label: `ALL (${counts.all})` },
+    { id: "reviewed", label: `REVIEWED (${counts.reviewed})` },
+    { id: "pending", label: `PENDING (${counts.pending})` },
+    { id: "flagged", label: `FLAGGED (${counts.flagged})` },
+  ];
+
   return (
-    <div className="min-h-screen bg-background px-6 py-8 max-w-lg mx-auto pb-24">
+    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       <span className="mono-label text-muted-foreground">YOUR SCANS</span>
       <h1 className="font-display text-2xl font-semibold mt-1 mb-6">Scan History</h1>
 
@@ -117,18 +148,25 @@ export default function ScanHistory() {
           ))}
         </div>
       ) : scans.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="font-body text-muted-foreground text-sm mb-4">
-            No scans yet. Submit your first scan to get started.
+        <div className="flex flex-col items-center justify-center py-16">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
+            <Camera className="w-7 h-7 text-primary" />
+          </div>
+          <h2 className="font-display text-base font-medium mb-2">No scans yet</h2>
+          <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[260px]">
+            Submit your first scan to get started tracking your dental progress.
           </p>
-          <Button className="rounded-pill bg-primary text-primary-foreground font-mono text-[10px] uppercase tracking-[0.15em] px-8 py-3">
+          <Button
+            onClick={() => navigate("/patient/scan")}
+            className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3"
+          >
             Start Scan
           </Button>
         </div>
       ) : (
         <div className="space-y-3">
           {scans.map((scan, idx) => (
-            <div key={scan.id} className="bg-card rounded-card border border-border overflow-hidden">
+            <div key={scan.id} className="bg-card rounded-card border border-border overflow-hidden shadow-sm">
               <button
                 onClick={() => toggleExpand(scan.id)}
                 className="w-full flex items-center gap-4 p-4 text-left"
@@ -137,7 +175,7 @@ export default function ScanHistory() {
                   <span className="mono-label text-muted-foreground">SCAN</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-mono text-[11px] tracking-[0.1em] text-muted-foreground">
+                  <p className="mono-label text-muted-foreground">
                     {formatDate(scan.submitted_at)}
                   </p>
                   <p className="text-sm font-medium">SCAN #{String(scans.length - idx).padStart(3, "0")}</p>
@@ -153,50 +191,38 @@ export default function ScanHistory() {
               {expandedId === scan.id && (
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
                   {/* Mini Scan Visualization Card */}
-                  <div
-                    className="rounded-lg overflow-hidden"
-                    style={{
-                      background: "hsl(218 26% 11%)",
-                      border: "1px solid hsl(0 0% 100% / 0.07)",
-                    }}
-                  >
-                    <div className="px-3 pt-3 pb-1">
+                  <div className="rounded-lg overflow-hidden bg-card border border-border dark">
+                    <div className="px-3 pt-3 pb-1" style={{ background: "hsl(var(--card))" }}>
                       <ToothArch className="[&_text]:!fill-[hsl(38_23%_90%_/_0.4)] max-w-[280px]" />
                     </div>
                     {/* Quality bar */}
-                    <div className="px-4 pb-3">
+                    <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="font-mono text-[8px] tracking-[0.15em] uppercase" style={{ color: "hsl(38 23% 90% / 0.4)" }}>QUALITY</span>
-                        <span className="font-mono text-[10px] font-semibold" style={{ color: "hsl(38 23% 90%)" }}>
+                        <span className="mono-label text-muted-foreground">QUALITY</span>
+                        <span className="mono-label font-semibold text-foreground">
                           {scan.quality_score != null ? `${Math.round(scan.quality_score)}%` : "—"}
                         </span>
                       </div>
-                      <div className="h-1 rounded-full overflow-hidden" style={{ background: "hsl(220 24% 16%)" }}>
+                      <div className="h-1 rounded-full overflow-hidden bg-muted">
                         <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${scan.quality_score ?? 0}%`,
-                            background:
-                              (scan.quality_score ?? 0) >= 80
-                                ? "hsl(142 71% 45%)"
-                                : (scan.quality_score ?? 0) >= 50
-                                  ? "hsl(45 93% 47%)"
-                                  : "hsl(0 84% 60%)",
-                          }}
+                          className={`h-full rounded-full transition-all ${
+                            (scan.quality_score ?? 0) >= 80
+                              ? "bg-status-success"
+                              : (scan.quality_score ?? 0) >= 50
+                                ? "bg-status-warning"
+                                : "bg-status-danger"
+                          }`}
+                          style={{ width: `${scan.quality_score ?? 0}%` }}
                         />
                       </div>
                     </div>
                     {/* Detection Tags */}
                     {scan.detection_tags && scan.detection_tags.length > 0 && (
-                      <div className="px-4 pb-3 flex flex-wrap gap-1.5">
+                      <div className="px-4 pb-3 flex flex-wrap gap-1.5" style={{ background: "hsl(var(--card))" }}>
                         {scan.detection_tags.map((tag, i) => (
                           <span
                             key={i}
-                            className="font-mono text-[8px] tracking-[0.1em] uppercase px-2 py-0.5 rounded-full"
-                            style={{
-                              background: "hsl(228 100% 62% / 0.15)",
-                              color: "hsl(228 100% 72%)",
-                            }}
+                            className="mono-label px-2 py-0.5 rounded-full bg-primary/15 text-primary"
                           >
                             {tag}
                           </span>

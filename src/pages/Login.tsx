@@ -9,6 +9,7 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
+import { Eye, EyeOff } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -19,6 +20,8 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function Login() {
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
   const { signIn, user, role, loading, roleLoading } = useAuth();
 
   const form = useForm<LoginFormValues>({
@@ -37,7 +40,7 @@ export default function Login() {
   if (user && roleLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <div className="animate-pulse font-mono text-muted-foreground mono-label">REDIRECTING</div>
+        <div className="animate-pulse mono-label text-muted-foreground">REDIRECTING</div>
       </div>
     );
   }
@@ -61,6 +64,24 @@ export default function Login() {
     // Auth guard above will redirect once useAuth updates with role
   });
 
+  const handleForgotPassword = async () => {
+    const email = form.getValues("email");
+    if (!email || !z.string().email().safeParse(email).success) {
+      toast.error("Enter your email address first");
+      return;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      setResetSent(true);
+      toast.success("Password reset link sent to your email");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to send reset link");
+    }
+  };
+
   return (
     <div className="flex min-h-screen">
       {/* Left — gradient with orb */}
@@ -72,7 +93,7 @@ export default function Login() {
           style={{
             transform: "rotate(-90deg) translateX(50%)",
             transformOrigin: "right center",
-            fontSize: "9px",
+            fontSize: "11px",
             color: "rgba(255,255,255,0.15)",
             whiteSpace: "nowrap",
           }}
@@ -133,14 +154,31 @@ export default function Login() {
                   <FormItem>
                     <FormLabel className="mono-label text-muted-foreground">PASSWORD</FormLabel>
                     <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="••••••••"
-                        className="rounded-tag"
-                        {...field}
-                      />
+                      <div className="relative">
+                        <Input
+                          type={showPassword ? "text" : "password"}
+                          placeholder="••••••••"
+                          className="rounded-tag pr-10"
+                          {...field}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
                     </FormControl>
                     <FormMessage />
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      className="text-xs text-primary hover:underline font-body mt-1"
+                    >
+                      {resetSent ? "Reset link sent ✓" : "Forgot password?"}
+                    </button>
                   </FormItem>
                 )}
               />
