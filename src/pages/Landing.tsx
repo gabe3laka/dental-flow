@@ -545,7 +545,7 @@ export default function Landing() {
             ].map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-3">
                 <Icon className="w-4 h-4 text-primary flex-shrink-0" />
-                <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground">{text}</span>
+                <span className="mono-label text-muted-foreground">{text}</span>
               </div>
             ))}
           </div>
