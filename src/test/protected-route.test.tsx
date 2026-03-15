@@ -71,7 +71,7 @@ describe("PROF-04: Suspension race condition fix", () => {
   });
 
   it("roleLoading=true shows loading UI regardless of suspended", () => {
-    mockUseAuth.mockReturnValue(baseAuthState({ roleLoading: true, suspended: false }) as ReturnType<typeof useAuth>);
+    mockUseAuth.mockReturnValue(baseAuthState({ roleLoading: true, suspended: false }) as unknown as ReturnType<typeof useAuth>);
     renderProtectedRoute();
     expect(screen.getByText("LOADING")).toBeInTheDocument();
   });
