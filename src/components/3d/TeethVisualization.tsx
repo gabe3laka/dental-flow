@@ -149,6 +149,8 @@ function DentalModel({
           thickness: 0.5,
         });
         child.userData.isGum = true;
+        // Disable raycasting on gum meshes so clicks pass through to teeth
+        child.raycast = () => {};
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color("#f5f0e8"),
