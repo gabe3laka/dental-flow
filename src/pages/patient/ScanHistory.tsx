@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 type ScanRow = {
