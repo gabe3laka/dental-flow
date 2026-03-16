@@ -362,7 +362,7 @@ function DentalModel({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   useFrame((_s, delta) => {
-    if (groupRef.current) groupRef.current.rotation.y += delta * 0.15;
+    if (groupRef.current) groupRef.current.rotation.y += delta * 0.08;
   });
 
   return (
