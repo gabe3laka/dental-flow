@@ -51,12 +51,33 @@ const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: 
 function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
   const { camera } = useThree();
   const targetVec = useRef(new THREE.Vector3());
+  const isAnimating = useRef(false);
+  const prevViewMode = useRef(viewMode);
+
+  // Trigger animation only when viewMode changes
+  useEffect(() => {
+    if (prevViewMode.current !== viewMode) {
+      isAnimating.current = true;
+      prevViewMode.current = viewMode;
+    }
+  }, [viewMode]);
 
   useFrame(() => {
+    if (!isAnimating.current) return;
+
     const preset = CAMERA_PRESETS[viewMode];
-    camera.position.lerp(new THREE.Vector3(...preset.pos), 0.045);
-    targetVec.current.lerp(new THREE.Vector3(...preset.target), 0.045);
+    const targetPos = new THREE.Vector3(...preset.pos);
+    const targetLook = new THREE.Vector3(...preset.target);
+
+    camera.position.lerp(targetPos, 0.06);
+    targetVec.current.lerp(targetLook, 0.06);
     camera.lookAt(targetVec.current);
+
+    // Stop animating once close enough
+    if (camera.position.distanceTo(targetPos) < 0.01) {
+      camera.position.copy(targetPos);
+      isAnimating.current = false;
+    }
   });
 
   return null;
@@ -128,6 +149,8 @@ function DentalModel({
           thickness: 0.5,
         });
         child.userData.isGum = true;
+        // Disable raycasting on gum meshes so clicks pass through to teeth
+        child.raycast = () => {};
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color("#f5f0e8"),
@@ -427,7 +450,7 @@ function ToothChart2D({
           strokeWidth="28"
           strokeLinecap="round"
         />
-        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
           UPPER
         </text>
         {UPPER_TEETH.map(renderTooth)}
@@ -439,7 +462,7 @@ function ToothChart2D({
           strokeLinecap="round"
         />
         {LOWER_TEETH.map(renderTooth)}
-        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
           LOWER
         </text>
       </svg>
