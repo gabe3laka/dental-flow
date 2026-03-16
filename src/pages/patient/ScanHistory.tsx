@@ -204,6 +204,13 @@ export default function ScanHistory() {
                     {formatDate(scan.submitted_at)}
                   </p>
                   <p className="text-sm font-medium">SCAN #{String(scans.length - idx).padStart(3, "0")}</p>
+                  <p className="mono-label mt-0.5" style={{ fontSize: 9 }}>
+                    {scan.sent_to_doctor ? (
+                      <span className="text-status-success">SENT TO DOCTOR</span>
+                    ) : (
+                      <span className="text-muted-foreground">AI ANALYZED · NOT SENT</span>
+                    )}
+                  </p>
                 </div>
                 <StatusBadge variant={scan.status as any} />
                 {expandedId === scan.id ? (
