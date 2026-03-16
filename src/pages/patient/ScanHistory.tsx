@@ -55,6 +55,7 @@ export default function ScanHistory() {
       const mapped = (data || []).map((s: any) => ({
         ...s,
         detection_tags: Array.isArray(s.detection_tags) ? s.detection_tags : null,
+        sent_to_doctor: s.sent_to_doctor ?? false,
       }));
       setAllScans(mapped);
     })();
