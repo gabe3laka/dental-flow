@@ -77,7 +77,7 @@ export default function ScanResults() {
           });
         }
       } catch (e) {
-        logError(e, { operation: "ScanResults/load", scanId });
+        logError(e, { operation: "ScanResults/load", userId: user?.id });
       } finally {
         setLoading(false);
       }
