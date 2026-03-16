@@ -538,7 +538,18 @@ function ToothChart2D({
           strokeWidth="28"
           strokeLinecap="round"
         />
-        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
+        {/* UPPER label inside the arch */}
+        <text
+          x="130"
+          y="78"
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize="10"
+          fontFamily="monospace"
+          fontWeight="600"
+          letterSpacing="0.22em"
+          opacity="0.5"
+        >
           UPPER
         </text>
         {UPPER_TEETH.map(renderTooth)}
@@ -550,7 +561,18 @@ function ToothChart2D({
           strokeLinecap="round"
         />
         {LOWER_TEETH.map(renderTooth)}
-        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
+        {/* LOWER label inside the arch */}
+        <text
+          x="130"
+          y="228"
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize="10"
+          fontFamily="monospace"
+          fontWeight="600"
+          letterSpacing="0.22em"
+          opacity="0.5"
+        >
           LOWER
         </text>
       </svg>
