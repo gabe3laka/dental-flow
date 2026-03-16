@@ -229,8 +229,8 @@ export default function ScanSubmission() {
         } catch { /* non-blocking */ }
       }
 
-      toast({ title: "Scan submitted!", description: "Your doctor will review it shortly." });
-      navigate("/patient/scans");
+      toast({ title: "Scan complete!", description: "View your AI analysis." });
+      navigate(`/patient/scans/${scanRow?.id}/results`);
     } catch (e: any) {
       toast({ title: "Submission failed", description: e.message, variant: "destructive" });
     } finally {
