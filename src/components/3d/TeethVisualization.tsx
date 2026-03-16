@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 /* ─── Types ─── */
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
+export type RenderMode = "3d" | "2d";
 
 export interface TeethVisualizationProps {
   toothData?: Record<string, ToothStatus>;
@@ -16,6 +17,7 @@ export interface TeethVisualizationProps {
   showLegend?: boolean;
   showToggle?: boolean;
   onToothSelect?: (toothId: string) => void;
+  defaultRenderMode?: RenderMode;
 }
 
 /* ─── Status emissive colors ─── */
@@ -69,7 +71,7 @@ function DentalModel({
 }) {
   const { scene } = useGLTF("/dental-arch.glb");
   const groupRef = useRef<THREE.Group>(null);
-  const [hoveredMesh, setHoveredMesh] = useState<string | null>(null);
+  const [_hoveredMesh, setHoveredMesh] = useState<string | null>(null);
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
   const emissive = STATUS_EMISSIVE[overallStatus];
@@ -225,6 +227,128 @@ function Scene({
   );
 }
 
+/* ─── 2D SVG Tooth Arch ─── */
+const STATUS_FILL: Record<ToothStatus, { fill: string; stroke: string }> = {
+  on_track:  { fill: "rgba(34,197,94,0.25)",  stroke: "#22c55e" },
+  deviation: { fill: "rgba(245,158,11,0.25)", stroke: "#f59e0b" },
+  attention: { fill: "rgba(239,68,68,0.25)",  stroke: "#ef4444" },
+  no_data:   { fill: "rgba(255,255,255,0.10)", stroke: "rgba(255,255,255,0.25)" },
+};
+
+// Upper arch: 16 teeth (right molars → front → left molars)
+// Lower arch: 16 teeth mirrored
+const UPPER_TEETH = [
+  { id: "UR8", cx: 22,  cy: 110, rx: 7,  ry: 9  },
+  { id: "UR7", cx: 28,  cy: 88,  rx: 7,  ry: 8.5 },
+  { id: "UR6", cx: 37,  cy: 68,  rx: 7.5,ry: 8.5 },
+  { id: "UR5", cx: 50,  cy: 50,  rx: 7,  ry: 8  },
+  { id: "UR4", cx: 64,  cy: 37,  rx: 7,  ry: 7.5 },
+  { id: "UR3", cx: 80,  cy: 28,  rx: 6.5,ry: 7  },
+  { id: "UR2", cx: 91,  cy: 23,  rx: 6,  ry: 6.5 },
+  { id: "UR1", cx: 100, cy: 21,  rx: 6,  ry: 6  },
+  { id: "UL1", cx: 109, cy: 21,  rx: 6,  ry: 6  },
+  { id: "UL2", cx: 118, cy: 23,  rx: 6,  ry: 6.5 },
+  { id: "UL3", cx: 129, cy: 28,  rx: 6.5,ry: 7  },
+  { id: "UL4", cx: 145, cy: 37,  rx: 7,  ry: 7.5 },
+  { id: "UL5", cx: 159, cy: 50,  rx: 7,  ry: 8  },
+  { id: "UL6", cx: 172, cy: 68,  rx: 7.5,ry: 8.5 },
+  { id: "UL7", cx: 181, cy: 88,  rx: 7,  ry: 8.5 },
+  { id: "UL8", cx: 187, cy: 110, rx: 7,  ry: 9  },
+];
+
+// Lower arch: mirror the upper, offset downward
+const LOWER_TEETH = [
+  { id: "LR8", cx: 22,  cy: 140, rx: 7,  ry: 9  },
+  { id: "LR7", cx: 28,  cy: 162, rx: 7,  ry: 8.5 },
+  { id: "LR6", cx: 37,  cy: 182, rx: 7.5,ry: 8.5 },
+  { id: "LR5", cx: 50,  cy: 200, rx: 7,  ry: 8  },
+  { id: "LR4", cx: 64,  cy: 213, rx: 7,  ry: 7.5 },
+  { id: "LR3", cx: 80,  cy: 222, rx: 6.5,ry: 7  },
+  { id: "LR2", cx: 91,  cy: 227, rx: 6,  ry: 6.5 },
+  { id: "LR1", cx: 100, cy: 229, rx: 6,  ry: 6  },
+  { id: "LL1", cx: 109, cy: 229, rx: 6,  ry: 6  },
+  { id: "LL2", cx: 118, cy: 227, rx: 6,  ry: 6.5 },
+  { id: "LL3", cx: 129, cy: 222, rx: 6.5,ry: 7  },
+  { id: "LL4", cx: 145, cy: 213, rx: 7,  ry: 7.5 },
+  { id: "LL5", cx: 159, cy: 200, rx: 7,  ry: 8  },
+  { id: "LL6", cx: 172, cy: 182, rx: 7.5,ry: 8.5 },
+  { id: "LL7", cx: 181, cy: 162, rx: 7,  ry: 8.5 },
+  { id: "LL8", cx: 187, cy: 140, rx: 7,  ry: 9  },
+];
+
+function ToothChart2D({
+  toothData,
+  onToothSelect,
+}: {
+  toothData: Record<string, ToothStatus>;
+  onToothSelect?: (id: string) => void;
+}) {
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  const renderTooth = (t: { id: string; cx: number; cy: number; rx: number; ry: number }) => {
+    const status = toothData[t.id] ?? "no_data";
+    const { fill, stroke } = STATUS_FILL[status];
+    const isHovered = hovered === t.id;
+    return (
+      <ellipse
+        key={t.id}
+        cx={t.cx}
+        cy={t.cy}
+        rx={isHovered ? t.rx + 1.5 : t.rx}
+        ry={isHovered ? t.ry + 1.5 : t.ry}
+        fill={fill}
+        stroke={isHovered ? "#ffffff" : stroke}
+        strokeWidth={isHovered ? 1.5 : 0.8}
+        style={{ cursor: "pointer", transition: "all 0.15s" }}
+        onMouseEnter={() => setHovered(t.id)}
+        onMouseLeave={() => setHovered(null)}
+        onClick={() => onToothSelect?.(t.id)}
+      />
+    );
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center w-full h-full py-2">
+      <svg
+        viewBox="0 0 209 250"
+        width="100%"
+        style={{ maxHeight: "100%", overflow: "visible" }}
+        aria-label="2D tooth chart"
+      >
+        {/* Arch guide lines */}
+        <path
+          d="M 22 115 Q 22 10, 104 13 Q 186 10, 187 115"
+          fill="none"
+          stroke="rgba(255,255,255,0.05)"
+          strokeWidth="26"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 22 135 Q 22 240, 104 237 Q 186 240, 187 135"
+          fill="none"
+          stroke="rgba(255,255,255,0.05)"
+          strokeWidth="26"
+          strokeLinecap="round"
+        />
+        {/* Center divider */}
+        <line x1="104" y1="118" x2="104" y2="132" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="2 2" />
+        {UPPER_TEETH.map(renderTooth)}
+        {LOWER_TEETH.map(renderTooth)}
+        {/* Midline label */}
+        <text x="104" y="126" fill="rgba(255,255,255,0.2)" fontSize="5" fontFamily="monospace" textAnchor="middle">
+          UPPER · LOWER
+        </text>
+        {/* Tooltip */}
+        {hovered && (
+          <text x="104" y="8" fill="white" fontSize="7" fontFamily="monospace" textAnchor="middle" opacity="0.9">
+            {hovered}
+          </text>
+        )}
+      </svg>
+    </div>
+  );
+}
+
 /* ─── Legend ─── */
 const LEGEND = [
   { label: "ON TRACK", color: "#22c55e" },
@@ -241,9 +365,11 @@ export function TeethVisualization({
   showLegend = true,
   showToggle = true,
   onToothSelect,
+  defaultRenderMode = "3d",
 }: TeethVisualizationProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [hoveredTooth, setHoveredTooth] = useState<string | null>(null);
+  const [renderMode, setRenderMode] = useState<RenderMode>(defaultRenderMode);
 
   const handleClick = useCallback(
     (id: string) => { onToothSelect?.(id); },
@@ -254,49 +380,76 @@ export function TeethVisualization({
 
   return (
     <div className={cn("relative", className)}>
-      {/* View toggle */}
+      {/* Controls row */}
       {showToggle && !compact && (
-        <div className="flex justify-end mb-2">
+        <div className="flex items-center justify-between mb-2">
+          {/* 3D view mode buttons — only in 3D mode */}
+          {renderMode === "3d" ? (
+            <div className="flex gap-1 bg-muted/50 rounded-full p-0.5">
+              {(["both", "upper", "lower"] as ViewMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={cn(
+                    "px-3 py-1 rounded-full mono-label transition-colors",
+                    viewMode === mode
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {mode.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div />
+          )}
+
+          {/* 3D / 2D render-mode toggle */}
           <div className="flex gap-1 bg-muted/50 rounded-full p-0.5">
-            {(["both", "upper", "lower"] as ViewMode[]).map((mode) => (
+            {(["3d", "2d"] as RenderMode[]).map((rm) => (
               <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
+                key={rm}
+                onClick={() => setRenderMode(rm)}
                 className={cn(
                   "px-3 py-1 rounded-full mono-label transition-colors",
-                  viewMode === mode
+                  renderMode === rm
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground"
                 )}
               >
-                {mode.toUpperCase()}
+                {rm.toUpperCase()}
               </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* 3D Canvas */}
+      {/* Canvas / Chart */}
       <div className={cn(height, "w-full rounded-lg overflow-hidden")}>
-        <Suspense fallback={<Skeleton className="w-full h-full" />}>
-          <Canvas
-            camera={{ position: [0, 1.4, 3.8], fov: compact ? 36 : 32 }}
-            gl={{ antialias: true, alpha: true }}
-            style={{ width: "100%", height: "100%" }}
-          >
-            <color attach="background" args={["transparent"]} />
-            <Scene
-              viewMode={viewMode}
-              toothData={toothData}
-              onHover={setHoveredTooth}
-              onClick={handleClick}
-            />
-          </Canvas>
-        </Suspense>
+        {renderMode === "3d" ? (
+          <Suspense fallback={<Skeleton className="w-full h-full" />}>
+            <Canvas
+              camera={{ position: [0, 1.4, 3.8], fov: compact ? 36 : 32 }}
+              gl={{ antialias: true, alpha: true }}
+              style={{ width: "100%", height: "100%" }}
+            >
+              <color attach="background" args={["transparent"]} />
+              <Scene
+                viewMode={viewMode}
+                toothData={toothData}
+                onHover={setHoveredTooth}
+                onClick={handleClick}
+              />
+            </Canvas>
+          </Suspense>
+        ) : (
+          <ToothChart2D toothData={toothData} onToothSelect={onToothSelect} />
+        )}
       </div>
 
-      {/* Hover tooltip */}
-      {hoveredTooth && (
+      {/* Hover tooltip (3D only) */}
+      {renderMode === "3d" && hoveredTooth && (
         <div className="absolute top-2 left-2 bg-popover/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 pointer-events-none z-10">
           <span className="mono-label text-foreground">
             {hoveredTooth.replace(/_/g, " ").toUpperCase()}
