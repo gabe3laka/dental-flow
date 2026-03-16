@@ -1,104 +1,210 @@
 
 
-# Plan: Anatomically Realistic 3D Teeth
+# Fix 10 Known Gaps / Unimplemented Features
 
-## The Core Problem
+## Overview
 
-The current teeth use `THREE.LatheGeometry`, which rotates a 2D profile around an axis — producing **rotationally symmetric cylinders/cones**. Real teeth are fundamentally **not rotationally symmetric**:
+This plan addresses every unimplemented feature identified in the audit. Each fix is scoped to be functional and production-appropriate.
 
-- **Incisors**: Flat, shovel-shaped (wide but thin front-to-back)
-- **Canines**: Pointed but with a ridge, not a cone
-- **Premolars**: Two cusps on top, oval cross-section
-- **Molars**: Wide, flat occlusal surface with 4 cusps, roughly rectangular cross-section
+---
 
-`LatheGeometry` can never produce these shapes. This is why they look like pegs.
+## 1. Notification Toggles -- Persist to Database
 
-## Solution: ExtrudeGeometry with Shaped Cross-Sections
+**Problem:** Patient Profile toggles (`Switch`) use `defaultChecked` with no database storage. Changes are lost on refresh.
 
-Replace `LatheGeometry` with `THREE.ExtrudeGeometry` using hand-crafted `THREE.Shape` outlines for each tooth type. Each tooth gets:
+**Fix:**
+- Create a new `user_preferences` table with columns: `id`, `user_id`, `pref_key` (text), `pref_value` (boolean), `updated_at`
+- RLS: users can read/write their own rows, admins can read all
+- On Profile mount, fetch preferences and set toggle state
+- On toggle change, upsert into `user_preferences`
 
-1. **A 2D cross-section shape** (the top-down footprint — oval for incisors, rectangular-ish for molars)
-2. **An extrude path** that tapers from root to crown with proper curves
-3. **Crown surface details** via vertex displacement for cusps on molars/premolars
+**Files:** Migration (new table), `src/pages/patient/Profile.tsx`
 
-### Tooth Geometry Approach
+---
 
-```text
-Current (LatheGeometry):        New (ExtrudeGeometry):
-    ╭─╮                            ╭────╮
-    │ │  ← circular cross-section  │    │ ← oval/rectangular
-    │ │                             │    │   cross-section
-    ╰─╯                            ╰────╯
-  (looks like a peg)             (looks like a real tooth)
-```
+## 2. Automations Execution Engine
 
-**Per tooth type:**
-- **Incisor**: Thin oval Shape (~0.12 wide × 0.06 deep), extruded along a curve that widens at the crown into a flat chisel edge
-- **Canine**: Slightly rounder oval, extruded to a pointed tip with a labial ridge
-- **Premolar**: Rounded rectangle shape, flat top with two bump vertices (buccal + lingual cusps)
-- **Molar**: Wide rounded rectangle (~0.14 × 0.12), flat top with 4 cusp bumps, widest tooth
+**Problem:** Automations are stored in the `automations` table but never run. No cron job or Edge Function exists.
 
-### Gum Improvements
+**Fix:**
+- Create Edge Function `run-automations/index.ts` that:
+  1. Fetches all enabled automations
+  2. For each `no_scan` type: finds patients of that doctor who haven't submitted a scan in `trigger_days` days
+  3. For each `low_compliance` type: finds patients with compliance_streak below a threshold
+  4. For each `recurring` type: checks if `trigger_days` have passed since last automated message
+  5. Inserts messages into the `messages` table using the `message_template` (replacing `{patient_name}` and `{days}` placeholders)
+- Register in `supabase/config.toml` with `verify_jwt = false`
+- Set up a `pg_cron` job to call this function daily via SQL insert (not migration)
 
-- Color change from `#c87072` → `#d4878a` (more realistic pink, less saturated red)
-- Add `meshPhysicalMaterial` with `transmission: 0.1` for subtle translucency (subsurface scattering approximation)
-- Thicker gum ridge that wraps slightly around the base of each tooth
+**Files:** `supabase/functions/run-automations/index.ts`, `supabase/config.toml`
 
-### Material Improvements
+---
 
-- Base tooth color: `#f5f0e8` (natural off-white) — status applied via emissive only, not base color
-- Use `meshPhysicalMaterial` instead of `meshStandardMaterial`:
-  - `clearcoat: 0.3` for enamel sheen
-  - `clearcoatRoughness: 0.4`
-  - Lower emissive intensities (0.25 instead of 0.4-0.5) for subtlety
-- Slow rotation from `0.15` → `0.08` rad/s
+## 3. Team Invite Acceptance Flow
 
-### Lighting
+**Problem:** Team invites stay PENDING forever. No mechanism for invited users to accept.
 
-- Add rim light from behind for depth separation
-- Warmer key light for more natural tooth appearance
+**Fix:**
+- After signup, check if the new user's email matches any `team_invites` record
+- Create Edge Function `accept-team-invite/index.ts` that:
+  1. Takes the authenticated user's email
+  2. Looks up pending invites matching that email
+  3. Updates `accepted_at` to `now()`
+  4. Optionally links the user to the practice
+- Call this function from the Login page after successful sign-in
+- Add a visual banner on doctor Settings when invites are accepted
 
-## Files Modified
+**Files:** `supabase/functions/accept-team-invite/index.ts`, `supabase/config.toml`, `src/pages/Login.tsx`
 
-| File | Change |
-|------|--------|
-| `src/components/3d/TeethVisualization.tsx` | Complete rewrite of tooth geometry (LatheGeometry → ExtrudeGeometry), new materials, gum improvements, lighting |
+---
 
-No new dependencies. No other files change — the component's props/API remain identical.
+## 4. Deactivate Practice Backend Logic
 
-## Technical Details
+**Problem:** The "Deactivate Practice" button in doctor Settings has no `onClick` handler.
 
-Each tooth will be built with this pattern:
+**Fix:**
+- Add confirmation dialog (type "DEACTIVATE" to confirm)
+- On confirm: update `profiles.suspended = true` and `profiles.suspension_reason = 'self_deactivated'` for the doctor
+- Show a toast and sign the user out
+- On login, if `suspended === true`, show a banner: "Your practice has been deactivated. Contact support to reactivate."
 
-```typescript
-function createToothShape(type: ToothType): THREE.Shape {
-  // Returns the 2D footprint of the tooth (top-down view)
-  // Incisor: thin oval | Canine: teardrop | Premolar: oval | Molar: rounded rect
-}
+**Files:** `src/pages/doctor/Settings.tsx`, `src/components/ProtectedRoute.tsx`
 
-function createToothGeometry(type: ToothType, wS: number, hS: number): THREE.BufferGeometry {
-  const shape = createToothShape(type);
-  const extrudeSettings = {
-    steps: 12,
-    depth: height,  // varies per type
-    bevelEnabled: true,
-    bevelThickness: 0.01,
-    bevelSize: 0.005,
-    bevelSegments: 3,
-  };
-  const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-  
-  // Post-process: taper root end narrower, add cusp bumps to crown
-  // by displacing vertices based on Y position
-  
-  return geo;
-}
-```
+---
 
-The vertex displacement pass will:
-1. **Taper the root**: Vertices near Y=0 scale inward by ~40%
-2. **Add cusps to molars/premolars**: Vertices near the crown (max Y) get pushed upward at cusp positions
-3. **Round the crown edge**: Smooth transition at the top
+## 5. Database-Driven Available Slots
 
-This produces teeth that are visually distinct by type — flat incisors, pointed canines, bumpy molars — matching the reference image.
+**Problem:** Doctor Profile page uses hardcoded `SLOT_PILLS` array.
+
+**Fix:**
+- Create `doctor_availability` table: `id`, `doctor_id` (uuid), `day_of_week` (text), `start_time` (text), `is_active` (boolean), `created_at`
+- RLS: doctors manage their own, patients can read their assigned doctor's slots
+- Doctor Settings: add an "Availability" card where doctors can add/remove/toggle time slots
+- Patient DoctorProfile: fetch from `doctor_availability` instead of hardcoded array
+
+**Files:** Migration (new table), `src/pages/doctor/Settings.tsx`, `src/pages/patient/DoctorProfile.tsx`
+
+---
+
+## 6. Billing Tab -- Stripe Integration Placeholder with Real Data
+
+**Problem:** Patient Detail billing tab shows only a static placeholder.
+
+**Fix:**
+- Show the patient's assigned doctor's subscription tier and status
+- Display a treatment cost estimate section (editable by doctor) using a new `estimated_cost` column on `patients` table
+- Show payment status: "Managed by your practice" with practice name
+- Still note that full Stripe checkout is coming soon, but make the tab informative
+
+**Files:** Migration (add `estimated_cost` to `patients`), `src/pages/doctor/PatientDetail.tsx`
+
+---
+
+## 7. Manage Billing -- Stripe Portal Link
+
+**Problem:** "Manage Billing" button just shows a "coming soon" toast.
+
+**Fix:**
+- Create Edge Function `create-billing-portal/index.ts` that:
+  1. Takes the doctor's `stripe_customer_id` from `subscriptions`
+  2. If it exists, creates a Stripe Billing Portal session and returns the URL
+  3. If no Stripe customer, returns an error prompting setup
+- On click: call the function and redirect to the Stripe portal URL
+- Fallback: if no Stripe secret is configured, keep the "coming soon" toast but with a clearer message
+
+**Files:** `supabase/functions/create-billing-portal/index.ts`, `supabase/config.toml`, `src/pages/doctor/Settings.tsx`
+
+*Note: This requires a `STRIPE_SECRET_KEY` secret. The plan will prompt you to add it if you want full Stripe integration, otherwise the button will show a more informative "Connect Stripe to manage billing" message.*
+
+---
+
+## 8. Device Pairing -- Generate Unique Code
+
+**Problem:** Pairing modal always shows hardcoded `ARC-7F2K-9M`.
+
+**Fix:**
+- Generate a random pairing code on modal open: `ARC-XXXX-XX` format using `crypto.getRandomValues()`
+- Store the code in `patients` table (add `pairing_code` column, nullable text)
+- On "Done" click: save the code to the patient record and set `device_linked = true`
+- Display the stored code if device is already linked; allow "Unlink" to clear it
+
+**Files:** Migration (add `pairing_code` to `patients`), `src/pages/patient/Profile.tsx`
+
+---
+
+## 9. Share Progress -- Generate Real Shareable Link
+
+**Problem:** Share Progress button only shows a toast, does not create an actual link.
+
+**Fix:**
+- Create a `progress_shares` table: `id`, `patient_id`, `share_token` (text, unique), `created_at`, `expires_at` (default 7 days)
+- RLS: patients can insert their own, anyone can read by token
+- On "Share Progress" click: insert a row, generate a URL like `/shared/progress/{token}`, copy to clipboard
+- Create a new public page `/shared/progress/:token` that shows read-only progress data (ToothArch, quality, milestones)
+
+**Files:** Migration (new table), `src/pages/patient/Progress.tsx`, new file `src/pages/public/SharedProgress.tsx`, `src/App.tsx` (add route)
+
+---
+
+## 10. Scan Compare URL Fix
+
+**Problem:** PatientDetail navigates to `/doctor/scans/compare?ids=id1,id2` but ScanCompare reads `?a=` and `?b=`.
+
+**Fix:**
+- Update `ScanCompare` to also parse the `ids` parameter: split by comma, assign first to `scanA` and second to `scanB`
+- Keep backward compatibility with `?a=` and `?b=` format
+- This is a one-line logic fix
+
+**Files:** `src/pages/doctor/ScanCompare.tsx`
+
+---
+
+## Implementation Order
+
+| Priority | Item | Complexity |
+|----------|------|------------|
+| 1 | #10 Scan Compare URL fix | Trivial |
+| 2 | #1 Notification preferences | Low |
+| 3 | #8 Device pairing code | Low |
+| 4 | #9 Share Progress link | Medium |
+| 5 | #4 Deactivate Practice | Low |
+| 6 | #5 Available Slots | Medium |
+| 7 | #6 Billing tab | Low |
+| 8 | #3 Team invite acceptance | Medium |
+| 9 | #2 Automation engine | High |
+| 10 | #7 Stripe billing portal | Medium (requires secret) |
+
+## Database Changes Summary
+
+| Change | Type |
+|--------|------|
+| `user_preferences` table | New table |
+| `doctor_availability` table | New table |
+| `progress_shares` table | New table |
+| `patients.pairing_code` column | Add column |
+| `patients.estimated_cost` column | Add column |
+
+## New Files
+
+| File | Purpose |
+|------|---------|
+| `supabase/functions/run-automations/index.ts` | Cron-driven automation execution |
+| `supabase/functions/accept-team-invite/index.ts` | Team invite acceptance |
+| `supabase/functions/create-billing-portal/index.ts` | Stripe portal session |
+| `src/pages/public/SharedProgress.tsx` | Public progress sharing page |
+
+## Modified Files
+
+| File | Changes |
+|------|---------|
+| `src/pages/doctor/ScanCompare.tsx` | Parse `ids` param |
+| `src/pages/patient/Profile.tsx` | Persist toggles, dynamic pairing code |
+| `src/pages/patient/Progress.tsx` | Real share link generation |
+| `src/pages/patient/DoctorProfile.tsx` | Fetch slots from DB |
+| `src/pages/doctor/Settings.tsx` | Deactivate logic, availability editor, Stripe portal |
+| `src/pages/doctor/PatientDetail.tsx` | Billing tab with real data |
+| `src/pages/Login.tsx` | Call accept-team-invite after login |
+| `src/components/ProtectedRoute.tsx` | Suspended account check |
+| `src/App.tsx` | Add shared progress route |
+| `supabase/config.toml` | Register 3 new edge functions |
 
