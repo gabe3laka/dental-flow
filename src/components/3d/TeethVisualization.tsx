@@ -42,22 +42,31 @@ function GumArch({ flip = false }: { flip?: boolean }) {
   const geometry = useMemo(() => {
     const pts = archCurvePoints(40);
     const shape = new THREE.Shape();
-    shape.moveTo(-0.18, -0.12);
-    shape.lineTo(0.18, -0.12);
-    shape.quadraticCurveTo(0.24, -0.12, 0.24, -0.04);
-    shape.lineTo(0.24, 0.06);
-    shape.quadraticCurveTo(0.24, 0.14, 0.18, 0.14);
-    shape.lineTo(-0.18, 0.14);
-    shape.quadraticCurveTo(-0.24, 0.14, -0.24, 0.06);
-    shape.lineTo(-0.24, -0.04);
-    shape.quadraticCurveTo(-0.24, -0.12, -0.18, -0.12);
+    // Thicker, more anatomical gum cross-section
+    shape.moveTo(-0.20, -0.14);
+    shape.lineTo(0.20, -0.14);
+    shape.quadraticCurveTo(0.28, -0.14, 0.28, -0.04);
+    shape.lineTo(0.28, 0.08);
+    shape.quadraticCurveTo(0.28, 0.18, 0.20, 0.18);
+    shape.lineTo(-0.20, 0.18);
+    shape.quadraticCurveTo(-0.28, 0.18, -0.28, 0.08);
+    shape.lineTo(-0.28, -0.04);
+    shape.quadraticCurveTo(-0.28, -0.14, -0.20, -0.14);
     const curve = new THREE.CatmullRomCurve3(pts, false);
     return new THREE.ExtrudeGeometry(shape, { steps: 60, bevelEnabled: false, extrudePath: curve });
   }, []);
 
   return (
     <mesh geometry={geometry} scale={flip ? [1, -1, 1] : [1, 1, 1]}>
-      <meshStandardMaterial color="#c87072" roughness={0.8} metalness={0.02} />
+      <meshPhysicalMaterial
+        color="#d4878a"
+        roughness={0.75}
+        metalness={0.02}
+        clearcoat={0.1}
+        clearcoatRoughness={0.8}
+        transmission={0.05}
+        thickness={0.5}
+      />
     </mesh>
   );
 }
