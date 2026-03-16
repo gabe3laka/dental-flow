@@ -4,7 +4,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePatientData } from "@/hooks/use-patient-data";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
-import { MessageCircle, Camera, User, Flame } from "lucide-react";
+import { DoctorMarketplace } from "@/components/patient/DoctorMarketplace";
+import { Camera, TrendingUp, MessageCircle, Flame } from "lucide-react";
 
 function getGreeting() {
   const h = new Date().getHours();
@@ -13,193 +14,211 @@ function getGreeting() {
   return "Good evening";
 }
 
-function formatStreak(streak: number) {
-  if (streak === 0) return "0 scans submitted";
-  if (streak < 5) return `${streak} 🔥`;
-  return `${streak} 🔥🔥`;
-}
-
 function UserAvatar({ name }: { name?: string }) {
   const initials = name
-    ? name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+    ? name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
     : "?";
   return (
-    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-      <span className="font-mono text-xs text-primary font-medium">{initials}</span>
+    <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+      <span className="font-mono text-xs text-primary font-semibold">{initials}</span>
     </div>
   );
 }
 
-function getProgressStatus(data: any, progressPercent: number) {
-  if (!data?.hasStarted && progressPercent === 0) return "not_started" as const;
-  if (progressPercent >= 50) return "on_track" as const;
-  return "needs_attention" as const;
-}
-
 export default function PatientHome() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { data, loading } = usePatientData();
   const navigate = useNavigate();
+
   const today = new Date();
-  const dateStr = today.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase();
+  const dateStr = today
+    .toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })
+    .toUpperCase();
   const firstName = user?.user_metadata?.full_name?.split(" ")[0];
   const fullName = user?.user_metadata?.full_name;
 
   const progressPercent = data?.progressPercent ?? 0;
-  const status = getProgressStatus(data, progressPercent);
+  const notStarted = !data?.hasStarted && progressPercent === 0;
 
   return (
-    <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-28">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <span className="mono-label text-muted-foreground">TODAY · {dateStr}</span>
-          <h1 className="font-display text-2xl font-semibold mt-1">
-            {getGreeting()}{firstName ? `, ${firstName}` : ""}
-          </h1>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={signOut} className="mono-label text-muted-foreground hover:text-foreground transition">
-            SIGN OUT
-          </button>
+    <div className="min-h-screen bg-background max-w-[480px] mx-auto pb-28">
+      {/* Hero greeting strip */}
+      <div
+        className="px-5 pt-10 pb-7 mb-1"
+        style={{
+          background:
+            "linear-gradient(160deg, hsl(var(--primary) / 0.07) 0%, transparent 70%)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <span className="mono-label text-muted-foreground">{dateStr}</span>
+            <h1 className="font-display text-2xl font-semibold mt-0.5">
+              {getGreeting()}
+              {firstName ? `, ${firstName}` : ""}
+            </h1>
+          </div>
           <UserAvatar name={fullName} />
         </div>
-      </div>
 
-      {/* Treatment Progress Card */}
-      <div className="bg-card rounded-card p-6 mb-4 border border-border shadow-sm">
-        <span className="mono-label text-muted-foreground block mb-4">TREATMENT PROGRESS</span>
-        {loading ? (
-          <div className="flex justify-center">
-            <Skeleton className="w-[100px] h-[100px] rounded-full" />
-          </div>
-        ) : (
-          <ProgressRing
-            value={progressPercent}
-            status={status}
-            subtitle={
-              data?.complianceStreak
-                ? `${data.complianceStreak} scans completed`
-                : undefined
-            }
-          />
-        )}
-      </div>
-
-      {/* YOUR NEXT STEP card */}
-      {!loading && (
-        <div
-          className="bg-card rounded-card p-5 mb-4 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
-          onClick={() => {
-            if (!data?.hasScanData) navigate("/patient/scan");
-            else if (!data?.doctorName) navigate("/patient/profile");
-            else if (!data?.latestMessage) navigate("/patient/chat");
-            else navigate("/patient/scan");
-          }}
-        >
-          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 bg-primary/10">
-            {!data?.hasScanData ? (
-              <Camera className="w-4 h-4 text-primary" />
-            ) : !data?.doctorName ? (
-              <User className="w-4 h-4 text-primary" />
-            ) : !data?.latestMessage ? (
-              <MessageCircle className="w-4 h-4 text-primary" />
-            ) : (
-              <Flame className="w-4 h-4 text-primary" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <span className="mono-label text-muted-foreground">YOUR NEXT STEP</span>
-            <p className="text-sm font-medium mt-0.5">
-              {!data?.hasScanData
-                ? "Submit your first scan to get started."
-                : !data?.doctorName
-                ? "Complete your profile — your doctor needs your info."
-                : !data?.latestMessage
-                ? `Introduce yourself to Dr. ${data.doctorName.split(" ")[0]}.`
-                : `Next scan due in ${data.nextCheckInDays ?? "—"} days. Keep your streak going!`}
-            </p>
-          </div>
-          <span className="mono-label text-primary flex-shrink-0">
-            {!data?.hasScanData
-              ? "START →"
-              : !data?.doctorName
-              ? "UPDATE →"
-              : !data?.latestMessage
-              ? "MESSAGE →"
-              : "SCAN →"}
-          </span>
+        {/* Quick Actions row */}
+        <div className="flex gap-2 mt-5">
+          <button
+            onClick={() => navigate("/patient/scan")}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-pill bg-primary text-primary-foreground mono-label shadow-sm hover:bg-primary/90 transition"
+          >
+            <Camera className="w-3.5 h-3.5" />
+            SCAN NOW
+          </button>
+          <button
+            onClick={() => navigate("/patient/progress")}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-pill bg-card border border-border mono-label text-foreground hover:border-primary/40 transition"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            PROGRESS
+          </button>
+          <button
+            onClick={() => navigate("/patient/chat")}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-pill bg-card border border-border mono-label text-foreground hover:border-primary/40 transition"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            CHAT
+          </button>
         </div>
-      )}
-
-      {/* Next check-in card */}
-      <div className="bg-card rounded-card p-5 mb-4 border border-border shadow-sm">
-        {loading ? (
-          <Skeleton className="h-12" />
-        ) : (
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <span className="mono-label text-muted-foreground">NEXT CHECK-IN</span>
-              <p className="font-display text-lg font-semibold mt-1">
-                {data?.nextCheckInDays !== null ? `${data?.nextCheckInDays} days` : "No scans yet"}
-              </p>
-            </div>
-            <div className="w-px h-10 bg-border mx-4" />
-            <div className="flex-1 text-right">
-              <span className="mono-label text-muted-foreground">SCAN STREAK</span>
-              <p className="font-display text-lg font-semibold mt-1">{formatStreak(data?.complianceStreak ?? 0)}</p>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Message preview */}
-      {loading ? (
-        <Skeleton className="h-16 rounded-card mb-6" />
-      ) : data?.latestMessage ? (
-        <div
-          className="bg-card rounded-card p-5 mb-6 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
-          onClick={() => navigate("/patient/chat")}
-        >
-          <div className="w-10 h-10 rounded-full bg-soft-panel flex items-center justify-center font-mono text-xs text-muted-foreground">
-            DR
+      <div className="px-5">
+        {/* Treatment snapshot card */}
+        <div className="bg-card rounded-card border border-border shadow-sm p-4 mb-4 flex items-center gap-5">
+          {loading ? (
+            <Skeleton className="w-[72px] h-[72px] rounded-full flex-shrink-0" />
+          ) : (
+            <div className="flex-shrink-0">
+              <ProgressRing
+                value={progressPercent}
+                status={notStarted ? "not_started" : progressPercent >= 50 ? "on_track" : "needs_attention"}
+                size={72}
+              />
+            </div>
+          )}
+          <div className="flex-1 min-w-0 space-y-2">
+            <span className="mono-label text-muted-foreground block">TREATMENT PROGRESS</span>
+            <div className="flex items-center gap-4">
+              <div>
+                <p className="font-display text-xl font-semibold leading-none">
+                  {progressPercent}%
+                </p>
+                <span className="mono-label text-muted-foreground text-[10px]">COMPLETE</span>
+              </div>
+              <div className="w-px h-7 bg-border" />
+              <div>
+                <div className="flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 text-orange-400" />
+                  <p className="font-display text-xl font-semibold leading-none">
+                    {data?.complianceStreak ?? 0}
+                  </p>
+                </div>
+                <span className="mono-label text-muted-foreground text-[10px]">SCANS DONE</span>
+              </div>
+              {data?.nextCheckInDays != null && (
+                <>
+                  <div className="w-px h-7 bg-border" />
+                  <div>
+                    <p className="font-display text-xl font-semibold leading-none">
+                      {data.nextCheckInDays}
+                    </p>
+                    <span className="mono-label text-muted-foreground text-[10px]">DAYS LEFT</span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{data.latestMessage.senderName}</p>
-            <p className="text-xs text-muted-foreground truncate">{data.latestMessage.content}</p>
+        </div>
+
+        {/* Doctor Marketplace preview */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="mono-label text-muted-foreground">FIND A DOCTOR</span>
+            <button
+              onClick={() => navigate("/patient/chat")}
+              className="mono-label text-primary text-[10px]"
+            >
+              SEE ALL →
+            </button>
           </div>
-          {data.unreadCount > 0 && (
-            <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+          {loading ? (
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {[1, 2].map((i) => (
+                <Skeleton key={i} className="w-[180px] h-[130px] rounded-card flex-shrink-0" />
+              ))}
+            </div>
+          ) : !data?.hasScanData ? (
+            <div
+              className="bg-card border border-dashed border-border rounded-card px-5 py-4 flex items-center gap-3 cursor-pointer hover:border-primary/30 transition"
+              onClick={() => navigate("/patient/scan")}
+            >
+              <Camera className="w-5 h-5 text-muted-foreground opacity-60" />
+              <div>
+                <p className="text-sm font-medium">Submit a scan first</p>
+                <p className="text-xs text-muted-foreground">
+                  We'll recommend doctors based on your scan results.
+                </p>
+              </div>
+              <span className="mono-label text-primary ml-auto flex-shrink-0">SCAN →</span>
+            </div>
+          ) : (
+            <DoctorMarketplace mode="preview" />
           )}
         </div>
-      ) : (
-        <div
-          className="bg-card rounded-card p-5 mb-6 border border-border shadow-sm flex items-center gap-4 cursor-pointer hover:border-primary/30 transition"
-          onClick={() => navigate("/patient/profile")}
-        >
-          <div className="w-9 h-9 rounded-full flex items-center justify-center bg-accent/20">
-            <MessageCircle className="w-4 h-4 text-accent" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium">Your doctor will appear here</p>
-            <p className="text-xs text-muted-foreground">Once assigned, you can message them directly.</p>
-          </div>
-          <span className="mono-label text-primary flex-shrink-0">PROFILE →</span>
-        </div>
-      )}
 
-      {/* Empty state */}
-      {!loading && !data?.hasScanData && (
-        <div className="text-center mb-4">
-          <p className="text-sm text-muted-foreground mb-3">Submit your first scan to get started.</p>
-        </div>
-      )}
+        {/* Latest message / doctor card */}
+        {loading ? (
+          <Skeleton className="h-16 rounded-card mb-4" />
+        ) : data?.latestMessage ? (
+          <div
+            className="bg-card rounded-card p-4 mb-4 border border-border shadow-sm flex items-center gap-3 cursor-pointer hover:border-primary/30 transition"
+            onClick={() => navigate("/patient/chat")}
+          >
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center font-mono text-xs text-primary font-semibold flex-shrink-0">
+              DR
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{data.latestMessage.senderName}</p>
+              <p className="text-xs text-muted-foreground truncate">{data.latestMessage.content}</p>
+            </div>
+            {data.unreadCount > 0 && (
+              <div className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />
+            )}
+          </div>
+        ) : (
+          <div
+            className="bg-card rounded-card p-4 mb-4 border border-dashed border-border flex items-center gap-3 cursor-pointer hover:border-primary/30 transition"
+            onClick={() => navigate("/patient/profile")}
+          >
+            <div className="w-9 h-9 rounded-full flex items-center justify-center bg-accent/15">
+              <MessageCircle className="w-4 h-4 text-accent" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">Your doctor will appear here</p>
+              <p className="text-xs text-muted-foreground">
+                Once assigned, you can message them directly.
+              </p>
+            </div>
+            <span className="mono-label text-primary flex-shrink-0">PROFILE →</span>
+          </div>
+        )}
+      </div>
 
-      {/* Floating Action Button */}
+      {/* Camera FAB */}
       <button
         onClick={() => navigate("/patient/scan")}
         className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors"
-        style={{ boxShadow: "0 4px 20px hsl(var(--primary) / 0.3)" }}
+        style={{ boxShadow: "0 4px 20px hsl(var(--primary) / 0.35)" }}
         aria-label="Start new scan"
       >
         <Camera className="w-6 h-6" />

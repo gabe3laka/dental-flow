@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
+import { FlipHorizontal } from "lucide-react";
 
 const zones = ["UPPER", "LOWER", "LEFT", "RIGHT", "FRONT"];
 const ZONE_GUIDANCE: Record<string, string> = {
@@ -71,6 +72,7 @@ export default function ScanSubmission() {
   const [submitting, setSubmitting] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [timerStarted, setTimerStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [qualityScore, setQualityScore] = useState(0);
@@ -79,13 +81,17 @@ export default function ScanSubmission() {
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Start camera — rear camera for dental scans
+  // Start camera — restarts when facingMode changes
   useEffect(() => {
     let cancelled = false;
+    setCameraReady(false);
+    setCameraError(false);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 960 } },
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 960 } },
         });
         if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
@@ -103,7 +109,7 @@ export default function ScanSubmission() {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [facingMode]);
 
   // Timer
   useEffect(() => {
@@ -324,6 +330,16 @@ export default function ScanSubmission() {
         {[["top-3 left-3", "border-t-2 border-l-2"], ["top-3 right-3", "border-t-2 border-r-2"], ["bottom-3 left-3", "border-b-2 border-l-2"], ["bottom-3 right-3", "border-b-2 border-r-2"]].map(([pos, border], i) => (
           <div key={i} className={`absolute ${pos} w-5 h-5 ${border} border-primary/60 z-10`} />
         ))}
+        {/* Camera flip button */}
+        {cameraReady && (
+          <button
+            onClick={() => setFacingMode((m) => m === "environment" ? "user" : "environment")}
+            className="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center hover:bg-black/70 transition"
+            aria-label="Flip camera"
+          >
+            <FlipHorizontal className="w-4 h-4 text-white" />
+          </button>
+        )}
       </div>
 
       <div className="flex justify-center gap-2 mb-6">

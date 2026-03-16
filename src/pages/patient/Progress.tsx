@@ -53,6 +53,8 @@ export default function Progress() {
   const [latestScan, setLatestScan] = useState<{ quality_score: number | null; detection_tags: string[] | null } | null>(null);
   const [patientId, setPatientId] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [daysElapsed, setDaysElapsed] = useState<number>(0);
+  const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -72,12 +74,20 @@ export default function Progress() {
         setTreatmentCategory(patient.treatment_category);
         setComplianceStreak(patient.compliance_streak || 0);
 
+        const elapsed = patient.start_date
+          ? Math.floor((Date.now() - new Date(patient.start_date).getTime()) / 86400000)
+          : 0;
+        const remaining = patient.estimated_end_date
+          ? Math.max(0, Math.floor((new Date(patient.estimated_end_date).getTime() - Date.now()) / 86400000))
+          : null;
+        setDaysElapsed(elapsed);
+        setDaysRemaining(remaining);
+
         const { data } = await supabase
           .from("treatment_milestones")
           .select("id, title, target_date, completed_at")
           .eq("patient_id", patient.id)
           .order("target_date", { ascending: true });
-
         setMilestones(data || []);
 
         const { data: scanData } = await supabase
@@ -95,14 +105,12 @@ export default function Progress() {
         }
 
         try {
-          const daysElapsed = patient.start_date ? Math.floor((Date.now() - new Date(patient.start_date).getTime()) / 86400000) : 0;
-          const daysRemaining = patient.estimated_end_date ? Math.max(0, Math.floor((new Date(patient.estimated_end_date).getTime() - Date.now()) / 86400000)) : null;
           const { data: summaryData } = await supabase.functions.invoke("generate-patient-summary", {
             body: {
               compliance_streak: patient.compliance_streak || 0,
               treatment_category: patient.treatment_category,
-              days_elapsed: daysElapsed,
-              days_remaining: daysRemaining,
+              days_elapsed: elapsed,
+              days_remaining: remaining,
               recent_scan_status: "pending",
             },
           });
@@ -142,21 +150,12 @@ export default function Progress() {
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       <span className="mono-label text-muted-foreground">TREATMENT</span>
-      <h1 className="font-display text-2xl font-semibold mt-1 mb-2">Your Progress</h1>
+      <h1 className="font-display text-2xl font-semibold mt-1 mb-6">Your Progress</h1>
 
-      {treatmentCategory && (
-        <span className="mono-label inline-block px-2.5 py-1 rounded-pill mb-6 bg-primary/10 text-primary">
-          {CATEGORY_LABELS[treatmentCategory] || treatmentCategory}
-        </span>
-      )}
-
-      {/* Treatment Progress Card */}
-      <div className="bg-card rounded-card p-6 mb-8 border border-border shadow-sm">
-        <span className="mono-label text-muted-foreground block mb-4">TREATMENT PROGRESS</span>
+      {/* Hero progress ring */}
+      <div className="flex flex-col items-center mb-6">
         {patientLoading ? (
-          <div className="flex justify-center">
-            <Skeleton className="w-[100px] h-[100px] rounded-full" />
-          </div>
+          <Skeleton className="w-[120px] h-[120px] rounded-full" />
         ) : (
           <ProgressRing
             value={progressPercent}
@@ -164,18 +163,45 @@ export default function Progress() {
             subtitle={`${complianceStreak} scans completed`}
           />
         )}
+        {treatmentCategory && (
+          <span className="mono-label inline-block px-3 py-1 rounded-pill mt-4 bg-primary/10 text-primary">
+            {CATEGORY_LABELS[treatmentCategory] || treatmentCategory}
+          </span>
+        )}
       </div>
 
-      {/* AI Insight */}
-      <div className="rounded-card p-5 mb-8 bg-primary/5 border border-primary/10">
+      {/* Horizontal stat pills */}
+      <div className="flex gap-2 overflow-x-auto pb-1 mb-6">
+        <div className="flex-shrink-0 bg-card border border-border rounded-pill px-4 py-2 flex flex-col items-center">
+          <span className="font-display text-lg font-semibold leading-none">{complianceStreak}</span>
+          <span className="mono-label text-muted-foreground text-[10px] mt-0.5">SCANS</span>
+        </div>
+        <div className="flex-shrink-0 bg-card border border-border rounded-pill px-4 py-2 flex flex-col items-center">
+          <span className="font-display text-lg font-semibold leading-none">{daysElapsed}</span>
+          <span className="mono-label text-muted-foreground text-[10px] mt-0.5">DAYS IN</span>
+        </div>
+        {daysRemaining !== null && (
+          <div className="flex-shrink-0 bg-card border border-border rounded-pill px-4 py-2 flex flex-col items-center">
+            <span className="font-display text-lg font-semibold leading-none">{daysRemaining}</span>
+            <span className="mono-label text-muted-foreground text-[10px] mt-0.5">DAYS LEFT</span>
+          </div>
+        )}
+        <div className="flex-shrink-0 bg-card border border-border rounded-pill px-4 py-2 flex flex-col items-center">
+          <span className="font-display text-lg font-semibold leading-none">{progressPercent}%</span>
+          <span className="mono-label text-muted-foreground text-[10px] mt-0.5">COMPLETE</span>
+        </div>
+      </div>
+
+      {/* AI Insight — left border accent */}
+      <div className="rounded-card p-5 mb-6 bg-card border border-border border-l-2 border-l-primary">
         <span className="mono-label text-primary mb-2 block">AI INSIGHT</span>
         <p className="font-display text-base italic text-foreground/80 leading-relaxed">
           {aiSummary || getAiInsightFallback(complianceStreak, progressPercent)}
         </p>
       </div>
 
-      {/* Scan Visualization Card */}
-      <div className="mb-10">
+      {/* 3D Tooth Map */}
+      <div className="mb-8">
         <span className="mono-label text-muted-foreground mb-3 block">TOOTH MAP</span>
         <div className="rounded-card overflow-hidden bg-card border border-border dark">
           <div className="px-4 pt-5 pb-2 bg-card">
@@ -230,67 +256,59 @@ export default function Progress() {
         </div>
       </div>
 
-      {/* Milestones */}
+      {/* Milestones — vertical timeline */}
       <div className="mb-8">
-        <span className="mono-label text-muted-foreground mb-3 block">MILESTONES</span>
+        <span className="mono-label text-muted-foreground mb-4 block">MILESTONES</span>
         {loadingMilestones ? (
-          <div className="flex gap-3 overflow-x-auto">
+          <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="w-40 h-24 rounded-card flex-shrink-0" />
+              <Skeleton key={i} className="h-14 rounded-card" />
             ))}
           </div>
         ) : milestones.length === 0 ? (
-          <div>
-            <div className="flex gap-3 overflow-x-auto pb-2">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="w-[100px] h-[80px] rounded-card flex-shrink-0 flex flex-col items-center justify-center gap-2 bg-accent/10 border border-dashed border-accent/30"
-                >
-                  <div className="w-3 h-3 rounded-full bg-accent" />
-                  <div className="space-y-1.5 flex flex-col items-center">
-                    <div className="w-[60px] h-[6px] rounded-full bg-accent/30" />
-                    <div className="w-[40px] h-[6px] rounded-full bg-accent/20" />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-[13px] text-muted-foreground italic mt-3">
+          <div className="text-center py-8 border border-dashed border-border rounded-card">
+            <p className="text-sm text-muted-foreground italic">
               Your doctor will set treatment milestones here.
             </p>
           </div>
         ) : (
-          <div
-            className="flex gap-3 overflow-x-auto pb-4"
-            style={{
-              maskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-              WebkitMaskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-            }}
-          >
-            {milestones.map((m, idx) => (
-              <div key={m.id} className="relative flex items-center">
-                <div className="w-40 flex-shrink-0 bg-card rounded-card border border-border p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div
-                      className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
-                        m.completed_at
-                          ? "border-status-success bg-status-success"
-                          : "border-border bg-transparent"
-                      }`}
-                    />
-                    <span className="font-body text-sm font-medium truncate">{m.title}</span>
+          <div className="relative pl-6">
+            {/* Vertical connector line */}
+            <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
+            <div className="space-y-4">
+              {milestones.map((m) => (
+                <div key={m.id} className="relative flex items-start gap-4">
+                  {/* Dot */}
+                  <div
+                    className={`absolute -left-6 mt-1 w-[18px] h-[18px] rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                      m.completed_at
+                        ? "border-status-success bg-status-success"
+                        : "border-border bg-background"
+                    }`}
+                  >
+                    {m.completed_at && (
+                      <svg viewBox="0 0 10 10" className="w-2.5 h-2.5 text-white" fill="currentColor">
+                        <path d="M1.5 5l2.5 2.5 4.5-4.5" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
                   </div>
-                  {m.target_date && (
-                    <span className="mono-label text-muted-foreground">
-                      {format(new Date(m.target_date), "dd MMM yyyy").toUpperCase()}
-                    </span>
-                  )}
+                  {/* Content */}
+                  <div className="bg-card border border-border rounded-card px-4 py-3 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-body text-sm font-medium">{m.title}</span>
+                      {m.completed_at && (
+                        <span className="mono-label text-status-success text-[10px] flex-shrink-0">DONE</span>
+                      )}
+                    </div>
+                    {m.target_date && (
+                      <span className="mono-label text-muted-foreground text-[10px] mt-0.5 block">
+                        {format(new Date(m.target_date), "dd MMM yyyy").toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {idx < milestones.length - 1 && (
-                  <div className="w-3 h-px bg-border flex-shrink-0" />
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
