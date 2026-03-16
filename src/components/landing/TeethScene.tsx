@@ -4,28 +4,42 @@ import { Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 
 function DentalArch() {
-  const { scene } = useGLTF("/dental-arch.glb");
+  const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
 
-  /* Apply realistic enamel + gum materials once */
-  const clonedScene = useMemo(() => {
+  /* Clone and apply materials */
+  const { clonedScene, scale, offset } = useMemo(() => {
     const cloned = scene.clone(true);
+
     cloned.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       const srcMat = Array.isArray(child.material) ? child.material[0] : child.material;
-      const isGum = (srcMat?.name ?? "") === "Material.001";
+      const matName = (srcMat?.name ?? "").toLowerCase();
+      const meshName = (child.name ?? "").toLowerCase();
 
-      if (isGum) {
+      const isGum = matName.includes("gum") || matName.includes("gingiva") ||
+                    matName.includes("material.001") || meshName.includes("gum") ||
+                    meshName.includes("gingiva");
+
+      let isGumByColor = false;
+      if (srcMat && 'color' in srcMat) {
+        const c = (srcMat as THREE.MeshStandardMaterial).color;
+        if (c && c.r > 0.6 && c.g < 0.4 && c.b < 0.5) isGumByColor = true;
+      }
+
+      if (isGum || isGumByColor) {
         child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#d97b83"),
-          roughness: 0.70,
+          color: new THREE.Color("#d4878a"),
+          roughness: 0.72,
           metalness: 0.0,
           clearcoat: 0.05,
           clearcoatRoughness: 0.9,
+          transmission: 0.05,
+          thickness: 0.5,
         });
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#f2ede3"),
+          color: new THREE.Color("#f5f0e8"),
           roughness: 0.18,
           metalness: 0.04,
           clearcoat: 0.65,
@@ -38,7 +52,17 @@ function DentalArch() {
         child.castShadow = true;
       }
     });
-    return cloned;
+
+    // Auto-fit bounding box
+    const box = new THREE.Box3().setFromObject(cloned);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const s = maxDim > 0 ? 2.0 / maxDim : 1;
+
+    return { clonedScene: cloned, scale: s, offset: center.multiplyScalar(-s) };
   }, [scene]);
 
   useFrame((_state, delta) => {
@@ -46,7 +70,7 @@ function DentalArch() {
   });
 
   return (
-    <group ref={groupRef} rotation={[0.28, 0, 0]} position={[0, -0.15, 0]}>
+    <group ref={groupRef} scale={[scale, scale, scale]} position={[offset.x, offset.y, offset.z]}>
       <primitive object={clonedScene} />
     </group>
   );
@@ -55,7 +79,7 @@ function DentalArch() {
 export default function TeethScene() {
   return (
     <Canvas
-      camera={{ position: [0, 1.4, 3.8], fov: 32 }}
+      camera={{ position: [0, 0.6, 4.5], fov: 32 }}
       style={{ width: "100%", height: "100%" }}
       gl={{ antialias: true, alpha: true }}
     >
@@ -72,4 +96,4 @@ export default function TeethScene() {
   );
 }
 
-useGLTF.preload("/dental-arch.glb");
+useGLTF.preload("/teeth.glb");
