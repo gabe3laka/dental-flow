@@ -1,6 +1,6 @@
 import { useRef, useMemo, useState, useCallback, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Environment } from "@react-three/drei";
+import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,370 +18,181 @@ export interface TeethVisualizationProps {
   onToothSelect?: (toothId: string) => void;
 }
 
-/* ─── Status → Color mapping ─── */
-const STATUS_COLORS: Record<ToothStatus, { color: string; emissive: string; intensity: number }> = {
-  on_track:  { color: "#f5f0e8", emissive: "#22c55e", intensity: 0.25 },
-  deviation: { color: "#f5f0e8", emissive: "#f59e0b", intensity: 0.25 },
-  attention: { color: "#f5f0e8", emissive: "#ef4444", intensity: 0.3 },
-  no_data:   { color: "#f5f0e8", emissive: "#000000", intensity: 0 },
+/* ─── Status emissive colors ─── */
+const STATUS_EMISSIVE: Record<ToothStatus, { color: string; intensity: number }> = {
+  on_track:  { color: "#22c55e", intensity: 0.15 },
+  deviation: { color: "#f59e0b", intensity: 0.22 },
+  attention: { color: "#ef4444", intensity: 0.30 },
+  no_data:   { color: "#000000", intensity: 0 },
 };
 
-/* ─── Arch curve ─── */
-function archCurvePoints(segments = 28): THREE.Vector3[] {
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i <= segments; i++) {
-    const t = i / segments;
-    const angle = Math.PI * t;
-    pts.push(new THREE.Vector3(Math.cos(angle) * 1.35, 0, -Math.sin(angle) * 1.1));
-  }
-  return pts;
+/* ─── Determine overall status for global glow ─── */
+function resolveOverallStatus(data: Record<string, ToothStatus>): ToothStatus {
+  const vals = Object.values(data);
+  if (vals.includes("attention")) return "attention";
+  if (vals.includes("deviation")) return "deviation";
+  if (vals.includes("on_track")) return "on_track";
+  return "no_data";
 }
 
-/* ─── Gum mesh ─── */
-function GumArch({ flip = false }: { flip?: boolean }) {
-  const geometry = useMemo(() => {
-    const pts = archCurvePoints(40);
-    const shape = new THREE.Shape();
-    // Thicker, more anatomical gum cross-section
-    shape.moveTo(-0.20, -0.14);
-    shape.lineTo(0.20, -0.14);
-    shape.quadraticCurveTo(0.28, -0.14, 0.28, -0.04);
-    shape.lineTo(0.28, 0.08);
-    shape.quadraticCurveTo(0.28, 0.18, 0.20, 0.18);
-    shape.lineTo(-0.20, 0.18);
-    shape.quadraticCurveTo(-0.28, 0.18, -0.28, 0.08);
-    shape.lineTo(-0.28, -0.04);
-    shape.quadraticCurveTo(-0.28, -0.14, -0.20, -0.14);
-    const curve = new THREE.CatmullRomCurve3(pts, false);
-    return new THREE.ExtrudeGeometry(shape, { steps: 60, bevelEnabled: false, extrudePath: curve });
-  }, []);
-
-  return (
-    <mesh geometry={geometry} scale={flip ? [1, -1, 1] : [1, 1, 1]}>
-      <meshPhysicalMaterial
-        color="#d4878a"
-        roughness={0.75}
-        metalness={0.02}
-        clearcoat={0.1}
-        clearcoatRoughness={0.8}
-        transmission={0.05}
-        thickness={0.5}
-      />
-    </mesh>
-  );
-}
-
-/* ─── Tooth types & scales ─── */
-type ToothType = "incisor" | "canine" | "premolar" | "molar";
-const TOOTH_TYPES: ToothType[] = [
-  "molar", "molar", "molar", "premolar", "premolar", "canine",
-  "incisor", "incisor", "incisor", "incisor",
-  "canine", "premolar", "premolar", "molar", "molar", "molar",
-];
-// [widthScale, heightScale]
-const TOOTH_SCALES: [number, number][] = [
-  [1.1, 0.72], [1.05, 0.75], [1.1, 0.75],
-  [0.95, 0.82], [0.9, 0.88],
-  [0.8, 1.1],
-  [0.75, 0.92], [0.85, 1.0], [0.85, 1.0], [0.75, 0.92],
-  [0.8, 1.1],
-  [0.9, 0.88], [0.95, 0.82],
-  [1.1, 0.75], [1.05, 0.75], [1.1, 0.72],
-];
-
-/* ─── Anatomical tooth cross-section shapes ─── */
-function createToothShape(type: ToothType, wS: number): THREE.Shape {
-  const shape = new THREE.Shape();
-  switch (type) {
-    case "incisor": {
-      // Thin, shovel-shaped: wide labio-lingually, narrow mesio-distally
-      const w = 0.065 * wS;
-      const d = 0.032 * wS;
-      shape.moveTo(w, 0);
-      shape.quadraticCurveTo(w, d, 0, d);
-      shape.quadraticCurveTo(-w, d, -w, 0);
-      shape.quadraticCurveTo(-w, -d, 0, -d);
-      shape.quadraticCurveTo(w, -d, w, 0);
-      break;
-    }
-    case "canine": {
-      // Teardrop / pointed oval — slightly more round than incisor
-      const w = 0.055 * wS;
-      const d = 0.04 * wS;
-      shape.moveTo(w, 0);
-      shape.quadraticCurveTo(w, d * 1.1, 0, d);
-      shape.quadraticCurveTo(-w, d * 1.1, -w, 0);
-      shape.quadraticCurveTo(-w, -d * 0.9, 0, -d * 0.85);
-      shape.quadraticCurveTo(w, -d * 0.9, w, 0);
-      break;
-    }
-    case "premolar": {
-      // Oval, wider bucco-lingually
-      const w = 0.058 * wS;
-      const d = 0.048 * wS;
-      shape.moveTo(w, 0);
-      shape.quadraticCurveTo(w, d, 0, d);
-      shape.quadraticCurveTo(-w, d, -w, 0);
-      shape.quadraticCurveTo(-w, -d, 0, -d);
-      shape.quadraticCurveTo(w, -d, w, 0);
-      break;
-    }
-    case "molar": {
-      // Rounded rectangle — widest tooth
-      const w = 0.07 * wS;
-      const d = 0.06 * wS;
-      const r = 0.015 * wS; // corner radius
-      shape.moveTo(w - r, -d);
-      shape.lineTo(w - r, -d);
-      shape.quadraticCurveTo(w, -d, w, -d + r);
-      shape.lineTo(w, d - r);
-      shape.quadraticCurveTo(w, d, w - r, d);
-      shape.lineTo(-w + r, d);
-      shape.quadraticCurveTo(-w, d, -w, d - r);
-      shape.lineTo(-w, -d + r);
-      shape.quadraticCurveTo(-w, -d, -w + r, -d);
-      shape.lineTo(w - r, -d);
-      break;
-    }
-  }
-  return shape;
-}
-
-/* ─── Tooth height per type ─── */
-const TOOTH_HEIGHTS: Record<ToothType, number> = {
-  incisor: 0.30,
-  canine: 0.34,
-  premolar: 0.26,
-  molar: 0.22,
+/* ─── Camera presets ─── */
+const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: [number, number, number] }> = {
+  both:  { pos: [0, 1.4, 3.8], target: [0, 0, 0] },
+  upper: { pos: [0, 2.8, 2.8], target: [0, 0.3, 0] },
+  lower: { pos: [0, -0.8, 3.2], target: [0, -0.5, 0] },
 };
-
-function createToothGeometry(type: ToothType, wS: number, hS: number): THREE.BufferGeometry {
-  const shape = createToothShape(type, wS);
-  const height = TOOTH_HEIGHTS[type] * hS;
-
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    steps: 16,
-    depth: height,
-    bevelEnabled: true,
-    bevelThickness: 0.008,
-    bevelSize: 0.006,
-    bevelSegments: 4,
-  });
-
-  // Post-process vertices: taper root, add cusps
-  const posAttr = geo.attributes.position;
-  const maxZ = height; // extrude goes along Z
-
-  for (let i = 0; i < posAttr.count; i++) {
-    let x = posAttr.getX(i);
-    let y = posAttr.getY(i);
-    let z = posAttr.getZ(i);
-
-    const t = z / maxZ; // 0 = root, 1 = crown
-
-    // Taper root: vertices near z=0 shrink inward
-    const rootTaper = 0.5 + 0.5 * Math.pow(t, 0.6);
-    x *= rootTaper;
-    y *= rootTaper;
-
-    // Crown bulge: slight widening at ~70% height
-    const bulge = 1.0 + 0.12 * Math.sin(t * Math.PI);
-    x *= bulge;
-    y *= bulge;
-
-    // Add cusps for premolars and molars at the crown
-    if (t > 0.85) {
-      const cuspT = (t - 0.85) / 0.15; // 0→1 in cusp zone
-      if (type === "molar") {
-        // 4 cusps at corners
-        const cx = Math.sign(x) * 0.03 * wS;
-        const cy = Math.sign(y) * 0.025 * wS;
-        const distToCusp = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-        const cuspBump = Math.exp(-distToCusp * 35) * 0.04 * hS * cuspT;
-        z += cuspBump;
-      } else if (type === "premolar") {
-        // 2 cusps (buccal + lingual)
-        const cy = Math.sign(y) * 0.02 * wS;
-        const distToCusp = Math.sqrt(x ** 2 + (y - cy) ** 2);
-        const cuspBump = Math.exp(-distToCusp * 30) * 0.035 * hS * cuspT;
-        z += cuspBump;
-      } else if (type === "canine") {
-        // Single pointed tip
-        const dist = Math.sqrt(x ** 2 + y ** 2);
-        const tipBump = Math.exp(-dist * 40) * 0.05 * hS * cuspT;
-        z += tipBump;
-      } else if (type === "incisor") {
-        // Flat chisel edge — slight ridge along the wide axis
-        const ridgeBump = Math.exp(-Math.abs(y) * 50) * 0.015 * hS * cuspT;
-        z += ridgeBump;
-      }
-    }
-
-    posAttr.setXYZ(i, x, y, z);
-  }
-
-  posAttr.needsUpdate = true;
-  geo.computeVertexNormals();
-
-  // Rotate so Z-extrusion becomes Y-up (tooth stands upright)
-  geo.rotateX(-Math.PI / 2);
-
-  return geo;
-}
-
-/* ─── Single Tooth with hover ─── */
-function Tooth({
-  geometry, position, rotation, status, toothId, onHover, onClick,
-}: {
-  geometry: THREE.BufferGeometry;
-  position: [number, number, number];
-  rotation: [number, number, number];
-  status: ToothStatus;
-  toothId: string;
-  onHover: (id: string | null) => void;
-  onClick: (id: string) => void;
-}) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const [hovered, setHovered] = useState(false);
-  const { color, emissive, intensity } = STATUS_COLORS[status];
-
-  return (
-    <mesh
-      ref={meshRef}
-      geometry={geometry}
-      position={position}
-      rotation={rotation}
-      onPointerOver={(e) => { e.stopPropagation(); setHovered(true); onHover(toothId); }}
-      onPointerOut={() => { setHovered(false); onHover(null); }}
-      onClick={(e) => { e.stopPropagation(); onClick(toothId); }}
-    >
-      <meshPhysicalMaterial
-        color={color}
-        emissive={emissive}
-        emissiveIntensity={hovered ? intensity + 0.2 : intensity}
-        roughness={0.3}
-        metalness={0.05}
-        clearcoat={0.3}
-        clearcoatRoughness={0.4}
-        envMapIntensity={0.9}
-      />
-    </mesh>
-  );
-}
-
-/* ─── Teeth Row (upper or lower, 16 teeth) ─── */
-function TeethRow({
-  flip = false, startIndex = 1, toothData, onHover, onClick,
-}: {
-  flip?: boolean;
-  startIndex?: number;
-  toothData: Record<string, ToothStatus>;
-  onHover: (id: string | null) => void;
-  onClick: (id: string) => void;
-}) {
-  const positions = useMemo(() => {
-    const archPts = archCurvePoints(100);
-    let totalLen = 0;
-    for (let i = 1; i < archPts.length; i++) totalLen += archPts[i].distanceTo(archPts[i - 1]);
-    const result: { pos: THREE.Vector3; angle: number }[] = [];
-    const count = 16;
-    for (let i = 0; i < count; i++) {
-      const targetDist = ((i + 0.5) / count) * totalLen;
-      let acc = 0;
-      for (let j = 1; j < archPts.length; j++) {
-        const segLen = archPts[j].distanceTo(archPts[j - 1]);
-        if (acc + segLen >= targetDist) {
-          const frac = (targetDist - acc) / segLen;
-          const pos = archPts[j - 1].clone().lerp(archPts[j], frac);
-          const dir = archPts[j].clone().sub(archPts[j - 1]).normalize();
-          result.push({ pos, angle: Math.atan2(dir.x, dir.z) });
-          break;
-        }
-        acc += segLen;
-      }
-    }
-    return result;
-  }, []);
-
-  const geometries = useMemo(
-    () => TOOTH_TYPES.map((type, i) => createToothGeometry(type, TOOTH_SCALES[i][0], TOOTH_SCALES[i][1])),
-    []
-  );
-
-  return (
-    <group>
-      {positions.map(({ pos, angle }, i) => {
-        const toothId = `tooth_${startIndex + i}`;
-        const status = toothData[toothId] || "no_data";
-        const yOffset = flip ? -0.18 : 0.18;
-        return (
-          <Tooth
-            key={toothId}
-            geometry={geometries[i]}
-            position={[pos.x, yOffset, pos.z]}
-            rotation={[flip ? Math.PI : 0, angle + Math.PI / 2, 0]}
-            status={status}
-            toothId={toothId}
-            onHover={onHover}
-            onClick={onClick}
-          />
-        );
-      })}
-    </group>
-  );
-}
 
 /* ─── Camera animator ─── */
-const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: [number, number, number] }> = {
-  both:  { pos: [0, 1.8, 4.2], target: [0, -0.1, 0] },
-  upper: { pos: [0, 2.5, 3.5], target: [0, 0.3, 0] },
-  lower: { pos: [0, -0.5, 3.8], target: [0, -0.5, 0] },
-};
-
 function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
   const { camera } = useThree();
-  const target = useRef(new THREE.Vector3());
+  const targetVec = useRef(new THREE.Vector3());
 
   useFrame(() => {
     const preset = CAMERA_PRESETS[viewMode];
-    camera.position.lerp(new THREE.Vector3(...preset.pos), 0.04);
-    target.current.lerp(new THREE.Vector3(...preset.target), 0.04);
-    camera.lookAt(target.current);
+    camera.position.lerp(new THREE.Vector3(...preset.pos), 0.045);
+    targetVec.current.lerp(new THREE.Vector3(...preset.target), 0.045);
+    camera.lookAt(targetVec.current);
   });
 
   return null;
 }
 
-/* ─── Full dental model ─── */
+/* ─── The loaded GLB model ─── */
 function DentalModel({
-  toothData, onHover, onClick,
+  toothData,
+  onHover,
+  onClick,
 }: {
   toothData: Record<string, ToothStatus>;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
 }) {
+  const { scene } = useGLTF("/dental-arch.glb");
   const groupRef = useRef<THREE.Group>(null);
+  const [hoveredMesh, setHoveredMesh] = useState<string | null>(null);
+
+  const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
+  const emissive = STATUS_EMISSIVE[overallStatus];
+
+  /* Clone scene once so material changes don't pollute the cache */
+  const clonedScene = useMemo(() => {
+    const cloned = scene.clone(true);
+
+    cloned.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+
+      const srcMat = Array.isArray(child.material) ? child.material[0] : child.material;
+      const matName: string = srcMat?.name ?? "";
+
+      // Material.001 = pink gum (r≈0.8, g≈0.18)
+      // Material     = off-white tooth (r≈0.68, g≈0.69)
+      const isGum = matName === "Material.001";
+
+      if (isGum) {
+        child.material = new THREE.MeshPhysicalMaterial({
+          color: new THREE.Color("#d97b83"),
+          roughness: 0.72,
+          metalness: 0.0,
+          clearcoat: 0.05,
+          clearcoatRoughness: 0.9,
+        });
+      } else {
+        child.material = new THREE.MeshPhysicalMaterial({
+          color: new THREE.Color("#f2ede3"),
+          emissive: new THREE.Color(emissive.color),
+          emissiveIntensity: emissive.intensity,
+          roughness: 0.18,
+          metalness: 0.04,
+          clearcoat: 0.65,
+          clearcoatRoughness: 0.22,
+          transmission: 0.06,
+          thickness: 0.9,
+          ior: 1.48,
+          envMapIntensity: 1.3,
+        });
+        child.castShadow = true;
+      }
+    });
+
+    return cloned;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene]);
+
+  /* Update emissive when toothData changes without full remount */
+  useMemo(() => {
+    clonedScene.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const mat = child.material as THREE.MeshPhysicalMaterial;
+      if (!mat || mat.transmission === undefined) return; // skip gum mats
+      mat.emissive.set(emissive.color);
+      mat.emissiveIntensity = emissive.intensity;
+      mat.needsUpdate = false;
+    });
+  }, [clonedScene, emissive]);
+
+  /* Gentle auto-rotation */
   useFrame((_s, delta) => {
-    if (groupRef.current) groupRef.current.rotation.y += delta * 0.08;
+    if (groupRef.current) groupRef.current.rotation.y += delta * 0.07;
   });
 
+  /* Pointer handlers */
+  const handleOver = useCallback((e: THREE.Event) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ev = e as any;
+    ev.stopPropagation?.();
+    const name = ev.object?.name ?? "";
+    setHoveredMesh(name);
+    onHover(name || null);
+    document.body.style.cursor = "pointer";
+    // Brighten hovered tooth
+    const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
+    if (mat && mat.emissiveIntensity !== undefined && mat.transmission !== undefined) {
+      mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
+    }
+  }, [onHover]);
+
+  const handleOut = useCallback((e: THREE.Event) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ev = e as any;
+    setHoveredMesh(null);
+    onHover(null);
+    document.body.style.cursor = "auto";
+    const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
+    if (mat && mat.emissiveIntensity !== undefined && mat.transmission !== undefined) {
+      mat.emissiveIntensity = emissive.intensity;
+    }
+  }, [onHover, emissive.intensity]);
+
+  const handleClick = useCallback((e: THREE.Event) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ev = e as any;
+    ev.stopPropagation?.();
+    const name = ev.object?.name ?? "tooth";
+    onClick(name);
+  }, [onClick]);
+
   return (
-    <group ref={groupRef} rotation={[0.35, 0, 0]} position={[0, -0.3, 0]}>
-      <group position={[0, 0.22, 0]}>
-        <GumArch />
-        <TeethRow startIndex={1} toothData={toothData} onHover={onHover} onClick={onClick} />
-      </group>
-      <group position={[0, -0.22, 0]}>
-        <GumArch flip />
-        <TeethRow flip startIndex={17} toothData={toothData} onHover={onHover} onClick={onClick} />
-      </group>
+    <group
+      ref={groupRef}
+      rotation={[0.28, 0, 0]}
+      position={[0, -0.15, 0]}
+    >
+      <primitive
+        object={clonedScene}
+        onPointerOver={handleOver}
+        onPointerOut={handleOut}
+        onClick={handleClick}
+      />
     </group>
   );
 }
 
-/* ─── Scene wrapper ─── */
+/* ─── Full scene ─── */
 function Scene({
-  viewMode, toothData, onHover, onClick,
+  viewMode,
+  toothData,
+  onHover,
+  onClick,
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
@@ -390,25 +201,36 @@ function Scene({
 }) {
   return (
     <>
-      <ambientLight intensity={0.45} />
-      <directionalLight position={[3, 5, 4]} intensity={1.0} color="#fff5e6" />
-      <directionalLight position={[-4, 2, -2]} intensity={0.5} color="#6b9aff" />
-      <directionalLight position={[0, -1, -4]} intensity={0.3} color="#ffffff" />
-      <pointLight position={[0, -3, 2]} intensity={0.25} color="#b8a8f0" />
+      {/* Warm key light from upper-right — mimics dental exam lamp */}
+      <directionalLight position={[3, 6, 4]} intensity={1.1} color="#fff8ee" castShadow />
+      {/* Cool fill from upper-left */}
+      <directionalLight position={[-4, 3, -1]} intensity={0.55} color="#c8d8ff" />
+      {/* Rim light from below for depth */}
+      <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
+      {/* Ambient */}
+      <ambientLight intensity={0.38} />
+      {/* Environment for reflections on enamel */}
+      <Environment preset="studio" />
+
       <DentalModel toothData={toothData} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
-      <OrbitControls enableZoom={false} enablePan={false} autoRotate={false} />
-      <Environment preset="studio" />
+      <OrbitControls
+        enableZoom={false}
+        enablePan={false}
+        minPolarAngle={Math.PI / 6}
+        maxPolarAngle={Math.PI * 0.72}
+        rotateSpeed={0.45}
+      />
     </>
   );
 }
 
-/* ─── Legend item ─── */
-const LEGEND: { status: ToothStatus; label: string; color: string }[] = [
-  { status: "on_track", label: "ON TRACK", color: "#22c55e" },
-  { status: "deviation", label: "DEVIATION", color: "#f59e0b" },
-  { status: "attention", label: "ATTENTION", color: "#ef4444" },
-  { status: "no_data", label: "NO DATA", color: "#6b7280" },
+/* ─── Legend ─── */
+const LEGEND = [
+  { label: "ON TRACK", color: "#22c55e" },
+  { label: "DEVIATION", color: "#f59e0b" },
+  { label: "ATTENTION", color: "#ef4444" },
+  { label: "NO DATA", color: "#6b7280" },
 ];
 
 /* ─── Main exported component ─── */
@@ -428,7 +250,7 @@ export function TeethVisualization({
     [onToothSelect]
   );
 
-  const height = compact ? "h-[200px]" : "h-[280px]";
+  const height = compact ? "h-[200px]" : "h-[300px]";
 
   return (
     <div className={cn("relative", className)}>
@@ -454,16 +276,21 @@ export function TeethVisualization({
         </div>
       )}
 
-      {/* Canvas */}
+      {/* 3D Canvas */}
       <div className={cn(height, "w-full rounded-lg overflow-hidden")}>
         <Suspense fallback={<Skeleton className="w-full h-full" />}>
           <Canvas
-            camera={{ position: [0, 1.8, 4.2], fov: compact ? 36 : 32 }}
+            camera={{ position: [0, 1.4, 3.8], fov: compact ? 36 : 32 }}
             gl={{ antialias: true, alpha: true }}
             style={{ width: "100%", height: "100%" }}
           >
             <color attach="background" args={["transparent"]} />
-            <Scene viewMode={viewMode} toothData={toothData} onHover={setHoveredTooth} onClick={handleClick} />
+            <Scene
+              viewMode={viewMode}
+              toothData={toothData}
+              onHover={setHoveredTooth}
+              onClick={handleClick}
+            />
           </Canvas>
         </Suspense>
       </div>
@@ -472,18 +299,8 @@ export function TeethVisualization({
       {hoveredTooth && (
         <div className="absolute top-2 left-2 bg-popover/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 pointer-events-none z-10">
           <span className="mono-label text-foreground">
-            {hoveredTooth.replace("_", " ").toUpperCase()}
+            {hoveredTooth.replace(/_/g, " ").toUpperCase()}
           </span>
-          {toothData[hoveredTooth] && (
-            <span className={cn("ml-2 mono-label", {
-              "text-status-success": toothData[hoveredTooth] === "on_track",
-              "text-gold": toothData[hoveredTooth] === "deviation",
-              "text-destructive": toothData[hoveredTooth] === "attention",
-              "text-muted-foreground": toothData[hoveredTooth] === "no_data",
-            })}>
-              {toothData[hoveredTooth].replace("_", " ").toUpperCase()}
-            </span>
-          )}
         </div>
       )}
 
@@ -501,3 +318,6 @@ export function TeethVisualization({
     </div>
   );
 }
+
+/* Preload so it's ready when the component mounts */
+useGLTF.preload("/dental-arch.glb");
