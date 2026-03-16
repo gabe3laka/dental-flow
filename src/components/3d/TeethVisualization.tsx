@@ -450,7 +450,7 @@ function ToothChart2D({
           strokeWidth="28"
           strokeLinecap="round"
         />
-        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
           UPPER
         </text>
         {UPPER_TEETH.map(renderTooth)}
