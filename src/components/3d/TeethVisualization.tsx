@@ -20,9 +20,9 @@ export interface TeethVisualizationProps {
 
 /* ─── Status → Color mapping ─── */
 const STATUS_COLORS: Record<ToothStatus, { color: string; emissive: string; intensity: number }> = {
-  on_track:  { color: "#e8f5e9", emissive: "#22c55e", intensity: 0.4 },
-  deviation: { color: "#fff8e1", emissive: "#f59e0b", intensity: 0.4 },
-  attention: { color: "#ffebee", emissive: "#ef4444", intensity: 0.5 },
+  on_track:  { color: "#f5f0e8", emissive: "#22c55e", intensity: 0.25 },
+  deviation: { color: "#f5f0e8", emissive: "#f59e0b", intensity: 0.25 },
+  attention: { color: "#f5f0e8", emissive: "#ef4444", intensity: 0.3 },
   no_data:   { color: "#f5f0e8", emissive: "#000000", intensity: 0 },
 };
 
