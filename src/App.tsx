@@ -13,6 +13,7 @@ import Landing from "@/pages/Landing";
 import PatientHome from "@/pages/patient/Home";
 import Onboarding from "@/pages/patient/Onboarding";
 import ScanHistory from "@/pages/patient/ScanHistory";
+import ScanResults from "@/pages/patient/ScanResults";
 import ScanSubmission from "@/pages/patient/ScanSubmission";
 import Progress from "@/pages/patient/Progress";
 import PatientChat from "@/pages/patient/Chat";
