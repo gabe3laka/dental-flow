@@ -19,6 +19,8 @@ type ScanRow = {
   quality_score: number | null;
   thumbnail_url: string | null;
   detection_tags: string[] | null;
+  sent_to_doctor: boolean;
+  patient_id: string;
 };
 
 type ReviewRow = {
