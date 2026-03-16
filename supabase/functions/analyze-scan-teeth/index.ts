@@ -79,20 +79,11 @@ serve(async (req) => {
       if (toolCall) result = JSON.parse(toolCall.function.arguments);
     } catch { /* use default */ }
 
-    // Update scan detection tags
-    await supabase.from("scans").update({ detection_tags: result.detection_tags }).eq("id", scan_id);
-
-    // Insert AI review
-    const { data: existingDoctor } = await supabase.from("patients").select("assigned_doctor_id").eq("id", scan.patient_id).single();
-    if (existingDoctor?.assigned_doctor_id) {
-      await supabase.from("scan_reviews").insert({
-        scan_id,
-        doctor_id: existingDoctor.assigned_doctor_id,
-        ai_analysis: result.teeth,
-        review_notes: "AI-generated analysis",
-        action_type: "none",
-      });
-    }
+    // Update scan with detection tags and full AI analysis (no auto-send to doctor)
+    await supabase.from("scans").update({ 
+      detection_tags: result.detection_tags,
+      ai_analysis: result,
+    }).eq("id", scan_id);
 
     return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {

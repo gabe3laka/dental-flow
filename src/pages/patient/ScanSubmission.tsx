@@ -282,7 +282,7 @@ export default function ScanSubmission() {
           {submitting ? "Uploading..." : "Submit Scan"}
         </Button>
         <p className="text-center text-xs text-muted-foreground mt-3">
-          Usually reviewed within 24 hours
+          AI analysis available immediately after submission
         </p>
 
         <PatientBottomNav />
