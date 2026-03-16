@@ -580,6 +580,26 @@ const LEGEND = [
   { label: "NO DATA", color: "#6b7280" },
 ];
 
+/* ─── FDI tooth name lookup ─── */
+const TOOTH_NAMES: Record<string, string> = {
+  T11: "Upper Right Central Incisor", T21: "Upper Left Central Incisor",
+  T12: "Upper Right Lateral Incisor", T22: "Upper Left Lateral Incisor",
+  T13: "Upper Right Canine", T23: "Upper Left Canine",
+  T14: "Upper Right First Premolar", T24: "Upper Left First Premolar",
+  T15: "Upper Right Second Premolar", T25: "Upper Left Second Premolar",
+  T16: "Upper Right First Molar", T26: "Upper Left First Molar",
+  T17: "Upper Right Second Molar", T27: "Upper Left Second Molar",
+  T18: "Upper Right Third Molar", T28: "Upper Left Third Molar",
+  T41: "Lower Right Central Incisor", T31: "Lower Left Central Incisor",
+  T42: "Lower Right Lateral Incisor", T32: "Lower Left Lateral Incisor",
+  T43: "Lower Right Canine", T33: "Lower Left Canine",
+  T44: "Lower Right First Premolar", T34: "Lower Left First Premolar",
+  T45: "Lower Right Second Premolar", T35: "Lower Left Second Premolar",
+  T46: "Lower Right First Molar", T36: "Lower Left First Molar",
+  T47: "Lower Right Second Molar", T37: "Lower Left Second Molar",
+  T48: "Lower Right Third Molar", T38: "Lower Left Third Molar",
+};
+
 /* ─── Main exported component ─── */
 export function TeethVisualization({
   toothData = {},
@@ -595,7 +615,9 @@ export function TeethVisualization({
   const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<RenderMode>(defaultRenderMode);
   const [resetTrigger, setResetTrigger] = useState(0);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
   const controlsRef = useRef<any>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
 
   const handleClick = useCallback(
     (id: string) => {
@@ -611,7 +633,22 @@ export function TeethVisualization({
     setSelectedTooth(null);
   }, []);
 
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!canvasContainerRef.current) return;
+    const rect = canvasContainerRef.current.getBoundingClientRect();
+    setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setMousePos(null);
+    setHoveredTooth(null);
+  }, []);
+
   const height = compact ? "h-[200px]" : "h-[300px]";
+
+  const displayTooth = hoveredTooth || selectedTooth;
+  const toothName = displayTooth ? TOOTH_NAMES[displayTooth] || displayTooth : null;
+  const toothStatus = displayTooth ? (toothData[displayTooth] ?? "no_data") : null;
 
   return (
     <div className={cn("relative", className)}>
@@ -658,7 +695,12 @@ export function TeethVisualization({
       )}
 
       {/* Canvas / Chart */}
-      <div className={cn(height, "w-full rounded-lg overflow-hidden relative")}>
+      <div
+        ref={canvasContainerRef}
+        className={cn(height, "w-full rounded-lg overflow-hidden relative")}
+        onMouseMove={renderMode === "3d" ? handleMouseMove : undefined}
+        onMouseLeave={renderMode === "3d" ? handleMouseLeave : undefined}
+      >
         {renderMode === "3d" ? (
           <>
             <Suspense fallback={<Skeleton className="w-full h-full" />}>
@@ -687,23 +729,56 @@ export function TeethVisualization({
             >
               <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
+
+            {/* Mouse-following hover tooltip (inside the canvas container) */}
+            {hoveredTooth && mousePos && (
+              <div
+                className="absolute z-20 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 shadow-md"
+                style={{
+                  left: Math.min(mousePos.x + 12, (canvasContainerRef.current?.offsetWidth ?? 300) - 140),
+                  top: mousePos.y - 36,
+                }}
+              >
+                <span className="mono-label text-foreground text-[11px]">
+                  {hoveredTooth}
+                </span>
+                <span className="mono-label text-muted-foreground text-[10px] ml-1.5">
+                  {TOOTH_NAMES[hoveredTooth]?.split(" ").slice(-2).join(" ") || ""}
+                </span>
+              </div>
+            )}
+
+            {/* Bottom info bar for selected tooth */}
+            {selectedTooth && (
+              <div className="absolute bottom-0 left-0 right-0 z-10 bg-popover/90 backdrop-blur-sm border-t border-border px-3 py-2 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: STATUS_COLORS_2D[toothStatus ?? "no_data"] }}
+                  />
+                  <span className="mono-label text-foreground text-[11px]">
+                    {selectedTooth}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+                    {toothName}
+                  </span>
+                  <span className="mono-label text-[10px] text-muted-foreground uppercase">
+                    · {(toothStatus ?? "no_data").replace("_", " ")}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setSelectedTooth(null)}
+                  className="p-0.5 rounded hover:bg-muted transition-colors"
+                >
+                  <X className="w-3 h-3 text-muted-foreground" />
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <ToothChart2D toothData={toothData} onToothSelect={onToothSelect} />
         )}
       </div>
-
-      {/* Hover/selected tooltip (3D only) */}
-      {renderMode === "3d" && (hoveredTooth || selectedTooth) && (
-        <div className="absolute top-2 left-2 bg-popover/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 pointer-events-none z-10">
-          <span className="mono-label text-foreground">
-            {(hoveredTooth || selectedTooth || "").replace(/_/g, " ").toUpperCase()}
-          </span>
-          {selectedTooth && !hoveredTooth && (
-            <span className="mono-label text-muted-foreground ml-2">SELECTED</span>
-          )}
-        </div>
-      )}
 
       {/* Legend */}
       {showLegend && !compact && (
