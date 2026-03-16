@@ -9,6 +9,78 @@ import { RotateCcw } from "lucide-react";
 /* ─── Types ─── */
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
+
+/* ─── 3D hit-point → FDI tooth mapping ─── */
+// Each entry maps an FDI tooth ID to an approximate 3D region (model-local coords).
+// x = left-right, y = up-down, z = front-back on the arch.
+// These are tuned for the teeth.glb model scaled to fit within ~[-1,1].
+interface ToothRegion {
+  id: string;
+  x: [number, number]; // min, max
+  y: [number, number];
+}
+
+// Upper teeth (positive y in model space typically)
+const TOOTH_REGIONS_UPPER: ToothRegion[] = [
+  { id: "T11", x: [-0.12, 0.0],  y: [0.0, 0.6] },
+  { id: "T21", x: [0.0, 0.12],   y: [0.0, 0.6] },
+  { id: "T12", x: [-0.22, -0.12], y: [0.0, 0.6] },
+  { id: "T22", x: [0.12, 0.22],  y: [0.0, 0.6] },
+  { id: "T13", x: [-0.34, -0.22], y: [0.0, 0.6] },
+  { id: "T23", x: [0.22, 0.34],  y: [0.0, 0.6] },
+  { id: "T14", x: [-0.46, -0.34], y: [0.0, 0.6] },
+  { id: "T24", x: [0.34, 0.46],  y: [0.0, 0.6] },
+  { id: "T15", x: [-0.58, -0.46], y: [0.0, 0.6] },
+  { id: "T25", x: [0.46, 0.58],  y: [0.0, 0.6] },
+  { id: "T16", x: [-0.72, -0.58], y: [0.0, 0.6] },
+  { id: "T26", x: [0.58, 0.72],  y: [0.0, 0.6] },
+  { id: "T17", x: [-0.88, -0.72], y: [0.0, 0.6] },
+  { id: "T27", x: [0.72, 0.88],  y: [0.0, 0.6] },
+  { id: "T18", x: [-1.1, -0.88], y: [0.0, 0.6] },
+  { id: "T28", x: [0.88, 1.1],   y: [0.0, 0.6] },
+];
+
+// Lower teeth (negative y in model space typically)
+const TOOTH_REGIONS_LOWER: ToothRegion[] = [
+  { id: "T41", x: [-0.12, 0.0],  y: [-0.6, 0.0] },
+  { id: "T31", x: [0.0, 0.12],   y: [-0.6, 0.0] },
+  { id: "T42", x: [-0.22, -0.12], y: [-0.6, 0.0] },
+  { id: "T32", x: [0.12, 0.22],  y: [-0.6, 0.0] },
+  { id: "T43", x: [-0.34, -0.22], y: [-0.6, 0.0] },
+  { id: "T33", x: [0.22, 0.34],  y: [-0.6, 0.0] },
+  { id: "T44", x: [-0.46, -0.34], y: [-0.6, 0.0] },
+  { id: "T34", x: [0.34, 0.46],  y: [-0.6, 0.0] },
+  { id: "T45", x: [-0.58, -0.46], y: [-0.6, 0.0] },
+  { id: "T35", x: [0.46, 0.58],  y: [-0.6, 0.0] },
+  { id: "T46", x: [-0.72, -0.58], y: [-0.6, 0.0] },
+  { id: "T36", x: [0.58, 0.72],  y: [-0.6, 0.0] },
+  { id: "T47", x: [-0.88, -0.72], y: [-0.6, 0.0] },
+  { id: "T37", x: [0.72, 0.88],  y: [-0.6, 0.0] },
+  { id: "T48", x: [-1.1, -0.88], y: [-0.6, 0.0] },
+  { id: "T38", x: [0.88, 1.1],   y: [-0.6, 0.0] },
+];
+
+const ALL_TOOTH_REGIONS = [...TOOTH_REGIONS_UPPER, ...TOOTH_REGIONS_LOWER];
+
+/** Given a local-space hit point, find the closest FDI tooth ID */
+function identifyToothFromPoint(localPoint: THREE.Vector3): string {
+  let bestId = "tooth";
+  let bestDist = Infinity;
+
+  for (const region of ALL_TOOTH_REGIONS) {
+    const cx = (region.x[0] + region.x[1]) / 2;
+    const cy = (region.y[0] + region.y[1]) / 2;
+    const dx = localPoint.x - cx;
+    const dy = localPoint.y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestId = region.id;
+    }
+  }
+
+  return bestId;
+}
 export type RenderMode = "3d" | "2d";
 
 export interface TeethVisualizationProps {
@@ -113,8 +185,20 @@ function DentalModel({
 }) {
   const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
+  const inverseMatrix = useRef(new THREE.Matrix4());
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
+
+  /* Debug: log scene graph once */
+  useEffect(() => {
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const geo = child.geometry;
+        const vCount = geo?.attributes?.position?.count ?? 0;
+        console.log(`[TeethGLB] Mesh: "${child.name}" | vertices: ${vCount} | material: "${(child.material as any)?.name || 'unnamed'}"`);
+      }
+    });
+  }, [scene]);
   const emissive = STATUS_EMISSIVE[overallStatus];
 
   /* Clone scene once and apply materials */
@@ -205,40 +289,44 @@ function DentalModel({
     });
   }, [clonedScene, emissive, selectedTooth]);
 
+  /* Convert world hit point to model-local space and identify tooth */
+  const getToothIdFromEvent = useCallback((e: any): string | null => {
+    if (!e.point || !groupRef.current) return null;
+    // Get the inverse of the group's world matrix to convert to local space
+    inverseMatrix.current.copy(groupRef.current.matrixWorld).invert();
+    const localPoint = e.point.clone().applyMatrix4(inverseMatrix.current);
+    return identifyToothFromPoint(localPoint);
+  }, []);
+
   /* Pointer handlers */
   const handleOver = useCallback((e: any) => {
     e.stopPropagation?.();
-    const name = e.object?.name ?? "";
     if (e.object?.userData?.isGum) return;
-    onHover(name || null);
+    const toothId = getToothIdFromEvent(e);
+    onHover(toothId);
     document.body.style.cursor = "pointer";
     const mat = e.object?.material as THREE.MeshPhysicalMaterial;
     if (mat && mat.emissiveIntensity !== undefined && e.object?.userData?.isTooth) {
       mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
     }
-  }, [onHover]);
+  }, [onHover, getToothIdFromEvent]);
 
   const handleOut = useCallback((e: any) => {
     if (e.object?.userData?.isGum) return;
     onHover(null);
     document.body.style.cursor = "auto";
     const mat = e.object?.material as THREE.MeshPhysicalMaterial;
-    const meshName = e.object?.name || "";
     if (mat && e.object?.userData?.isTooth) {
-      if (selectedTooth && meshName === selectedTooth) {
-        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
-      } else {
-        mat.emissiveIntensity = emissive.intensity;
-      }
+      mat.emissiveIntensity = emissive.intensity;
     }
-  }, [onHover, emissive.intensity, selectedTooth]);
+  }, [onHover, emissive.intensity]);
 
   const handleClick = useCallback((e: any) => {
     e.stopPropagation?.();
     if (e.object?.userData?.isGum) return;
-    const name = e.object?.name ?? "tooth";
-    onClick(name);
-  }, [onClick]);
+    const toothId = getToothIdFromEvent(e);
+    if (toothId) onClick(toothId);
+  }, [onClick, getToothIdFromEvent]);
 
   return (
     <group ref={groupRef} scale={[scale, scale, scale]} position={[offset.x, offset.y, offset.z]}>
@@ -450,7 +538,18 @@ function ToothChart2D({
           strokeWidth="28"
           strokeLinecap="round"
         />
-        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
+        {/* UPPER label inside the arch */}
+        <text
+          x="130"
+          y="78"
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize="10"
+          fontFamily="monospace"
+          fontWeight="600"
+          letterSpacing="0.22em"
+          opacity="0.5"
+        >
           UPPER
         </text>
         {UPPER_TEETH.map(renderTooth)}
@@ -462,7 +561,18 @@ function ToothChart2D({
           strokeLinecap="round"
         />
         {LOWER_TEETH.map(renderTooth)}
-        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
+        {/* LOWER label inside the arch */}
+        <text
+          x="130"
+          y="228"
+          textAnchor="middle"
+          fill="currentColor"
+          fontSize="10"
+          fontFamily="monospace"
+          fontWeight="600"
+          letterSpacing="0.22em"
+          opacity="0.5"
+        >
           LOWER
         </text>
       </svg>
