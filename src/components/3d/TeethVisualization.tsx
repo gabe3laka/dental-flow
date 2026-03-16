@@ -284,12 +284,14 @@ function DentalModel({
       const isGumName = matName.includes("gum") || matName.includes("gingiva") ||
                         matName.includes("material.001") || meshName.includes("gum") ||
                         meshName.includes("gingiva");
+      // Tongue is non-interactive — treat same as gum (silent raycast)
+      const isTongue = matName.includes("tongue") || meshName.includes("tongue");
       let isGumColor = false;
       if (srcMat && "color" in srcMat) {
         const c = (srcMat as THREE.MeshStandardMaterial).color;
         if (c && c.r > 0.6 && c.g < 0.4 && c.b < 0.5) isGumColor = true;
       }
-      if (isGumName || isGumColor) gumList.push(child);
+      if (isGumName || isGumColor || isTongue) gumList.push(child);
       else toothList.push(child);
     });
 
@@ -316,6 +318,8 @@ function DentalModel({
         const parentRef = orig.parent;
         parentRef.remove(orig);
         splits.forEach((sm) => {
+          // Skip micro-fragments — real teeth always have many vertices
+          if (sm.geometry.attributes.position.count < 40) return;
           sm.material = makeEnamelMat();
           sm.userData.isTooth = true;
           parentRef.add(sm);
@@ -352,11 +356,16 @@ function DentalModel({
         arr: typeof allTeeth,
         order: string[]
       ) => {
+        if (arr.length === 0) return;
+        // Trim from the outside in (skip wisdom/molar ends first) so that
+        // the central incisors and canines always land at the correct positions
+        // even when the model has fewer than 16 teeth per arch (e.g. no wisdom teeth)
+        const skip = Math.max(0, order.length - arr.length);
+        const skipStart = Math.floor(skip / 2);
+        const skipEnd   = skip - skipStart;
+        const trimmed   = order.slice(skipStart, order.length - skipEnd || undefined);
         arr.forEach((item, i) => {
-          const mapped = arr.length === order.length
-            ? i
-            : Math.round((i / Math.max(arr.length - 1, 1)) * (order.length - 1));
-          const id = order[Math.min(mapped, order.length - 1)];
+          const id = trimmed[Math.min(i, trimmed.length - 1)];
           item.mesh.userData.toothId = id;
           meshByIdRef.current.set(id, item.mesh);
         });
