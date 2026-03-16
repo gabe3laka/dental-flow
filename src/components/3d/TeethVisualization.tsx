@@ -313,11 +313,12 @@ function DentalModel({
     toothList.forEach((orig) => {
       const splits = splitMergedMesh(orig);
       if (splits.length > 1 && orig.parent) {
-        orig.parent.remove(orig);
+        const parentRef = orig.parent;
+        parentRef.remove(orig);
         splits.forEach((sm) => {
           sm.material = makeEnamelMat();
           sm.userData.isTooth = true;
-          orig.parent!.add(sm);
+          parentRef.add(sm);
           sm.updateWorldMatrix(true, false);
           const box = new THREE.Box3().setFromObject(sm);
           const c = new THREE.Vector3();
