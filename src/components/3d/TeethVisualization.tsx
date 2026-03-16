@@ -51,12 +51,33 @@ const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: 
 function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
   const { camera } = useThree();
   const targetVec = useRef(new THREE.Vector3());
+  const isAnimating = useRef(false);
+  const prevViewMode = useRef(viewMode);
+
+  // Trigger animation only when viewMode changes
+  useEffect(() => {
+    if (prevViewMode.current !== viewMode) {
+      isAnimating.current = true;
+      prevViewMode.current = viewMode;
+    }
+  }, [viewMode]);
 
   useFrame(() => {
+    if (!isAnimating.current) return;
+
     const preset = CAMERA_PRESETS[viewMode];
-    camera.position.lerp(new THREE.Vector3(...preset.pos), 0.045);
-    targetVec.current.lerp(new THREE.Vector3(...preset.target), 0.045);
+    const targetPos = new THREE.Vector3(...preset.pos);
+    const targetLook = new THREE.Vector3(...preset.target);
+
+    camera.position.lerp(targetPos, 0.06);
+    targetVec.current.lerp(targetLook, 0.06);
     camera.lookAt(targetVec.current);
+
+    // Stop animating once close enough
+    if (camera.position.distanceTo(targetPos) < 0.01) {
+      camera.position.copy(targetPos);
+      isAnimating.current = false;
+    }
   });
 
   return null;
