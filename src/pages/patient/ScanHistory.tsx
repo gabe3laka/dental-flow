@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { TeethVisualization } from "@/components/3d/TeethVisualization";
+import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
@@ -39,8 +40,8 @@ export default function ScanHistory() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewRow | null>>({});
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
-  // Load all scans once for badge counts
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -64,18 +65,11 @@ export default function ScanHistory() {
   useEffect(() => {
     if (!user) return;
     setLoading(true);
-
     (async () => {
       try {
         const { data: patient } = await supabase
-          .from("patients")
-          .select("id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-        if (!patient) {
-          logError("Patient record not found", { operation: "ScanHistory/loadScans", userId: user?.id });
-          return;
-        }
+          .from("patients").select("id").eq("user_id", user.id).maybeSingle();
+        if (!patient) { logError("Patient record not found", { operation: "ScanHistory/loadScans", userId: user?.id }); return; }
 
         let query = supabase
           .from("scans")
@@ -102,18 +96,13 @@ export default function ScanHistory() {
   }, [user, activeTab]);
 
   const toggleExpand = async (scanId: string) => {
-    if (expandedId === scanId) {
-      setExpandedId(null);
-      return;
-    }
+    if (expandedId === scanId) { setExpandedId(null); return; }
     setExpandedId(scanId);
     if (!reviews[scanId]) {
       const { data } = await supabase
         .from("scan_reviews")
         .select("review_notes, response_video_url, doctor_id")
-        .eq("scan_id", scanId)
-        .limit(1)
-        .maybeSingle();
+        .eq("scan_id", scanId).limit(1).maybeSingle();
       setReviews((r) => ({ ...r, [scanId]: data || null }));
     }
   };
@@ -124,7 +113,6 @@ export default function ScanHistory() {
     return format(new Date(d), "dd MMM · HH:mm").toUpperCase();
   };
 
-  // Badge counts
   const counts = {
     all: allScans.length,
     reviewed: allScans.filter((s) => s.status === "reviewed").length,
@@ -148,9 +136,7 @@ export default function ScanHistory() {
 
       {loading ? (
         <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-20 rounded-card" />
-          ))}
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 rounded-card" />)}
         </div>
       ) : scans.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12">
@@ -161,30 +147,21 @@ export default function ScanHistory() {
           <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[280px]">
             Your first scan takes about 60 seconds and is reviewed within 24 hours.
           </p>
-
-          {/* How it works mini-guide */}
           <div className="flex items-center gap-6 mb-6">
             {[
               { icon: Camera, label: "Position phone" },
               { icon: RotateCw, label: "Capture 5 angles" },
               { icon: Sparkles, label: "Get AI analysis" },
-            ].map((step, i) => (
+            ].map((step) => (
               <div key={step.label} className="flex flex-col items-center gap-2">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                   <step.icon className="w-4 h-4 text-primary" />
                 </div>
                 <span className="mono-label text-muted-foreground">{step.label}</span>
-                {i < 2 && (
-                  <div className="absolute" />
-                )}
               </div>
             ))}
           </div>
-
-          <Button
-            onClick={() => navigate("/patient/scan")}
-            className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3"
-          >
+          <Button onClick={() => navigate("/patient/scan")} className="rounded-pill bg-primary text-primary-foreground mono-label px-8 py-3">
             Start Your First Scan
           </Button>
         </div>
@@ -192,17 +169,12 @@ export default function ScanHistory() {
         <div className="space-y-3">
           {scans.map((scan, idx) => (
             <div key={scan.id} className="bg-card rounded-card border border-border overflow-hidden shadow-sm">
-              <button
-                onClick={() => toggleExpand(scan.id)}
-                className="w-full flex items-center gap-4 p-4 text-left"
-              >
+              <button onClick={() => toggleExpand(scan.id)} className="w-full flex items-center gap-4 p-4 text-left">
                 <div className="w-16 h-16 rounded-card bg-soft-panel flex items-center justify-center flex-shrink-0">
                   <span className="mono-label text-muted-foreground">SCAN</span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="mono-label text-muted-foreground">
-                    {formatDate(scan.submitted_at)}
-                  </p>
+                  <p className="mono-label text-muted-foreground">{formatDate(scan.submitted_at)}</p>
                   <p className="text-sm font-medium">SCAN #{String(scans.length - idx).padStart(3, "0")}</p>
                   <p className="mono-label mt-0.5" style={{ fontSize: 9 }}>
                     {scan.sent_to_doctor ? (
@@ -213,21 +185,15 @@ export default function ScanHistory() {
                   </p>
                 </div>
                 <StatusBadge variant={scan.status as any} />
-                {expandedId === scan.id ? (
-                  <ChevronUp className="w-4 h-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                )}
+                {expandedId === scan.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
               </button>
 
               {expandedId === scan.id && (
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
-                  {/* Mini Scan Visualization Card */}
-                   <div className="rounded-lg overflow-hidden bg-card border border-border dark">
+                  <div className="rounded-lg overflow-hidden bg-card border border-border dark">
                     <div className="px-3 pt-3 pb-1 bg-card">
                       <TeethVisualization compact showLegend={false} showToggle={false} />
                     </div>
-                    {/* Quality bar */}
                     <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
                       <div className="flex items-center justify-between mb-1">
                         <span className="mono-label text-muted-foreground">QUALITY</span>
@@ -238,32 +204,27 @@ export default function ScanHistory() {
                       <div className="h-1 rounded-full overflow-hidden bg-muted">
                         <div
                           className={`h-full rounded-full transition-all ${
-                            (scan.quality_score ?? 0) >= 80
-                              ? "bg-status-success"
-                              : (scan.quality_score ?? 0) >= 50
-                                ? "bg-status-warning"
-                                : "bg-status-danger"
+                            (scan.quality_score ?? 0) >= 80 ? "bg-status-success" : (scan.quality_score ?? 0) >= 50 ? "bg-status-warning" : "bg-status-danger"
                           }`}
                           style={{ width: `${scan.quality_score ?? 0}%` }}
                         />
                       </div>
                     </div>
-                    {/* Detection Tags */}
                     {scan.detection_tags && scan.detection_tags.length > 0 && (
                       <div className="px-4 pb-3 flex flex-wrap gap-1.5" style={{ background: "hsl(var(--card))" }}>
                         {scan.detection_tags.map((tag, i) => (
-                          <span
+                          <button
                             key={i}
-                            className="mono-label px-2 py-0.5 rounded-full bg-primary/15 text-primary"
+                            onClick={(e) => { e.stopPropagation(); setSelectedTag(tag); }}
+                            className="mono-label px-2 py-0.5 rounded-full bg-primary/15 text-primary hover:bg-primary/25 transition"
                           >
                             {tag}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Send to Doctor / Review Status */}
                   {!scan.sent_to_doctor ? (
                     <div className="flex gap-2">
                       <Button
@@ -271,23 +232,17 @@ export default function ScanHistory() {
                           e.stopPropagation();
                           try {
                             const { data: patient } = await supabase
-                              .from("patients")
-                              .select("assigned_doctor_id")
-                              .eq("id", scan.patient_id)
-                              .single();
+                              .from("patients").select("assigned_doctor_id").eq("id", scan.patient_id).single();
                             if (!patient?.assigned_doctor_id) {
                               toast({ title: "No doctor assigned", description: "Find a doctor in Chat tab first.", variant: "destructive" });
                               return;
                             }
                             await supabase.from("scan_reviews").insert({
-                              scan_id: scan.id,
-                              doctor_id: patient.assigned_doctor_id,
-                              review_notes: "Patient submitted for review",
-                              action_type: "none" as const,
+                              scan_id: scan.id, doctor_id: patient.assigned_doctor_id,
+                              review_notes: "Patient submitted for review", action_type: "none" as const,
                             });
                             await supabase.from("scans").update({
-                              sent_to_doctor: true,
-                              sent_to_doctor_at: new Date().toISOString(),
+                              sent_to_doctor: true, sent_to_doctor_at: new Date().toISOString(),
                             } as any).eq("id", scan.id);
                             setScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
                             setAllScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
@@ -296,27 +251,18 @@ export default function ScanHistory() {
                             toast({ title: "Error", description: err.message, variant: "destructive" });
                           }
                         }}
-                        size="sm"
-                        className="rounded-pill mono-label bg-primary text-primary-foreground"
+                        size="sm" className="rounded-pill mono-label bg-primary text-primary-foreground"
                       >
-                        <Send className="w-3 h-3 mr-1" />
-                        Send to Doctor
+                        <Send className="w-3 h-3 mr-1" />Send to Doctor
                       </Button>
-                      <Button
-                        onClick={() => navigate(`/patient/scans/${scan.id}/results`)}
-                        size="sm"
-                        variant="outline"
-                        className="rounded-pill mono-label"
-                      >
+                      <Button onClick={() => navigate(`/patient/scans/${scan.id}/results`)} size="sm" variant="outline" className="rounded-pill mono-label">
                         View Results
                       </Button>
                     </div>
                   ) : reviews[scan.id] ? (
                     <div className="space-y-2">
                       <p className="text-sm text-foreground">Doctor reviewed this scan</p>
-                      {reviews[scan.id]!.review_notes && (
-                        <p className="text-xs text-muted-foreground">{reviews[scan.id]!.review_notes}</p>
-                      )}
+                      {reviews[scan.id]!.review_notes && <p className="text-xs text-muted-foreground">{reviews[scan.id]!.review_notes}</p>}
                       {reviews[scan.id]!.response_video_url && (
                         <div className="w-full h-32 rounded-card bg-popover flex items-center justify-center">
                           <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center">
@@ -336,6 +282,11 @@ export default function ScanHistory() {
           ))}
         </div>
       )}
+
+      {selectedTag && (
+        <DetectionTagSheet tag={selectedTag} open={!!selectedTag} onClose={() => setSelectedTag(null)} />
+      )}
+
       <PatientBottomNav />
     </div>
   );

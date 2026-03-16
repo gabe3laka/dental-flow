@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.create-billing-portal]
 verify_jwt = false
+
+[functions.annotate-scan-image]
+verify_jwt = false
