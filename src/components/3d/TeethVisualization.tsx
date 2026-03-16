@@ -289,40 +289,44 @@ function DentalModel({
     });
   }, [clonedScene, emissive, selectedTooth]);
 
+  /* Convert world hit point to model-local space and identify tooth */
+  const getToothIdFromEvent = useCallback((e: any): string | null => {
+    if (!e.point || !groupRef.current) return null;
+    // Get the inverse of the group's world matrix to convert to local space
+    inverseMatrix.current.copy(groupRef.current.matrixWorld).invert();
+    const localPoint = e.point.clone().applyMatrix4(inverseMatrix.current);
+    return identifyToothFromPoint(localPoint);
+  }, []);
+
   /* Pointer handlers */
   const handleOver = useCallback((e: any) => {
     e.stopPropagation?.();
-    const name = e.object?.name ?? "";
     if (e.object?.userData?.isGum) return;
-    onHover(name || null);
+    const toothId = getToothIdFromEvent(e);
+    onHover(toothId);
     document.body.style.cursor = "pointer";
     const mat = e.object?.material as THREE.MeshPhysicalMaterial;
     if (mat && mat.emissiveIntensity !== undefined && e.object?.userData?.isTooth) {
       mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
     }
-  }, [onHover]);
+  }, [onHover, getToothIdFromEvent]);
 
   const handleOut = useCallback((e: any) => {
     if (e.object?.userData?.isGum) return;
     onHover(null);
     document.body.style.cursor = "auto";
     const mat = e.object?.material as THREE.MeshPhysicalMaterial;
-    const meshName = e.object?.name || "";
     if (mat && e.object?.userData?.isTooth) {
-      if (selectedTooth && meshName === selectedTooth) {
-        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
-      } else {
-        mat.emissiveIntensity = emissive.intensity;
-      }
+      mat.emissiveIntensity = emissive.intensity;
     }
-  }, [onHover, emissive.intensity, selectedTooth]);
+  }, [onHover, emissive.intensity]);
 
   const handleClick = useCallback((e: any) => {
     e.stopPropagation?.();
     if (e.object?.userData?.isGum) return;
-    const name = e.object?.name ?? "tooth";
-    onClick(name);
-  }, [onClick]);
+    const toothId = getToothIdFromEvent(e);
+    if (toothId) onClick(toothId);
+  }, [onClick, getToothIdFromEvent]);
 
   return (
     <group ref={groupRef} scale={[scale, scale, scale]} position={[offset.x, offset.y, offset.z]}>
