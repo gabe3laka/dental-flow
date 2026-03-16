@@ -1,210 +1,148 @@
 
 
-# Fix 10 Known Gaps / Unimplemented Features
+# Plan: Patient-Controlled Scan Flow, AI Analysis, Education & Progress Enhancement
 
-## Overview
-
-This plan addresses every unimplemented feature identified in the audit. Each fix is scoped to be functional and production-appropriate.
+This is a large plan spanning 5 features. Implementation will be broken into phases.
 
 ---
 
-## 1. Notification Toggles -- Persist to Database
+## Phase 1: Database Migration + Scan Flow Control
 
-**Problem:** Patient Profile toggles (`Switch`) use `defaultChecked` with no database storage. Changes are lost on refresh.
+### DB Migration
+Add 4 columns to `scans`:
+- `ai_analysis jsonb` — stores structured AI analysis result
+- `sent_to_doctor boolean DEFAULT false` — patient controls when doctor sees scan
+- `sent_to_doctor_at timestamptz` — timestamp of send action
+- `patient_note text` — optional note when sending to doctor
 
-**Fix:**
-- Create a new `user_preferences` table with columns: `id`, `user_id`, `pref_key` (text), `pref_value` (boolean), `updated_at`
-- RLS: users can read/write their own rows, admins can read all
-- On Profile mount, fetch preferences and set toggle state
-- On toggle change, upsert into `user_preferences`
+### Edge Function: `analyze-scan-teeth/index.ts`
+**Remove** the block (lines ~72-81) that auto-creates a `scan_reviews` row. Keep everything else. Store the full AI result in `scans.ai_analysis` in addition to `detection_tags`.
 
-**Files:** Migration (new table), `src/pages/patient/Profile.tsx`
+### `ScanSubmission.tsx`
+- Change post-submit toast from "Your doctor will review it shortly" to "Scan complete! View your AI analysis"
+- Change navigation from `/patient/scans` to `/patient/scans/${scanId}/results`
 
----
+### New Page: `ScanResults.tsx`
+Post-scan results page showing:
+- Animated quality score
+- AI analysis breakdown (alignment, detections with severity)
+- Toggle between "Scan Photos" and "3D Map"
+- Two CTAs: "Send to Doctor for Review" (with optional patient note) and "Save & Track Progress"
+- Route: `/patient/scans/:scanId/results`
 
-## 2. Automations Execution Engine
+### `ScanHistory.tsx` Updates
+- Show `sent_to_doctor` status on each scan card ("AI Analyzed" vs "Sent to Doctor")
+- Add "Send to Doctor" button on unsent scans
+- When sent: insert `scan_reviews` row and update `sent_to_doctor = true`
 
-**Problem:** Automations are stored in the `automations` table but never run. No cron job or Edge Function exists.
-
-**Fix:**
-- Create Edge Function `run-automations/index.ts` that:
-  1. Fetches all enabled automations
-  2. For each `no_scan` type: finds patients of that doctor who haven't submitted a scan in `trigger_days` days
-  3. For each `low_compliance` type: finds patients with compliance_streak below a threshold
-  4. For each `recurring` type: checks if `trigger_days` have passed since last automated message
-  5. Inserts messages into the `messages` table using the `message_template` (replacing `{patient_name}` and `{days}` placeholders)
-- Register in `supabase/config.toml` with `verify_jwt = false`
-- Set up a `pg_cron` job to call this function daily via SQL insert (not migration)
-
-**Files:** `supabase/functions/run-automations/index.ts`, `supabase/config.toml`
-
----
-
-## 3. Team Invite Acceptance Flow
-
-**Problem:** Team invites stay PENDING forever. No mechanism for invited users to accept.
-
-**Fix:**
-- After signup, check if the new user's email matches any `team_invites` record
-- Create Edge Function `accept-team-invite/index.ts` that:
-  1. Takes the authenticated user's email
-  2. Looks up pending invites matching that email
-  3. Updates `accepted_at` to `now()`
-  4. Optionally links the user to the practice
-- Call this function from the Login page after successful sign-in
-- Add a visual banner on doctor Settings when invites are accepted
-
-**Files:** `supabase/functions/accept-team-invite/index.ts`, `supabase/config.toml`, `src/pages/Login.tsx`
+### `App.tsx`
+- Add route: `/patient/scans/:scanId/results` → `ScanResults`
 
 ---
 
-## 4. Deactivate Practice Backend Logic
+## Phase 2: Scan Photo Viewer
 
-**Problem:** The "Deactivate Practice" button in doctor Settings has no `onClick` handler.
+### New Component: `ScanPhotoGrid.tsx`
+- Fetches signed URLs from `scan-videos` bucket using paths in `zones_captured`
+- Displays 5-zone grid (Upper, Lower, Left, Right, Front) with quality indicators
+- Supports original vs AI-annotated toggle (annotations rendered as CSS overlays from `ai_analysis`)
 
-**Fix:**
-- Add confirmation dialog (type "DEACTIVATE" to confirm)
-- On confirm: update `profiles.suspended = true` and `profiles.suspension_reason = 'self_deactivated'` for the doctor
-- Show a toast and sign the user out
-- On login, if `suspended === true`, show a banner: "Your practice has been deactivated. Contact support to reactivate."
+### New Component: `ScanPhotoViewer.tsx`
+- Full-screen image viewer opened on tap
+- Pinch-to-zoom via CSS `touch-action` and transform
+- Swipe between zones
+- AI annotation overlay toggle
 
-**Files:** `src/pages/doctor/Settings.tsx`, `src/components/ProtectedRoute.tsx`
-
----
-
-## 5. Database-Driven Available Slots
-
-**Problem:** Doctor Profile page uses hardcoded `SLOT_PILLS` array.
-
-**Fix:**
-- Create `doctor_availability` table: `id`, `doctor_id` (uuid), `day_of_week` (text), `start_time` (text), `is_active` (boolean), `created_at`
-- RLS: doctors manage their own, patients can read their assigned doctor's slots
-- Doctor Settings: add an "Availability" card where doctors can add/remove/toggle time slots
-- Patient DoctorProfile: fetch from `doctor_availability` instead of hardcoded array
-
-**Files:** Migration (new table), `src/pages/doctor/Settings.tsx`, `src/pages/patient/DoctorProfile.tsx`
+### Integration
+- Used in both `ScanResults.tsx` and `ScanHistory.tsx` (expanded view toggle: "3D Map" / "Scan Photos")
 
 ---
 
-## 6. Billing Tab -- Stripe Integration Placeholder with Real Data
+## Phase 3: Educational Detection Tags + Marketplace CTAs
 
-**Problem:** Patient Detail billing tab shows only a static placeholder.
+### New File: `src/lib/dental-education.ts`
+Hardcoded content dictionary covering: plaque, tartar, recession, cavity, crowding, spacing, rotation, misalignment, inflammation, bone_change, appliance_fit. Each entry has: title, description, causes, prevention tips, when-to-see-doctor advice, and matching specialist type.
 
-**Fix:**
-- Show the patient's assigned doctor's subscription tier and status
-- Display a treatment cost estimate section (editable by doctor) using a new `estimated_cost` column on `patients` table
-- Show payment status: "Managed by your practice" with practice name
-- Still note that full Stripe checkout is coming soon, but make the tab informative
+### New Component: `DetectionTagSheet.tsx`
+Sheet/dialog opened when tapping a detection tag pill. Shows:
+- Educational content from dictionary
+- Patient's specific severity + confidence from `ai_analysis`
+- Affected teeth list
+- Self-care tips
+- "Find a Specialist" CTA → navigates to Chat Find tab with `prefilterSpecialty`
+- "Ask Your Doctor" CTA → navigates to Chat Messages tab
 
-**Files:** Migration (add `estimated_cost` to `patients`), `src/pages/doctor/PatientDetail.tsx`
+### Updates to `ScanHistory.tsx` and `ScanResults.tsx`
+- Make detection tag pills clickable → open `DetectionTagSheet`
 
----
-
-## 7. Manage Billing -- Stripe Portal Link
-
-**Problem:** "Manage Billing" button just shows a "coming soon" toast.
-
-**Fix:**
-- Create Edge Function `create-billing-portal/index.ts` that:
-  1. Takes the doctor's `stripe_customer_id` from `subscriptions`
-  2. If it exists, creates a Stripe Billing Portal session and returns the URL
-  3. If no Stripe customer, returns an error prompting setup
-- On click: call the function and redirect to the Stripe portal URL
-- Fallback: if no Stripe secret is configured, keep the "coming soon" toast but with a clearer message
-
-**Files:** `supabase/functions/create-billing-portal/index.ts`, `supabase/config.toml`, `src/pages/doctor/Settings.tsx`
-
-*Note: This requires a `STRIPE_SECRET_KEY` secret. The plan will prompt you to add it if you want full Stripe integration, otherwise the button will show a more informative "Connect Stripe to manage billing" message.*
+### Updates to `Chat.tsx`
+- Read `location.state` for `prefilterSpecialty` and `fromDetection`
+- Auto-select Find tab and show contextual banner when navigated from detection
 
 ---
 
-## 8. Device Pairing -- Generate Unique Code
+## Phase 4: Progress Page Enhancement
 
-**Problem:** Pairing modal always shows hardcoded `ARC-7F2K-9M`.
+### New Components
+| Component | Purpose |
+|-----------|---------|
+| `ScanActivityChart.tsx` | Simple bar chart (pure CSS/SVG) showing scans per week |
+| `DetectionTrendCard.tsx` | First scan vs latest scan comparison for each detection type |
+| `NextActionCard.tsx` | Dynamic CTA based on days since last scan, unsent scans, unread reviews |
 
-**Fix:**
-- Generate a random pairing code on modal open: `ARC-XXXX-XX` format using `crypto.getRandomValues()`
-- Store the code in `patients` table (add `pairing_code` column, nullable text)
-- On "Done" click: save the code to the patient record and set `device_linked = true`
-- Display the stored code if device is already linked; allow "Unlink" to clear it
+### `Progress.tsx` Redesign
+New section order:
+1. Treatment progress bar (linear timeline: start → now → goal)
+2. Scan activity chart with streak count
+3. Detection trends (improving/stable/worsening arrows)
+4. AI Insight card (kept, with trend-aware fallback)
+5. 3D Tooth Map (kept, with "Reflects your latest scan" label)
+6. Next Action card
+7. Milestones timeline (kept)
+8. Share Progress (kept)
 
-**Files:** Migration (add `pairing_code` to `patients`), `src/pages/patient/Profile.tsx`
-
----
-
-## 9. Share Progress -- Generate Real Shareable Link
-
-**Problem:** Share Progress button only shows a toast, does not create an actual link.
-
-**Fix:**
-- Create a `progress_shares` table: `id`, `patient_id`, `share_token` (text, unique), `created_at`, `expires_at` (default 7 days)
-- RLS: patients can insert their own, anyone can read by token
-- On "Share Progress" click: insert a row, generate a URL like `/shared/progress/{token}`, copy to clipboard
-- Create a new public page `/shared/progress/:token` that shows read-only progress data (ToothArch, quality, milestones)
-
-**Files:** Migration (new table), `src/pages/patient/Progress.tsx`, new file `src/pages/public/SharedProgress.tsx`, `src/App.tsx` (add route)
+Data: fetch all scans (not just latest) to compute trends, weekly counts, and comparison.
 
 ---
 
-## 10. Scan Compare URL Fix
+## Phase 5: AI Image Annotation Edge Function
 
-**Problem:** PatientDetail navigates to `/doctor/scans/compare?ids=id1,id2` but ScanCompare reads `?a=` and `?b=`.
+### New Edge Function: `annotate-scan-image/index.ts`
+- Uses Lovable AI Gateway (google/gemini-3-flash-preview) with vision
+- Input: scan image signed URL + detection tags
+- Output: array of annotation objects with bounding box percentages and descriptions
+- Stored in `scans.ai_analysis.annotated_regions`
+- Called from `analyze-scan-teeth` after initial analysis completes
 
-**Fix:**
-- Update `ScanCompare` to also parse the `ids` parameter: split by comma, assign first to `scanA` and second to `scanB`
-- Keep backward compatibility with `?a=` and `?b=` format
-- This is a one-line logic fix
-
-**Files:** `src/pages/doctor/ScanCompare.tsx`
+### Client-Side Rendering
+- `ScanPhotoGrid` renders annotations as positioned CSS overlays (colored borders + labels) on top of original images
+- Toggle to show/hide annotations
 
 ---
 
-## Implementation Order
+## Files Summary
 
-| Priority | Item | Complexity |
-|----------|------|------------|
-| 1 | #10 Scan Compare URL fix | Trivial |
-| 2 | #1 Notification preferences | Low |
-| 3 | #8 Device pairing code | Low |
-| 4 | #9 Share Progress link | Medium |
-| 5 | #4 Deactivate Practice | Low |
-| 6 | #5 Available Slots | Medium |
-| 7 | #6 Billing tab | Low |
-| 8 | #3 Team invite acceptance | Medium |
-| 9 | #2 Automation engine | High |
-| 10 | #7 Stripe billing portal | Medium (requires secret) |
+### New Files (10)
+- `supabase/migrations/xxx_scan_flow_control.sql`
+- `src/pages/patient/ScanResults.tsx`
+- `src/components/patient/ScanPhotoGrid.tsx`
+- `src/components/patient/ScanPhotoViewer.tsx`
+- `src/components/patient/DetectionTagSheet.tsx`
+- `src/components/patient/ScanActivityChart.tsx`
+- `src/components/patient/DetectionTrendCard.tsx`
+- `src/components/patient/NextActionCard.tsx`
+- `src/lib/dental-education.ts`
+- `supabase/functions/annotate-scan-image/index.ts`
 
-## Database Changes Summary
+### Modified Files (6)
+- `supabase/functions/analyze-scan-teeth/index.ts` — remove auto-review, store ai_analysis
+- `src/pages/patient/ScanSubmission.tsx` — new post-submit flow
+- `src/pages/patient/ScanHistory.tsx` — photo toggle, send-to-doctor button, interactive tags
+- `src/pages/patient/Progress.tsx` — new layout with trends/activity/next-action
+- `src/pages/patient/Chat.tsx` — accept filter params from navigation state
+- `src/App.tsx` — add ScanResults route
+- `supabase/config.toml` — add annotate-scan-image function
 
-| Change | Type |
-|--------|------|
-| `user_preferences` table | New table |
-| `doctor_availability` table | New table |
-| `progress_shares` table | New table |
-| `patients.pairing_code` column | Add column |
-| `patients.estimated_cost` column | Add column |
-
-## New Files
-
-| File | Purpose |
-|------|---------|
-| `supabase/functions/run-automations/index.ts` | Cron-driven automation execution |
-| `supabase/functions/accept-team-invite/index.ts` | Team invite acceptance |
-| `supabase/functions/create-billing-portal/index.ts` | Stripe portal session |
-| `src/pages/public/SharedProgress.tsx` | Public progress sharing page |
-
-## Modified Files
-
-| File | Changes |
-|------|---------|
-| `src/pages/doctor/ScanCompare.tsx` | Parse `ids` param |
-| `src/pages/patient/Profile.tsx` | Persist toggles, dynamic pairing code |
-| `src/pages/patient/Progress.tsx` | Real share link generation |
-| `src/pages/patient/DoctorProfile.tsx` | Fetch slots from DB |
-| `src/pages/doctor/Settings.tsx` | Deactivate logic, availability editor, Stripe portal |
-| `src/pages/doctor/PatientDetail.tsx` | Billing tab with real data |
-| `src/pages/Login.tsx` | Call accept-team-invite after login |
-| `src/components/ProtectedRoute.tsx` | Suspended account check |
-| `src/App.tsx` | Add shared progress route |
-| `supabase/config.toml` | Register 3 new edge functions |
+### Unchanged
+All doctor pages, admin pages, `Home.tsx`, `Profile.tsx`, `DoctorMarketplace.tsx`, `PatientBottomNav.tsx`, `TeethVisualization.tsx`, `Onboarding.tsx`, `VideoResponse.tsx`, `ToothArch.tsx`
 
