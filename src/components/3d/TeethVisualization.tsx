@@ -292,9 +292,9 @@ function DentalModel({
   /* Convert world hit point to model-local space and identify tooth */
   const getToothIdFromEvent = useCallback((e: any): string | null => {
     if (!e.point || !groupRef.current) return null;
-    // Get the inverse of the group's world matrix to convert to local space
     inverseMatrix.current.copy(groupRef.current.matrixWorld).invert();
     const localPoint = e.point.clone().applyMatrix4(inverseMatrix.current);
+    console.log("[TeethHit] local point:", localPoint.x.toFixed(3), localPoint.y.toFixed(3), localPoint.z.toFixed(3));
     return identifyToothFromPoint(localPoint);
   }, []);
 
@@ -305,21 +305,13 @@ function DentalModel({
     const toothId = getToothIdFromEvent(e);
     onHover(toothId);
     document.body.style.cursor = "pointer";
-    const mat = e.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && mat.emissiveIntensity !== undefined && e.object?.userData?.isTooth) {
-      mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
-    }
   }, [onHover, getToothIdFromEvent]);
 
   const handleOut = useCallback((e: any) => {
     if (e.object?.userData?.isGum) return;
     onHover(null);
     document.body.style.cursor = "auto";
-    const mat = e.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && e.object?.userData?.isTooth) {
-      mat.emissiveIntensity = emissive.intensity;
-    }
-  }, [onHover, emissive.intensity]);
+  }, [onHover]);
 
   const handleClick = useCallback((e: any) => {
     e.stopPropagation?.();
