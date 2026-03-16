@@ -390,10 +390,11 @@ function Scene({
 }) {
   return (
     <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[3, 5, 4]} intensity={1.0} />
-      <directionalLight position={[-4, 2, -2]} intensity={0.6} color="#6b9aff" />
-      <pointLight position={[0, -3, 2]} intensity={0.3} color="#b8a8f0" />
+      <ambientLight intensity={0.45} />
+      <directionalLight position={[3, 5, 4]} intensity={1.0} color="#fff5e6" />
+      <directionalLight position={[-4, 2, -2]} intensity={0.5} color="#6b9aff" />
+      <directionalLight position={[0, -1, -4]} intensity={0.3} color="#ffffff" />
+      <pointLight position={[0, -3, 2]} intensity={0.25} color="#b8a8f0" />
       <DentalModel toothData={toothData} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <OrbitControls enableZoom={false} enablePan={false} autoRotate={false} />
