@@ -10,75 +10,36 @@ import { RotateCcw, X } from "lucide-react";
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
 
-/* ─── 3D hit-point → FDI tooth mapping ─── */
-// Each entry maps an FDI tooth ID to an approximate 3D region (model-local coords).
-// x = left-right, y = up-down, z = front-back on the arch.
-// These are tuned for the teeth.glb model scaled to fit within ~[-1,1].
-interface ToothRegion {
+/* ─── FDI tooth ID assignment order ─── */
+// Upper arch: right molars → right incisors → left incisors → left molars
+const UPPER_FDI_ORDER = [
+  "T18","T17","T16","T15","T14","T13","T12","T11",
+  "T21","T22","T23","T24","T25","T26","T27","T28",
+];
+// Lower arch: right molars → right incisors → left incisors → left molars
+const LOWER_FDI_ORDER = [
+  "T48","T47","T46","T45","T44","T43","T42","T41",
+  "T31","T32","T33","T34","T35","T36","T37","T38",
+];
+
+interface ToothCenter {
   id: string;
-  x: [number, number]; // min, max
-  y: [number, number];
+  center: THREE.Vector3;
 }
 
-// Upper teeth (positive y in model space typically)
-const TOOTH_REGIONS_UPPER: ToothRegion[] = [
-  { id: "T11", x: [-0.12, 0.0],  y: [0.0, 0.6] },
-  { id: "T21", x: [0.0, 0.12],   y: [0.0, 0.6] },
-  { id: "T12", x: [-0.22, -0.12], y: [0.0, 0.6] },
-  { id: "T22", x: [0.12, 0.22],  y: [0.0, 0.6] },
-  { id: "T13", x: [-0.34, -0.22], y: [0.0, 0.6] },
-  { id: "T23", x: [0.22, 0.34],  y: [0.0, 0.6] },
-  { id: "T14", x: [-0.46, -0.34], y: [0.0, 0.6] },
-  { id: "T24", x: [0.34, 0.46],  y: [0.0, 0.6] },
-  { id: "T15", x: [-0.58, -0.46], y: [0.0, 0.6] },
-  { id: "T25", x: [0.46, 0.58],  y: [0.0, 0.6] },
-  { id: "T16", x: [-0.72, -0.58], y: [0.0, 0.6] },
-  { id: "T26", x: [0.58, 0.72],  y: [0.0, 0.6] },
-  { id: "T17", x: [-0.88, -0.72], y: [0.0, 0.6] },
-  { id: "T27", x: [0.72, 0.88],  y: [0.0, 0.6] },
-  { id: "T18", x: [-1.1, -0.88], y: [0.0, 0.6] },
-  { id: "T28", x: [0.88, 1.1],   y: [0.0, 0.6] },
-];
-
-// Lower teeth (negative y in model space typically)
-const TOOTH_REGIONS_LOWER: ToothRegion[] = [
-  { id: "T41", x: [-0.12, 0.0],  y: [-0.6, 0.0] },
-  { id: "T31", x: [0.0, 0.12],   y: [-0.6, 0.0] },
-  { id: "T42", x: [-0.22, -0.12], y: [-0.6, 0.0] },
-  { id: "T32", x: [0.12, 0.22],  y: [-0.6, 0.0] },
-  { id: "T43", x: [-0.34, -0.22], y: [-0.6, 0.0] },
-  { id: "T33", x: [0.22, 0.34],  y: [-0.6, 0.0] },
-  { id: "T44", x: [-0.46, -0.34], y: [-0.6, 0.0] },
-  { id: "T34", x: [0.34, 0.46],  y: [-0.6, 0.0] },
-  { id: "T45", x: [-0.58, -0.46], y: [-0.6, 0.0] },
-  { id: "T35", x: [0.46, 0.58],  y: [-0.6, 0.0] },
-  { id: "T46", x: [-0.72, -0.58], y: [-0.6, 0.0] },
-  { id: "T36", x: [0.58, 0.72],  y: [-0.6, 0.0] },
-  { id: "T47", x: [-0.88, -0.72], y: [-0.6, 0.0] },
-  { id: "T37", x: [0.72, 0.88],  y: [-0.6, 0.0] },
-  { id: "T48", x: [-1.1, -0.88], y: [-0.6, 0.0] },
-  { id: "T38", x: [0.88, 1.1],   y: [-0.6, 0.0] },
-];
-
-const ALL_TOOTH_REGIONS = [...TOOTH_REGIONS_UPPER, ...TOOTH_REGIONS_LOWER];
-
-/** Given a local-space hit point, find the closest FDI tooth ID */
-function identifyToothFromPoint(localPoint: THREE.Vector3): string {
-  let bestId = "tooth";
+/**
+ * Given a list of tooth mesh centers and a hit point, find the nearest tooth.
+ */
+function findNearestTooth(centers: ToothCenter[], point: THREE.Vector3): string | null {
+  let bestId: string | null = null;
   let bestDist = Infinity;
-
-  for (const region of ALL_TOOTH_REGIONS) {
-    const cx = (region.x[0] + region.x[1]) / 2;
-    const cy = (region.y[0] + region.y[1]) / 2;
-    const dx = localPoint.x - cx;
-    const dy = localPoint.y - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestId = region.id;
+  for (const tc of centers) {
+    const d = tc.center.distanceTo(point);
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = tc.id;
     }
   }
-
   return bestId;
 }
 export type RenderMode = "3d" | "2d";
@@ -185,7 +146,7 @@ function DentalModel({
 }) {
   const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
-  const inverseMatrix = useRef(new THREE.Matrix4());
+  const toothCentersRef = useRef<ToothCenter[]>([]);
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
 
@@ -201,9 +162,12 @@ function DentalModel({
   }, [scene]);
   const emissive = STATUS_EMISSIVE[overallStatus];
 
-  /* Clone scene once and apply materials */
+  /* Clone scene, apply materials, and dynamically assign FDI IDs */
   const clonedScene = useMemo(() => {
     const cloned = scene.clone(true);
+
+    // Step 1: Categorise meshes as gum vs tooth and collect tooth mesh centers
+    const toothMeshes: { mesh: THREE.Mesh; center: THREE.Vector3 }[] = [];
 
     cloned.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
@@ -233,7 +197,6 @@ function DentalModel({
           thickness: 0.5,
         });
         child.userData.isGum = true;
-        // Disable raycasting on gum meshes so clicks pass through to teeth
         child.raycast = () => {};
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
@@ -251,8 +214,95 @@ function DentalModel({
         });
         child.userData.isTooth = true;
         child.castShadow = true;
+
+        // Compute bounding box center in world space of the cloned scene
+        child.updateWorldMatrix(true, false);
+        const box = new THREE.Box3().setFromObject(child);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        toothMeshes.push({ mesh: child, center });
       }
     });
+
+    // Step 2: Determine if we have individual tooth meshes or merged jaws
+    // If we have >= 20 tooth meshes, assume individual teeth
+    // If fewer, we have merged meshes — we'll build a synthetic center grid
+
+    if (toothMeshes.length >= 20) {
+      // Individual tooth meshes — sort by position and assign FDI IDs
+      // Find the midpoint Y to separate upper vs lower
+      const allY = toothMeshes.map(t => t.center.y);
+      const midY = (Math.min(...allY) + Math.max(...allY)) / 2;
+
+      const upper = toothMeshes.filter(t => t.center.y >= midY).sort((a, b) => a.center.x - b.center.x);
+      const lower = toothMeshes.filter(t => t.center.y < midY).sort((a, b) => a.center.x - b.center.x);
+
+      // Assign FDI IDs based on position order
+      const assignIds = (meshes: typeof toothMeshes, fdiOrder: string[]) => {
+        // If mesh count doesn't match FDI count, distribute evenly
+        meshes.forEach((item, idx) => {
+          const fdiIdx = Math.min(idx, fdiOrder.length - 1);
+          // Map proportionally if counts differ
+          const mappedIdx = meshes.length === fdiOrder.length
+            ? idx
+            : Math.round((idx / (meshes.length - 1 || 1)) * (fdiOrder.length - 1));
+          const toothId = fdiOrder[Math.min(mappedIdx, fdiOrder.length - 1)];
+          item.mesh.userData.toothId = toothId;
+        });
+      };
+
+      assignIds(upper, UPPER_FDI_ORDER);
+      assignIds(lower, LOWER_FDI_ORDER);
+
+      console.log(`[TeethGLB] Assigned FDI IDs to ${upper.length} upper + ${lower.length} lower individual tooth meshes`);
+    } else {
+      // Merged meshes — we can't assign per-mesh IDs, but we build a synthetic
+      // center grid for nearest-point lookup based on the model's bounding box
+      console.log(`[TeethGLB] Found ${toothMeshes.length} tooth mesh(es) — using nearest-center fallback`);
+    }
+
+    // Step 3: Build tooth centers for nearest-point fallback (always useful)
+    const centers: ToothCenter[] = [];
+
+    // Collect centers from meshes that got individual IDs
+    toothMeshes.forEach(({ mesh, center }) => {
+      if (mesh.userData.toothId) {
+        centers.push({ id: mesh.userData.toothId, center: center.clone() });
+      }
+    });
+
+    // If we have merged meshes (few/no individual IDs), generate synthetic centers
+    // based on the overall model bounding box
+    if (centers.length < 16) {
+      const modelBox = new THREE.Box3().setFromObject(cloned);
+      const modelSize = new THREE.Vector3();
+      const modelCenter = new THREE.Vector3();
+      modelBox.getSize(modelSize);
+      modelBox.getCenter(modelCenter);
+
+      // Build a dental arch of synthetic centers
+      const buildArchCenters = (fdiOrder: string[], yOffset: number, archRadius: number) => {
+        const count = fdiOrder.length;
+        fdiOrder.forEach((id, i) => {
+          // Distribute teeth along an arch (semicircle)
+          // i=0 is rightmost, i=count-1 is leftmost
+          const t = i / (count - 1); // 0 to 1
+          const angle = Math.PI * (1 - t); // PI to 0 (right to left)
+          const x = modelCenter.x + Math.cos(angle) * archRadius;
+          const z = modelCenter.z - Math.sin(angle) * archRadius * 0.5; // front-back curve
+          const y = modelCenter.y + yOffset;
+          centers.push({ id, center: new THREE.Vector3(x, y, z) });
+        });
+      };
+
+      const archR = modelSize.x * 0.45;
+      buildArchCenters(UPPER_FDI_ORDER, modelSize.y * 0.15, archR);
+      buildArchCenters(LOWER_FDI_ORDER, -modelSize.y * 0.15, archR);
+
+      console.log(`[TeethGLB] Generated ${centers.length} synthetic tooth centers for merged mesh fallback`);
+    }
+
+    toothCentersRef.current = centers;
 
     return cloned;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -282,13 +332,17 @@ function DentalModel({
     });
   }, [clonedScene, emissive]);
 
-  /* Convert world hit point to model-local space and identify tooth */
+  /* Identify tooth from raycast event — model-driven */
   const getToothIdFromEvent = useCallback((e: any): string | null => {
-    if (!e.point || !groupRef.current) return null;
-    inverseMatrix.current.copy(groupRef.current.matrixWorld).invert();
-    const localPoint = e.point.clone().applyMatrix4(inverseMatrix.current);
-    console.log("[TeethHit] local point:", localPoint.x.toFixed(3), localPoint.y.toFixed(3), localPoint.z.toFixed(3));
-    return identifyToothFromPoint(localPoint);
+    // First: check if the hit mesh has a directly assigned toothId
+    if (e.object?.userData?.toothId) {
+      return e.object.userData.toothId;
+    }
+    // Fallback: find nearest center to the world-space hit point
+    if (e.point && toothCentersRef.current.length > 0) {
+      return findNearestTooth(toothCentersRef.current, e.point);
+    }
+    return null;
   }, []);
 
   /* Pointer handlers */
