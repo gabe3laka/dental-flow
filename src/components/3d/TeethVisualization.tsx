@@ -78,6 +78,7 @@ const TOOTH_TYPES: ToothType[] = [
   "incisor", "incisor", "incisor", "incisor",
   "canine", "premolar", "premolar", "molar", "molar", "molar",
 ];
+// [widthScale, heightScale]
 const TOOTH_SCALES: [number, number][] = [
   [1.1, 0.72], [1.05, 0.75], [1.1, 0.75],
   [0.95, 0.82], [0.9, 0.88],
@@ -88,17 +89,143 @@ const TOOTH_SCALES: [number, number][] = [
   [1.1, 0.75], [1.05, 0.75], [1.1, 0.72],
 ];
 
+/* ─── Anatomical tooth cross-section shapes ─── */
+function createToothShape(type: ToothType, wS: number): THREE.Shape {
+  const shape = new THREE.Shape();
+  switch (type) {
+    case "incisor": {
+      // Thin, shovel-shaped: wide labio-lingually, narrow mesio-distally
+      const w = 0.065 * wS;
+      const d = 0.032 * wS;
+      shape.moveTo(w, 0);
+      shape.quadraticCurveTo(w, d, 0, d);
+      shape.quadraticCurveTo(-w, d, -w, 0);
+      shape.quadraticCurveTo(-w, -d, 0, -d);
+      shape.quadraticCurveTo(w, -d, w, 0);
+      break;
+    }
+    case "canine": {
+      // Teardrop / pointed oval — slightly more round than incisor
+      const w = 0.055 * wS;
+      const d = 0.04 * wS;
+      shape.moveTo(w, 0);
+      shape.quadraticCurveTo(w, d * 1.1, 0, d);
+      shape.quadraticCurveTo(-w, d * 1.1, -w, 0);
+      shape.quadraticCurveTo(-w, -d * 0.9, 0, -d * 0.85);
+      shape.quadraticCurveTo(w, -d * 0.9, w, 0);
+      break;
+    }
+    case "premolar": {
+      // Oval, wider bucco-lingually
+      const w = 0.058 * wS;
+      const d = 0.048 * wS;
+      shape.moveTo(w, 0);
+      shape.quadraticCurveTo(w, d, 0, d);
+      shape.quadraticCurveTo(-w, d, -w, 0);
+      shape.quadraticCurveTo(-w, -d, 0, -d);
+      shape.quadraticCurveTo(w, -d, w, 0);
+      break;
+    }
+    case "molar": {
+      // Rounded rectangle — widest tooth
+      const w = 0.07 * wS;
+      const d = 0.06 * wS;
+      const r = 0.015 * wS; // corner radius
+      shape.moveTo(w - r, -d);
+      shape.lineTo(w - r, -d);
+      shape.quadraticCurveTo(w, -d, w, -d + r);
+      shape.lineTo(w, d - r);
+      shape.quadraticCurveTo(w, d, w - r, d);
+      shape.lineTo(-w + r, d);
+      shape.quadraticCurveTo(-w, d, -w, d - r);
+      shape.lineTo(-w, -d + r);
+      shape.quadraticCurveTo(-w, -d, -w + r, -d);
+      shape.lineTo(w - r, -d);
+      break;
+    }
+  }
+  return shape;
+}
+
+/* ─── Tooth height per type ─── */
+const TOOTH_HEIGHTS: Record<ToothType, number> = {
+  incisor: 0.30,
+  canine: 0.34,
+  premolar: 0.26,
+  molar: 0.22,
+};
+
 function createToothGeometry(type: ToothType, wS: number, hS: number): THREE.BufferGeometry {
-  const pts: THREE.Vector2[] = [];
-  const profiles: Record<ToothType, [number, number][]> = {
-    incisor: [[0,0],[0.04,0.02],[0.055,0.06],[0.06,0.12],[0.065,0.18],[0.07,0.22],[0.065,0.26],[0.055,0.28],[0.03,0.29],[0,0.295]],
-    canine: [[0,0],[0.04,0.02],[0.06,0.06],[0.07,0.12],[0.072,0.18],[0.065,0.22],[0.05,0.27],[0.03,0.30],[0.012,0.32],[0,0.33]],
-    premolar: [[0,0],[0.05,0.02],[0.07,0.06],[0.08,0.10],[0.085,0.15],[0.082,0.19],[0.075,0.22],[0.065,0.235],[0.04,0.245],[0,0.25]],
-    molar: [[0,0],[0.06,0.02],[0.08,0.05],[0.095,0.09],[0.10,0.13],[0.098,0.16],[0.092,0.18],[0.085,0.195],[0.06,0.205],[0,0.21]],
-  };
-  profiles[type].forEach(([x, y]) => pts.push(new THREE.Vector2(x * wS, y * hS)));
-  const geo = new THREE.LatheGeometry(pts, 16);
+  const shape = createToothShape(type, wS);
+  const height = TOOTH_HEIGHTS[type] * hS;
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    steps: 16,
+    depth: height,
+    bevelEnabled: true,
+    bevelThickness: 0.008,
+    bevelSize: 0.006,
+    bevelSegments: 4,
+  });
+
+  // Post-process vertices: taper root, add cusps
+  const posAttr = geo.attributes.position;
+  const maxZ = height; // extrude goes along Z
+
+  for (let i = 0; i < posAttr.count; i++) {
+    let x = posAttr.getX(i);
+    let y = posAttr.getY(i);
+    let z = posAttr.getZ(i);
+
+    const t = z / maxZ; // 0 = root, 1 = crown
+
+    // Taper root: vertices near z=0 shrink inward
+    const rootTaper = 0.5 + 0.5 * Math.pow(t, 0.6);
+    x *= rootTaper;
+    y *= rootTaper;
+
+    // Crown bulge: slight widening at ~70% height
+    const bulge = 1.0 + 0.12 * Math.sin(t * Math.PI);
+    x *= bulge;
+    y *= bulge;
+
+    // Add cusps for premolars and molars at the crown
+    if (t > 0.85) {
+      const cuspT = (t - 0.85) / 0.15; // 0→1 in cusp zone
+      if (type === "molar") {
+        // 4 cusps at corners
+        const cx = Math.sign(x) * 0.03 * wS;
+        const cy = Math.sign(y) * 0.025 * wS;
+        const distToCusp = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+        const cuspBump = Math.exp(-distToCusp * 35) * 0.04 * hS * cuspT;
+        z += cuspBump;
+      } else if (type === "premolar") {
+        // 2 cusps (buccal + lingual)
+        const cy = Math.sign(y) * 0.02 * wS;
+        const distToCusp = Math.sqrt(x ** 2 + (y - cy) ** 2);
+        const cuspBump = Math.exp(-distToCusp * 30) * 0.035 * hS * cuspT;
+        z += cuspBump;
+      } else if (type === "canine") {
+        // Single pointed tip
+        const dist = Math.sqrt(x ** 2 + y ** 2);
+        const tipBump = Math.exp(-dist * 40) * 0.05 * hS * cuspT;
+        z += tipBump;
+      } else if (type === "incisor") {
+        // Flat chisel edge — slight ridge along the wide axis
+        const ridgeBump = Math.exp(-Math.abs(y) * 50) * 0.015 * hS * cuspT;
+        z += ridgeBump;
+      }
+    }
+
+    posAttr.setXYZ(i, x, y, z);
+  }
+
+  posAttr.needsUpdate = true;
   geo.computeVertexNormals();
+
+  // Rotate so Z-extrusion becomes Y-up (tooth stands upright)
+  geo.rotateX(-Math.PI / 2);
+
   return geo;
 }
 
