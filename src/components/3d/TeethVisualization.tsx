@@ -185,8 +185,20 @@ function DentalModel({
 }) {
   const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
+  const inverseMatrix = useRef(new THREE.Matrix4());
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
+
+  /* Debug: log scene graph once */
+  useEffect(() => {
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        const geo = child.geometry;
+        const vCount = geo?.attributes?.position?.count ?? 0;
+        console.log(`[TeethGLB] Mesh: "${child.name}" | vertices: ${vCount} | material: "${(child.material as any)?.name || 'unnamed'}"`);
+      }
+    });
+  }, [scene]);
   const emissive = STATUS_EMISSIVE[overallStatus];
 
   /* Clone scene once and apply materials */
