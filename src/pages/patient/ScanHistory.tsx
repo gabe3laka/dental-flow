@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
 import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send } from "lucide-react";
 import { logError } from "@/lib/logger";
+import { toast } from "@/hooks/use-toast";
 
 type ScanRow = {
   id: string;
