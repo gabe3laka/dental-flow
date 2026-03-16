@@ -10,75 +10,36 @@ import { RotateCcw, X } from "lucide-react";
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
 
-/* ─── 3D hit-point → FDI tooth mapping ─── */
-// Each entry maps an FDI tooth ID to an approximate 3D region (model-local coords).
-// x = left-right, y = up-down, z = front-back on the arch.
-// These are tuned for the teeth.glb model scaled to fit within ~[-1,1].
-interface ToothRegion {
+/* ─── FDI tooth ID assignment order ─── */
+// Upper arch: right molars → right incisors → left incisors → left molars
+const UPPER_FDI_ORDER = [
+  "T18","T17","T16","T15","T14","T13","T12","T11",
+  "T21","T22","T23","T24","T25","T26","T27","T28",
+];
+// Lower arch: right molars → right incisors → left incisors → left molars
+const LOWER_FDI_ORDER = [
+  "T48","T47","T46","T45","T44","T43","T42","T41",
+  "T31","T32","T33","T34","T35","T36","T37","T38",
+];
+
+interface ToothCenter {
   id: string;
-  x: [number, number]; // min, max
-  y: [number, number];
+  center: THREE.Vector3;
 }
 
-// Upper teeth (positive y in model space typically)
-const TOOTH_REGIONS_UPPER: ToothRegion[] = [
-  { id: "T11", x: [-0.12, 0.0],  y: [0.0, 0.6] },
-  { id: "T21", x: [0.0, 0.12],   y: [0.0, 0.6] },
-  { id: "T12", x: [-0.22, -0.12], y: [0.0, 0.6] },
-  { id: "T22", x: [0.12, 0.22],  y: [0.0, 0.6] },
-  { id: "T13", x: [-0.34, -0.22], y: [0.0, 0.6] },
-  { id: "T23", x: [0.22, 0.34],  y: [0.0, 0.6] },
-  { id: "T14", x: [-0.46, -0.34], y: [0.0, 0.6] },
-  { id: "T24", x: [0.34, 0.46],  y: [0.0, 0.6] },
-  { id: "T15", x: [-0.58, -0.46], y: [0.0, 0.6] },
-  { id: "T25", x: [0.46, 0.58],  y: [0.0, 0.6] },
-  { id: "T16", x: [-0.72, -0.58], y: [0.0, 0.6] },
-  { id: "T26", x: [0.58, 0.72],  y: [0.0, 0.6] },
-  { id: "T17", x: [-0.88, -0.72], y: [0.0, 0.6] },
-  { id: "T27", x: [0.72, 0.88],  y: [0.0, 0.6] },
-  { id: "T18", x: [-1.1, -0.88], y: [0.0, 0.6] },
-  { id: "T28", x: [0.88, 1.1],   y: [0.0, 0.6] },
-];
-
-// Lower teeth (negative y in model space typically)
-const TOOTH_REGIONS_LOWER: ToothRegion[] = [
-  { id: "T41", x: [-0.12, 0.0],  y: [-0.6, 0.0] },
-  { id: "T31", x: [0.0, 0.12],   y: [-0.6, 0.0] },
-  { id: "T42", x: [-0.22, -0.12], y: [-0.6, 0.0] },
-  { id: "T32", x: [0.12, 0.22],  y: [-0.6, 0.0] },
-  { id: "T43", x: [-0.34, -0.22], y: [-0.6, 0.0] },
-  { id: "T33", x: [0.22, 0.34],  y: [-0.6, 0.0] },
-  { id: "T44", x: [-0.46, -0.34], y: [-0.6, 0.0] },
-  { id: "T34", x: [0.34, 0.46],  y: [-0.6, 0.0] },
-  { id: "T45", x: [-0.58, -0.46], y: [-0.6, 0.0] },
-  { id: "T35", x: [0.46, 0.58],  y: [-0.6, 0.0] },
-  { id: "T46", x: [-0.72, -0.58], y: [-0.6, 0.0] },
-  { id: "T36", x: [0.58, 0.72],  y: [-0.6, 0.0] },
-  { id: "T47", x: [-0.88, -0.72], y: [-0.6, 0.0] },
-  { id: "T37", x: [0.72, 0.88],  y: [-0.6, 0.0] },
-  { id: "T48", x: [-1.1, -0.88], y: [-0.6, 0.0] },
-  { id: "T38", x: [0.88, 1.1],   y: [-0.6, 0.0] },
-];
-
-const ALL_TOOTH_REGIONS = [...TOOTH_REGIONS_UPPER, ...TOOTH_REGIONS_LOWER];
-
-/** Given a local-space hit point, find the closest FDI tooth ID */
-function identifyToothFromPoint(localPoint: THREE.Vector3): string {
-  let bestId = "tooth";
+/**
+ * Given a list of tooth mesh centers and a hit point, find the nearest tooth.
+ */
+function findNearestTooth(centers: ToothCenter[], point: THREE.Vector3): string | null {
+  let bestId: string | null = null;
   let bestDist = Infinity;
-
-  for (const region of ALL_TOOTH_REGIONS) {
-    const cx = (region.x[0] + region.x[1]) / 2;
-    const cy = (region.y[0] + region.y[1]) / 2;
-    const dx = localPoint.x - cx;
-    const dy = localPoint.y - cy;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist < bestDist) {
-      bestDist = dist;
-      bestId = region.id;
+  for (const tc of centers) {
+    const d = tc.center.distanceTo(point);
+    if (d < bestDist) {
+      bestDist = d;
+      bestId = tc.id;
     }
   }
-
   return bestId;
 }
 export type RenderMode = "3d" | "2d";
