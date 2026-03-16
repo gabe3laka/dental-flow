@@ -270,24 +270,17 @@ function DentalModel({
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
-  /* Update emissive when toothData or selectedTooth changes */
+  /* Update emissive when toothData changes */
   useEffect(() => {
     clonedScene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       if (child.userData.isGum) return;
       const mat = child.material as THREE.MeshPhysicalMaterial;
       if (!mat) return;
-
-      const meshName = child.name || "";
-      if (selectedTooth && meshName === selectedTooth) {
-        mat.emissive.set(SELECTED_EMISSIVE.color);
-        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
-      } else {
-        mat.emissive.set(emissive.color);
-        mat.emissiveIntensity = emissive.intensity;
-      }
+      mat.emissive.set(emissive.color);
+      mat.emissiveIntensity = emissive.intensity;
     });
-  }, [clonedScene, emissive, selectedTooth]);
+  }, [clonedScene, emissive]);
 
   /* Convert world hit point to model-local space and identify tooth */
   const getToothIdFromEvent = useCallback((e: any): string | null => {
