@@ -255,13 +255,15 @@ function Tooth({
       onPointerOut={() => { setHovered(false); onHover(null); }}
       onClick={(e) => { e.stopPropagation(); onClick(toothId); }}
     >
-      <meshStandardMaterial
+      <meshPhysicalMaterial
         color={color}
         emissive={emissive}
-        emissiveIntensity={hovered ? intensity + 0.3 : intensity}
-        roughness={0.35}
-        metalness={0.08}
-        envMapIntensity={0.8}
+        emissiveIntensity={hovered ? intensity + 0.2 : intensity}
+        roughness={0.3}
+        metalness={0.05}
+        clearcoat={0.3}
+        clearcoatRoughness={0.4}
+        envMapIntensity={0.9}
       />
     </mesh>
   );
