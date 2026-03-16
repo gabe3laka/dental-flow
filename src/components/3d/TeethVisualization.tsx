@@ -462,7 +462,7 @@ function ToothChart2D({
           strokeLinecap="round"
         />
         {LOWER_TEETH.map(renderTooth)}
-        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="8" fontFamily="monospace" letterSpacing="0.18em" opacity="0.7">
           LOWER
         </text>
       </svg>
