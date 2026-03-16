@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState, useCallback, Suspense } from "react";
+import { useRef, useMemo, useState, useCallback, useEffect, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
@@ -39,9 +39,9 @@ function resolveOverallStatus(data: Record<string, ToothStatus>): ToothStatus {
 
 /* ─── Camera presets ─── */
 const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: [number, number, number] }> = {
-  both:  { pos: [0, 1.4, 3.8], target: [0, 0, 0] },
-  upper: { pos: [0, 2.8, 2.8], target: [0, 0.3, 0] },
-  lower: { pos: [0, -0.8, 3.2], target: [0, -0.5, 0] },
+  both:  { pos: [0, 0.6, 4.5], target: [0, 0, 0] },
+  upper: { pos: [0, 2.0, 3.5], target: [0, 0.5, 0] },
+  lower: { pos: [0, -1.0, 3.5], target: [0, -0.5, 0] },
 };
 
 /* ─── Camera animator ─── */
@@ -69,38 +69,61 @@ function DentalModel({
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
 }) {
-  const { scene } = useGLTF("/dental-arch.glb");
+  const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
-  const [_hoveredMesh, setHoveredMesh] = useState<string | null>(null);
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
   const emissive = STATUS_EMISSIVE[overallStatus];
 
-  /* Clone scene once so material changes don't pollute the cache */
+  /* Clone scene once and apply materials */
   const clonedScene = useMemo(() => {
     const cloned = scene.clone(true);
+
+    // Log scene structure on first load for debugging
+    if (import.meta.env.DEV) {
+      console.log("[TeethViz] Scene structure:");
+      cloned.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const mat = Array.isArray(child.material) ? child.material[0] : child.material;
+          console.log(`  Mesh: "${child.name}", material: "${mat?.name}", type: ${mat?.type}`);
+        } else {
+          console.log(`  ${child.type}: "${child.name}"`);
+        }
+      });
+    }
 
     cloned.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
 
       const srcMat = Array.isArray(child.material) ? child.material[0] : child.material;
-      const matName: string = srcMat?.name ?? "";
+      const matName: string = (srcMat?.name ?? "").toLowerCase();
+      const meshName: string = (child.name ?? "").toLowerCase();
 
-      // Material.001 = pink gum (r≈0.8, g≈0.18)
-      // Material     = off-white tooth (r≈0.68, g≈0.69)
-      const isGum = matName === "Material.001";
+      // Detect gum: by material name or mesh name containing "gum", "gingiva", etc.
+      const isGum = matName.includes("gum") || matName.includes("gingiva") ||
+                    matName.includes("material.001") || meshName.includes("gum") ||
+                    meshName.includes("gingiva");
 
-      if (isGum) {
+      // Detect if it's a pink-ish material (gum detection fallback via vertex color or base color)
+      let isGumByColor = false;
+      if (srcMat && 'color' in srcMat) {
+        const c = (srcMat as THREE.MeshStandardMaterial).color;
+        if (c && c.r > 0.6 && c.g < 0.4 && c.b < 0.5) isGumByColor = true;
+      }
+
+      if (isGum || isGumByColor) {
         child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#d97b83"),
+          color: new THREE.Color("#d4878a"),
           roughness: 0.72,
           metalness: 0.0,
           clearcoat: 0.05,
           clearcoatRoughness: 0.9,
+          transmission: 0.05,
+          thickness: 0.5,
         });
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#f2ede3"),
+          color: new THREE.Color("#f5f0e8"),
           emissive: new THREE.Color(emissive.color),
           emissiveIntensity: emissive.intensity,
           roughness: 0.18,
@@ -120,15 +143,29 @@ function DentalModel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
 
-  /* Update emissive when toothData changes without full remount */
-  useMemo(() => {
+  /* Auto-fit: compute bounding box and center/scale the model */
+  const { scale, offset } = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(clonedScene);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+
+    // Target size ~2 units tall
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const s = maxDim > 0 ? 2.0 / maxDim : 1;
+
+    return { scale: s, offset: center.multiplyScalar(-s) };
+  }, [clonedScene]);
+
+  /* Update emissive when toothData changes */
+  useEffect(() => {
     clonedScene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
       const mat = child.material as THREE.MeshPhysicalMaterial;
-      if (!mat || mat.transmission === undefined) return; // skip gum mats
+      if (!mat || mat.transmission === undefined || mat.transmission > 0.04) return; // skip gum
       mat.emissive.set(emissive.color);
       mat.emissiveIntensity = emissive.intensity;
-      mat.needsUpdate = false;
     });
   }, [clonedScene, emissive]);
 
@@ -139,46 +176,36 @@ function DentalModel({
 
   /* Pointer handlers */
   const handleOver = useCallback((e: THREE.Event) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ev = e as any;
+    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     ev.stopPropagation?.();
     const name = ev.object?.name ?? "";
-    setHoveredMesh(name);
     onHover(name || null);
     document.body.style.cursor = "pointer";
-    // Brighten hovered tooth
     const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && mat.emissiveIntensity !== undefined && mat.transmission !== undefined) {
+    if (mat && mat.emissiveIntensity !== undefined && mat.clearcoat !== undefined && mat.clearcoat > 0.1) {
       mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
     }
   }, [onHover]);
 
   const handleOut = useCallback((e: THREE.Event) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ev = e as any;
-    setHoveredMesh(null);
+    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     onHover(null);
     document.body.style.cursor = "auto";
     const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && mat.emissiveIntensity !== undefined && mat.transmission !== undefined) {
+    if (mat && mat.emissiveIntensity !== undefined && mat.clearcoat !== undefined && mat.clearcoat > 0.1) {
       mat.emissiveIntensity = emissive.intensity;
     }
   }, [onHover, emissive.intensity]);
 
   const handleClick = useCallback((e: THREE.Event) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ev = e as any;
+    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     ev.stopPropagation?.();
     const name = ev.object?.name ?? "tooth";
     onClick(name);
   }, [onClick]);
 
   return (
-    <group
-      ref={groupRef}
-      rotation={[0.28, 0, 0]}
-      position={[0, -0.15, 0]}
-    >
+    <group ref={groupRef} scale={[scale, scale, scale]} position={[offset.x, offset.y, offset.z]}>
       <primitive
         object={clonedScene}
         onPointerOver={handleOver}
@@ -189,7 +216,7 @@ function DentalModel({
   );
 }
 
-/* ─── Full scene ─── */
+/* ─── Full 3D scene ─── */
 function Scene({
   viewMode,
   toothData,
@@ -203,17 +230,11 @@ function Scene({
 }) {
   return (
     <>
-      {/* Warm key light from upper-right — mimics dental exam lamp */}
       <directionalLight position={[3, 6, 4]} intensity={1.1} color="#fff8ee" castShadow />
-      {/* Cool fill from upper-left */}
       <directionalLight position={[-4, 3, -1]} intensity={0.55} color="#c8d8ff" />
-      {/* Rim light from below for depth */}
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
-      {/* Ambient */}
       <ambientLight intensity={0.38} />
-      {/* Environment for reflections on enamel */}
       <Environment preset="studio" />
-
       <DentalModel toothData={toothData} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <OrbitControls
@@ -227,53 +248,60 @@ function Scene({
   );
 }
 
-/* ─── 2D SVG Tooth Arch ─── */
-const STATUS_FILL: Record<ToothStatus, { fill: string; stroke: string }> = {
-  on_track:  { fill: "rgba(34,197,94,0.25)",  stroke: "#22c55e" },
-  deviation: { fill: "rgba(245,158,11,0.25)", stroke: "#f59e0b" },
-  attention: { fill: "rgba(239,68,68,0.25)",  stroke: "#ef4444" },
-  no_data:   { fill: "rgba(255,255,255,0.10)", stroke: "rgba(255,255,255,0.25)" },
+/* ─── 2D SVG Tooth Chart (matches landing page ToothArch style) ─── */
+const STATUS_COLORS_2D: Record<ToothStatus, string> = {
+  on_track: "#22c55e",
+  deviation: "#f59e0b",
+  attention: "#ef4444",
+  no_data: "rgba(255,255,255,0.12)",
 };
 
-// Upper arch: 16 teeth (right molars → front → left molars)
-// Lower arch: 16 teeth mirrored
-const UPPER_TEETH = [
-  { id: "UR8", cx: 22,  cy: 110, rx: 7,  ry: 9  },
-  { id: "UR7", cx: 28,  cy: 88,  rx: 7,  ry: 8.5 },
-  { id: "UR6", cx: 37,  cy: 68,  rx: 7.5,ry: 8.5 },
-  { id: "UR5", cx: 50,  cy: 50,  rx: 7,  ry: 8  },
-  { id: "UR4", cx: 64,  cy: 37,  rx: 7,  ry: 7.5 },
-  { id: "UR3", cx: 80,  cy: 28,  rx: 6.5,ry: 7  },
-  { id: "UR2", cx: 91,  cy: 23,  rx: 6,  ry: 6.5 },
-  { id: "UR1", cx: 100, cy: 21,  rx: 6,  ry: 6  },
-  { id: "UL1", cx: 109, cy: 21,  rx: 6,  ry: 6  },
-  { id: "UL2", cx: 118, cy: 23,  rx: 6,  ry: 6.5 },
-  { id: "UL3", cx: 129, cy: 28,  rx: 6.5,ry: 7  },
-  { id: "UL4", cx: 145, cy: 37,  rx: 7,  ry: 7.5 },
-  { id: "UL5", cx: 159, cy: 50,  rx: 7,  ry: 8  },
-  { id: "UL6", cx: 172, cy: 68,  rx: 7.5,ry: 8.5 },
-  { id: "UL7", cx: 181, cy: 88,  rx: 7,  ry: 8.5 },
-  { id: "UL8", cx: 187, cy: 110, rx: 7,  ry: 9  },
+interface ToothDef {
+  id: string;
+  cx: number;
+  cy: number;
+  rx: number;
+  ry: number;
+}
+
+// Upper arch (FDI notation): T18→T11 (right), T21→T28 (left)
+const UPPER_TEETH: ToothDef[] = [
+  { id: "T18", cx: 32, cy: 128, rx: 7, ry: 10 },
+  { id: "T17", cx: 34, cy: 110, rx: 7, ry: 9 },
+  { id: "T16", cx: 38, cy: 92, rx: 8, ry: 9 },
+  { id: "T15", cx: 46, cy: 74, rx: 8, ry: 9 },
+  { id: "T14", cx: 56, cy: 58, rx: 8, ry: 8 },
+  { id: "T13", cx: 72, cy: 44, rx: 8, ry: 8 },
+  { id: "T12", cx: 92, cy: 32, rx: 7, ry: 7 },
+  { id: "T11", cx: 112, cy: 24, rx: 7, ry: 7 },
+  { id: "T21", cx: 148, cy: 24, rx: 7, ry: 7 },
+  { id: "T22", cx: 168, cy: 32, rx: 7, ry: 7 },
+  { id: "T23", cx: 188, cy: 44, rx: 8, ry: 8 },
+  { id: "T24", cx: 204, cy: 58, rx: 8, ry: 8 },
+  { id: "T25", cx: 214, cy: 74, rx: 8, ry: 9 },
+  { id: "T26", cx: 222, cy: 92, rx: 8, ry: 9 },
+  { id: "T27", cx: 226, cy: 110, rx: 7, ry: 9 },
+  { id: "T28", cx: 228, cy: 128, rx: 7, ry: 10 },
 ];
 
-// Lower arch: mirror the upper, offset downward
-const LOWER_TEETH = [
-  { id: "LR8", cx: 22,  cy: 140, rx: 7,  ry: 9  },
-  { id: "LR7", cx: 28,  cy: 162, rx: 7,  ry: 8.5 },
-  { id: "LR6", cx: 37,  cy: 182, rx: 7.5,ry: 8.5 },
-  { id: "LR5", cx: 50,  cy: 200, rx: 7,  ry: 8  },
-  { id: "LR4", cx: 64,  cy: 213, rx: 7,  ry: 7.5 },
-  { id: "LR3", cx: 80,  cy: 222, rx: 6.5,ry: 7  },
-  { id: "LR2", cx: 91,  cy: 227, rx: 6,  ry: 6.5 },
-  { id: "LR1", cx: 100, cy: 229, rx: 6,  ry: 6  },
-  { id: "LL1", cx: 109, cy: 229, rx: 6,  ry: 6  },
-  { id: "LL2", cx: 118, cy: 227, rx: 6,  ry: 6.5 },
-  { id: "LL3", cx: 129, cy: 222, rx: 6.5,ry: 7  },
-  { id: "LL4", cx: 145, cy: 213, rx: 7,  ry: 7.5 },
-  { id: "LL5", cx: 159, cy: 200, rx: 7,  ry: 8  },
-  { id: "LL6", cx: 172, cy: 182, rx: 7.5,ry: 8.5 },
-  { id: "LL7", cx: 181, cy: 162, rx: 7,  ry: 8.5 },
-  { id: "LL8", cx: 187, cy: 140, rx: 7,  ry: 9  },
+// Lower arch (FDI notation): T48→T41 (right), T31→T38 (left)
+const LOWER_TEETH: ToothDef[] = [
+  { id: "T48", cx: 32, cy: 170, rx: 7, ry: 10 },
+  { id: "T47", cx: 34, cy: 188, rx: 7, ry: 9 },
+  { id: "T46", cx: 38, cy: 206, rx: 8, ry: 9 },
+  { id: "T45", cx: 46, cy: 224, rx: 8, ry: 9 },
+  { id: "T44", cx: 56, cy: 240, rx: 8, ry: 8 },
+  { id: "T43", cx: 72, cy: 254, rx: 8, ry: 8 },
+  { id: "T42", cx: 92, cy: 266, rx: 7, ry: 7 },
+  { id: "T41", cx: 112, cy: 274, rx: 7, ry: 7 },
+  { id: "T31", cx: 148, cy: 274, rx: 7, ry: 7 },
+  { id: "T32", cx: 168, cy: 266, rx: 7, ry: 7 },
+  { id: "T33", cx: 188, cy: 254, rx: 8, ry: 8 },
+  { id: "T34", cx: 204, cy: 240, rx: 8, ry: 8 },
+  { id: "T35", cx: 214, cy: 224, rx: 8, ry: 9 },
+  { id: "T36", cx: 222, cy: 206, rx: 8, ry: 9 },
+  { id: "T37", cx: 226, cy: 188, rx: 7, ry: 9 },
+  { id: "T38", cx: 228, cy: 170, rx: 7, ry: 10 },
 ];
 
 function ToothChart2D({
@@ -284,66 +312,108 @@ function ToothChart2D({
   onToothSelect?: (id: string) => void;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
-  const renderTooth = (t: { id: string; cx: number; cy: number; rx: number; ry: number }) => {
-    const status = toothData[t.id] ?? "no_data";
-    const { fill, stroke } = STATUS_FILL[status];
-    const isHovered = hovered === t.id;
+  const handleClick = (id: string) => {
+    setSelected(selected === id ? null : id);
+    onToothSelect?.(id);
+  };
+
+  const renderTooth = (def: ToothDef) => {
+    const status = toothData[def.id] ?? "no_data";
+    const isNoData = status === "no_data";
+    const color = STATUS_COLORS_2D[status];
+    const isHovered = hovered === def.id;
+    const isSelected = selected === def.id;
+
     return (
-      <ellipse
-        key={t.id}
-        cx={t.cx}
-        cy={t.cy}
-        rx={isHovered ? t.rx + 1.5 : t.rx}
-        ry={isHovered ? t.ry + 1.5 : t.ry}
-        fill={fill}
-        stroke={isHovered ? "#ffffff" : stroke}
-        strokeWidth={isHovered ? 1.5 : 0.8}
-        style={{ cursor: "pointer", transition: "all 0.15s" }}
-        onMouseEnter={() => setHovered(t.id)}
-        onMouseLeave={() => setHovered(null)}
-        onClick={() => onToothSelect?.(t.id)}
-      />
+      <g key={def.id}>
+        {/* Selection ring */}
+        {isSelected && (
+          <ellipse
+            cx={def.cx}
+            cy={def.cy}
+            rx={def.rx + 3}
+            ry={def.ry + 3}
+            fill="none"
+            stroke="#4f7cff"
+            strokeWidth={1.5}
+            strokeDasharray="3 2"
+            opacity={0.8}
+          />
+        )}
+        <ellipse
+          cx={def.cx}
+          cy={def.cy}
+          rx={isHovered ? def.rx + 1 : def.rx}
+          ry={isHovered ? def.ry + 1 : def.ry}
+          fill={isNoData ? "rgba(255,255,255,0.12)" : color}
+          opacity={isHovered || isSelected ? 0.9 : 0.3}
+          stroke={isSelected ? "#4f7cff" : isHovered ? "#ffffff" : "rgba(255,255,255,0.2)"}
+          strokeWidth={isSelected ? 1.5 : isHovered ? 1.2 : 0.5}
+          onMouseEnter={() => setHovered(def.id)}
+          onMouseLeave={() => setHovered(null)}
+          onClick={() => handleClick(def.id)}
+          className="cursor-pointer transition-opacity"
+        />
+        {/* Hover tooltip */}
+        {isHovered && (
+          <>
+            <rect
+              x={def.cx - 30}
+              y={def.cy - 22}
+              width={60}
+              height={16}
+              rx={4}
+              fill="hsl(240 30% 14%)"
+            />
+            <text
+              x={def.cx}
+              y={def.cy - 11}
+              textAnchor="middle"
+              fill="white"
+              fontSize="6"
+              fontFamily="monospace"
+              letterSpacing="0.08em"
+            >
+              {def.id} · {status.replace("_", " ").toUpperCase()}
+            </text>
+          </>
+        )}
+      </g>
     );
   };
 
   return (
     <div className="flex flex-col items-center justify-center w-full h-full py-2">
-      <svg
-        viewBox="0 0 209 250"
-        width="100%"
-        style={{ maxHeight: "100%", overflow: "visible" }}
-        aria-label="2D tooth chart"
-      >
-        {/* Arch guide lines */}
+      <svg viewBox="0 0 260 300" className="w-full max-w-xs mx-auto" style={{ maxHeight: "100%" }}>
+        {/* Upper gum path */}
         <path
-          d="M 22 115 Q 22 10, 104 13 Q 186 10, 187 115"
+          d="M 30 130 Q 30 18, 130 10 Q 230 18, 230 130"
           fill="none"
-          stroke="rgba(255,255,255,0.05)"
-          strokeWidth="26"
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth="28"
           strokeLinecap="round"
         />
-        <path
-          d="M 22 135 Q 22 240, 104 237 Q 186 240, 187 135"
-          fill="none"
-          stroke="rgba(255,255,255,0.05)"
-          strokeWidth="26"
-          strokeLinecap="round"
-        />
-        {/* Center divider */}
-        <line x1="104" y1="118" x2="104" y2="132" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="2 2" />
-        {UPPER_TEETH.map(renderTooth)}
-        {LOWER_TEETH.map(renderTooth)}
-        {/* Midline label */}
-        <text x="104" y="126" fill="rgba(255,255,255,0.2)" fontSize="5" fontFamily="monospace" textAnchor="middle">
-          UPPER · LOWER
+        {/* Upper label */}
+        <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+          UPPER
         </text>
-        {/* Tooltip */}
-        {hovered && (
-          <text x="104" y="8" fill="white" fontSize="7" fontFamily="monospace" textAnchor="middle" opacity="0.9">
-            {hovered}
-          </text>
-        )}
+        {UPPER_TEETH.map(renderTooth)}
+
+        {/* Lower gum path */}
+        <path
+          d="M 30 170 Q 30 282, 130 290 Q 230 282, 230 170"
+          fill="none"
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth="28"
+          strokeLinecap="round"
+        />
+        {LOWER_TEETH.map(renderTooth)}
+        {/* Lower label */}
+        <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
+          LOWER
+        </text>
       </svg>
     </div>
   );
@@ -383,7 +453,6 @@ export function TeethVisualization({
       {/* Controls row */}
       {showToggle && !compact && (
         <div className="flex items-center justify-between mb-2">
-          {/* 3D view mode buttons — only in 3D mode */}
           {renderMode === "3d" ? (
             <div className="flex gap-1 bg-muted/50 rounded-full p-0.5">
               {(["both", "upper", "lower"] as ViewMode[]).map((mode) => (
@@ -404,8 +473,6 @@ export function TeethVisualization({
           ) : (
             <div />
           )}
-
-          {/* 3D / 2D render-mode toggle */}
           <div className="flex gap-1 bg-muted/50 rounded-full p-0.5">
             {(["3d", "2d"] as RenderMode[]).map((rm) => (
               <button
@@ -430,7 +497,7 @@ export function TeethVisualization({
         {renderMode === "3d" ? (
           <Suspense fallback={<Skeleton className="w-full h-full" />}>
             <Canvas
-              camera={{ position: [0, 1.4, 3.8], fov: compact ? 36 : 32 }}
+              camera={{ position: [0, 0.6, 4.5], fov: compact ? 36 : 32 }}
               gl={{ antialias: true, alpha: true }}
               style={{ width: "100%", height: "100%" }}
             >
@@ -472,5 +539,5 @@ export function TeethVisualization({
   );
 }
 
-/* Preload so it's ready when the component mounts */
-useGLTF.preload("/dental-arch.glb");
+/* Preload the new model */
+useGLTF.preload("/teeth.glb");
