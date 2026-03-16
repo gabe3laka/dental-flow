@@ -4,6 +4,7 @@ import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
+import { RotateCcw } from "lucide-react";
 
 /* ─── Types ─── */
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
@@ -27,6 +28,8 @@ const STATUS_EMISSIVE: Record<ToothStatus, { color: string; intensity: number }>
   attention: { color: "#ef4444", intensity: 0.30 },
   no_data:   { color: "#000000", intensity: 0 },
 };
+
+const SELECTED_EMISSIVE = { color: "#4f7cff", intensity: 0.5 };
 
 /* ─── Determine overall status for global glow ─── */
 function resolveOverallStatus(data: Record<string, ToothStatus>): ToothStatus {
@@ -59,13 +62,31 @@ function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
   return null;
 }
 
+/* ─── Reset handler inside canvas ─── */
+function ResetHandler({
+  resetTrigger,
+  controlsRef,
+}: {
+  resetTrigger: number;
+  controlsRef: React.RefObject<any>;
+}) {
+  useEffect(() => {
+    if (resetTrigger > 0 && controlsRef.current) {
+      controlsRef.current.reset();
+    }
+  }, [resetTrigger, controlsRef]);
+  return null;
+}
+
 /* ─── The loaded GLB model ─── */
 function DentalModel({
   toothData,
+  selectedTooth,
   onHover,
   onClick,
 }: {
   toothData: Record<string, ToothStatus>;
+  selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
 }) {
@@ -79,19 +100,6 @@ function DentalModel({
   const clonedScene = useMemo(() => {
     const cloned = scene.clone(true);
 
-    // Log scene structure on first load for debugging
-    if (import.meta.env.DEV) {
-      console.log("[TeethViz] Scene structure:");
-      cloned.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          const mat = Array.isArray(child.material) ? child.material[0] : child.material;
-          console.log(`  Mesh: "${child.name}", material: "${mat?.name}", type: ${mat?.type}`);
-        } else {
-          console.log(`  ${child.type}: "${child.name}"`);
-        }
-      });
-    }
-
     cloned.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
 
@@ -99,12 +107,10 @@ function DentalModel({
       const matName: string = (srcMat?.name ?? "").toLowerCase();
       const meshName: string = (child.name ?? "").toLowerCase();
 
-      // Detect gum: by material name or mesh name containing "gum", "gingiva", etc.
       const isGum = matName.includes("gum") || matName.includes("gingiva") ||
                     matName.includes("material.001") || meshName.includes("gum") ||
                     meshName.includes("gingiva");
 
-      // Detect if it's a pink-ish material (gum detection fallback via vertex color or base color)
       let isGumByColor = false;
       if (srcMat && 'color' in srcMat) {
         const c = (srcMat as THREE.MeshStandardMaterial).color;
@@ -121,6 +127,7 @@ function DentalModel({
           transmission: 0.05,
           thickness: 0.5,
         });
+        child.userData.isGum = true;
       } else {
         child.material = new THREE.MeshPhysicalMaterial({
           color: new THREE.Color("#f5f0e8"),
@@ -135,6 +142,7 @@ function DentalModel({
           ior: 1.48,
           envMapIntensity: 1.3,
         });
+        child.userData.isTooth = true;
         child.castShadow = true;
       }
     });
@@ -143,64 +151,69 @@ function DentalModel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene]);
 
-  /* Auto-fit: compute bounding box and center/scale the model */
+  /* Auto-fit */
   const { scale, offset } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(clonedScene);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
-
-    // Target size ~2 units tall
     const maxDim = Math.max(size.x, size.y, size.z);
     const s = maxDim > 0 ? 2.0 / maxDim : 1;
-
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
-  /* Update emissive when toothData changes */
+  /* Update emissive when toothData or selectedTooth changes */
   useEffect(() => {
     clonedScene.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
+      if (child.userData.isGum) return;
       const mat = child.material as THREE.MeshPhysicalMaterial;
-      if (!mat || mat.transmission === undefined || mat.transmission > 0.04) return; // skip gum
-      mat.emissive.set(emissive.color);
-      mat.emissiveIntensity = emissive.intensity;
-    });
-  }, [clonedScene, emissive]);
+      if (!mat) return;
 
-  /* Gentle auto-rotation */
-  useFrame((_s, delta) => {
-    if (groupRef.current) groupRef.current.rotation.y += delta * 0.07;
-  });
+      const meshName = child.name || "";
+      if (selectedTooth && meshName === selectedTooth) {
+        mat.emissive.set(SELECTED_EMISSIVE.color);
+        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
+      } else {
+        mat.emissive.set(emissive.color);
+        mat.emissiveIntensity = emissive.intensity;
+      }
+    });
+  }, [clonedScene, emissive, selectedTooth]);
 
   /* Pointer handlers */
-  const handleOver = useCallback((e: THREE.Event) => {
-    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    ev.stopPropagation?.();
-    const name = ev.object?.name ?? "";
+  const handleOver = useCallback((e: any) => {
+    e.stopPropagation?.();
+    const name = e.object?.name ?? "";
+    if (e.object?.userData?.isGum) return;
     onHover(name || null);
     document.body.style.cursor = "pointer";
-    const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && mat.emissiveIntensity !== undefined && mat.clearcoat !== undefined && mat.clearcoat > 0.1) {
+    const mat = e.object?.material as THREE.MeshPhysicalMaterial;
+    if (mat && mat.emissiveIntensity !== undefined && e.object?.userData?.isTooth) {
       mat.emissiveIntensity = Math.min(mat.emissiveIntensity + 0.25, 0.6);
     }
   }, [onHover]);
 
-  const handleOut = useCallback((e: THREE.Event) => {
-    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const handleOut = useCallback((e: any) => {
+    if (e.object?.userData?.isGum) return;
     onHover(null);
     document.body.style.cursor = "auto";
-    const mat = ev.object?.material as THREE.MeshPhysicalMaterial;
-    if (mat && mat.emissiveIntensity !== undefined && mat.clearcoat !== undefined && mat.clearcoat > 0.1) {
-      mat.emissiveIntensity = emissive.intensity;
+    const mat = e.object?.material as THREE.MeshPhysicalMaterial;
+    const meshName = e.object?.name || "";
+    if (mat && e.object?.userData?.isTooth) {
+      if (selectedTooth && meshName === selectedTooth) {
+        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
+      } else {
+        mat.emissiveIntensity = emissive.intensity;
+      }
     }
-  }, [onHover, emissive.intensity]);
+  }, [onHover, emissive.intensity, selectedTooth]);
 
-  const handleClick = useCallback((e: THREE.Event) => {
-    const ev = e as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    ev.stopPropagation?.();
-    const name = ev.object?.name ?? "tooth";
+  const handleClick = useCallback((e: any) => {
+    e.stopPropagation?.();
+    if (e.object?.userData?.isGum) return;
+    const name = e.object?.name ?? "tooth";
     onClick(name);
   }, [onClick]);
 
@@ -220,13 +233,19 @@ function DentalModel({
 function Scene({
   viewMode,
   toothData,
+  selectedTooth,
   onHover,
   onClick,
+  controlsRef,
+  resetTrigger,
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
+  selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
+  controlsRef: React.RefObject<any>;
+  resetTrigger: number;
 }) {
   return (
     <>
@@ -235,20 +254,26 @@ function Scene({
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
       <ambientLight intensity={0.38} />
       <Environment preset="studio" />
-      <DentalModel toothData={toothData} onHover={onHover} onClick={onClick} />
+      <DentalModel toothData={toothData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
+      <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
       <OrbitControls
-        enableZoom={false}
+        ref={controlsRef}
+        enableZoom={true}
         enablePan={false}
+        enableDamping={true}
+        dampingFactor={0.1}
+        minDistance={2.5}
+        maxDistance={7}
         minPolarAngle={Math.PI / 6}
         maxPolarAngle={Math.PI * 0.72}
-        rotateSpeed={0.45}
+        rotateSpeed={0.7}
       />
     </>
   );
 }
 
-/* ─── 2D SVG Tooth Chart (matches landing page ToothArch style) ─── */
+/* ─── 2D SVG Tooth Chart ─── */
 const STATUS_COLORS_2D: Record<ToothStatus, string> = {
   on_track: "#22c55e",
   deviation: "#f59e0b",
@@ -264,7 +289,6 @@ interface ToothDef {
   ry: number;
 }
 
-// Upper arch (FDI notation): T18→T11 (right), T21→T28 (left)
 const UPPER_TEETH: ToothDef[] = [
   { id: "T18", cx: 32, cy: 128, rx: 7, ry: 10 },
   { id: "T17", cx: 34, cy: 110, rx: 7, ry: 9 },
@@ -284,7 +308,6 @@ const UPPER_TEETH: ToothDef[] = [
   { id: "T28", cx: 228, cy: 128, rx: 7, ry: 10 },
 ];
 
-// Lower arch (FDI notation): T48→T41 (right), T31→T38 (left)
 const LOWER_TEETH: ToothDef[] = [
   { id: "T48", cx: 32, cy: 170, rx: 7, ry: 10 },
   { id: "T47", cx: 34, cy: 188, rx: 7, ry: 9 },
@@ -328,13 +351,23 @@ function ToothChart2D({
 
     return (
       <g key={def.id}>
+        {/* Permanent white outline ring for visibility */}
+        <ellipse
+          cx={def.cx}
+          cy={def.cy}
+          rx={def.rx + 2}
+          ry={def.ry + 2}
+          fill="none"
+          stroke="rgba(255,255,255,0.45)"
+          strokeWidth={1}
+        />
         {/* Selection ring */}
         {isSelected && (
           <ellipse
             cx={def.cx}
             cy={def.cy}
-            rx={def.rx + 3}
-            ry={def.ry + 3}
+            rx={def.rx + 4}
+            ry={def.ry + 4}
             fill="none"
             stroke="#4f7cff"
             strokeWidth={1.5}
@@ -349,8 +382,8 @@ function ToothChart2D({
           ry={isHovered ? def.ry + 1 : def.ry}
           fill={isNoData ? "rgba(255,255,255,0.12)" : color}
           opacity={isHovered || isSelected ? 0.9 : 0.3}
-          stroke={isSelected ? "#4f7cff" : isHovered ? "#ffffff" : "rgba(255,255,255,0.2)"}
-          strokeWidth={isSelected ? 1.5 : isHovered ? 1.2 : 0.5}
+          stroke={isSelected ? "#4f7cff" : isHovered ? "#ffffff" : "transparent"}
+          strokeWidth={isSelected ? 1.5 : isHovered ? 1.2 : 0}
           onMouseEnter={() => setHovered(def.id)}
           onMouseLeave={() => setHovered(null)}
           onClick={() => handleClick(def.id)}
@@ -387,7 +420,6 @@ function ToothChart2D({
   return (
     <div className="flex flex-col items-center justify-center w-full h-full py-2">
       <svg viewBox="0 0 260 300" className="w-full max-w-xs mx-auto" style={{ maxHeight: "100%" }}>
-        {/* Upper gum path */}
         <path
           d="M 30 130 Q 30 18, 130 10 Q 230 18, 230 130"
           fill="none"
@@ -395,13 +427,10 @@ function ToothChart2D({
           strokeWidth="28"
           strokeLinecap="round"
         />
-        {/* Upper label */}
         <text x="130" y="8" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
           UPPER
         </text>
         {UPPER_TEETH.map(renderTooth)}
-
-        {/* Lower gum path */}
         <path
           d="M 30 170 Q 30 282, 130 290 Q 230 282, 230 170"
           fill="none"
@@ -410,7 +439,6 @@ function ToothChart2D({
           strokeLinecap="round"
         />
         {LOWER_TEETH.map(renderTooth)}
-        {/* Lower label */}
         <text x="130" y="299" textAnchor="middle" fill="currentColor" fontSize="6" fontFamily="monospace" letterSpacing="0.15em" opacity="0.4">
           LOWER
         </text>
@@ -439,12 +467,24 @@ export function TeethVisualization({
 }: TeethVisualizationProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [hoveredTooth, setHoveredTooth] = useState<string | null>(null);
+  const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
   const [renderMode, setRenderMode] = useState<RenderMode>(defaultRenderMode);
+  const [resetTrigger, setResetTrigger] = useState(0);
+  const controlsRef = useRef<any>(null);
 
   const handleClick = useCallback(
-    (id: string) => { onToothSelect?.(id); },
+    (id: string) => {
+      setSelectedTooth((prev) => (prev === id ? null : id));
+      onToothSelect?.(id);
+    },
     [onToothSelect]
   );
+
+  const handleReset = useCallback(() => {
+    setViewMode("both");
+    setResetTrigger((n) => n + 1);
+    setSelectedTooth(null);
+  }, []);
 
   const height = compact ? "h-[200px]" : "h-[300px]";
 
@@ -493,34 +533,50 @@ export function TeethVisualization({
       )}
 
       {/* Canvas / Chart */}
-      <div className={cn(height, "w-full rounded-lg overflow-hidden")}>
+      <div className={cn(height, "w-full rounded-lg overflow-hidden relative")}>
         {renderMode === "3d" ? (
-          <Suspense fallback={<Skeleton className="w-full h-full" />}>
-            <Canvas
-              camera={{ position: [0, 0.6, 4.5], fov: compact ? 36 : 32 }}
-              gl={{ antialias: true, alpha: true }}
-              style={{ width: "100%", height: "100%" }}
+          <>
+            <Suspense fallback={<Skeleton className="w-full h-full" />}>
+              <Canvas
+                camera={{ position: [0, 0.6, 4.5], fov: compact ? 36 : 32 }}
+                gl={{ antialias: true, alpha: true }}
+                style={{ width: "100%", height: "100%" }}
+              >
+                <color attach="background" args={["transparent"]} />
+                <Scene
+                  viewMode={viewMode}
+                  toothData={toothData}
+                  selectedTooth={selectedTooth}
+                  onHover={setHoveredTooth}
+                  onClick={handleClick}
+                  controlsRef={controlsRef}
+                  resetTrigger={resetTrigger}
+                />
+              </Canvas>
+            </Suspense>
+            {/* Reset view button */}
+            <button
+              onClick={handleReset}
+              className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-muted/70 backdrop-blur-sm border border-border hover:bg-muted transition-colors"
+              title="Reset view"
             >
-              <color attach="background" args={["transparent"]} />
-              <Scene
-                viewMode={viewMode}
-                toothData={toothData}
-                onHover={setHoveredTooth}
-                onClick={handleClick}
-              />
-            </Canvas>
-          </Suspense>
+              <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
+            </button>
+          </>
         ) : (
           <ToothChart2D toothData={toothData} onToothSelect={onToothSelect} />
         )}
       </div>
 
-      {/* Hover tooltip (3D only) */}
-      {renderMode === "3d" && hoveredTooth && (
+      {/* Hover/selected tooltip (3D only) */}
+      {renderMode === "3d" && (hoveredTooth || selectedTooth) && (
         <div className="absolute top-2 left-2 bg-popover/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 pointer-events-none z-10">
           <span className="mono-label text-foreground">
-            {hoveredTooth.replace(/_/g, " ").toUpperCase()}
+            {(hoveredTooth || selectedTooth || "").replace(/_/g, " ").toUpperCase()}
           </span>
+          {selectedTooth && !hoveredTooth && (
+            <span className="mono-label text-muted-foreground ml-2">SELECTED</span>
+          )}
         </div>
       )}
 
@@ -539,5 +595,5 @@ export function TeethVisualization({
   );
 }
 
-/* Preload the new model */
+/* Preload the model */
 useGLTF.preload("/teeth.glb");
