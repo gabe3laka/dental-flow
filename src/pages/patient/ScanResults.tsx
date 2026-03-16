@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization } from "@/components/3d/TeethVisualization";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
+import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
+import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
@@ -57,7 +59,8 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"3d" | "analysis">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
 
   useEffect(() => {
     if (!scanId || !user) return;
@@ -100,7 +103,6 @@ export default function ScanResults() {
         return;
       }
 
-      // Create scan review for doctor
       await supabase.from("scan_reviews").insert({
         scan_id: scan.id,
         doctor_id: patient.assigned_doctor_id,
@@ -109,7 +111,6 @@ export default function ScanResults() {
         action_type: "none" as const,
       });
 
-      // Update scan as sent
       await supabase.from("scans").update({
         sent_to_doctor: true,
         sent_to_doctor_at: new Date().toISOString(),
@@ -124,6 +125,17 @@ export default function ScanResults() {
     } finally {
       setSending(false);
     }
+  };
+
+  // Find detection details from AI analysis
+  const getDetectionDetails = (tag: string) => {
+    const teeth = scan?.ai_analysis?.teeth || [];
+    const match = teeth.find((t: any) => t.zone?.toLowerCase().includes(tag.toLowerCase()) || t.status !== "healthy");
+    return {
+      severity: match?.status === "healthy" || match?.status === "on_track" ? "minor" : "moderate",
+      confidence: match?.confidence ? parseFloat(match.confidence) / 100 : undefined,
+      affectedTeeth: match ? [match.zone || match.id] : undefined,
+    };
   };
 
   if (loading) {
@@ -152,7 +164,7 @@ export default function ScanResults() {
 
   const teethData = scan.ai_analysis?.teeth || [];
   const detections = scan.detection_tags || [];
-  const overallAssessment = detections.length === 0 ? "on_track" : detections.length <= 2 ? "needs_attention" : "urgent";
+  const zones = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
@@ -207,15 +219,19 @@ export default function ScanResults() {
         )}
       </div>
 
-      {/* Detection Tags */}
+      {/* Detection Tags — now interactive */}
       {detections.length > 0 && (
         <div className="rounded-card bg-card border border-border p-4 mb-4">
           <span className="mono-label text-muted-foreground mb-3 block">DETECTIONS</span>
           <div className="flex flex-wrap gap-1.5">
             {detections.map((tag, i) => (
-              <span key={i} className="mono-label px-3 py-1.5 rounded-pill bg-primary/15 text-primary cursor-pointer hover:bg-primary/25 transition">
+              <button
+                key={i}
+                onClick={() => setSelectedTag(tag)}
+                className="mono-label px-3 py-1.5 rounded-pill bg-primary/15 text-primary cursor-pointer hover:bg-primary/25 transition"
+              >
                 {tag}
-              </span>
+              </button>
             ))}
           </div>
         </div>
@@ -223,23 +239,28 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setViewMode("analysis")}
-          className={`flex-1 py-2 rounded-pill mono-label transition ${
-            viewMode === "analysis" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-          }`}
-        >
-          ANALYSIS
-        </button>
-        <button
-          onClick={() => setViewMode("3d")}
-          className={`flex-1 py-2 rounded-pill mono-label transition ${
-            viewMode === "3d" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-          }`}
-        >
-          3D MAP
-        </button>
+        {(["analysis", "photos", "3d"] as const).map((mode) => (
+          <button
+            key={mode}
+            onClick={() => setViewMode(mode)}
+            className={`flex-1 py-2 rounded-pill mono-label transition ${
+              viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {mode === "analysis" ? "ANALYSIS" : mode === "photos" ? "PHOTOS" : "3D MAP"}
+          </button>
+        ))}
       </div>
+
+      {viewMode === "photos" && (
+        <div className="rounded-card bg-card border border-border p-4 mb-4">
+          <ScanPhotoGrid
+            scanId={scan.id}
+            zonesCaptured={zones}
+            annotations={scan.ai_analysis?.annotated_regions}
+          />
+        </div>
+      )}
 
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
@@ -264,37 +285,22 @@ export default function ScanResults() {
                   rows={3}
                 />
                 <div className="flex gap-2">
-                  <Button
-                    onClick={() => setShowNoteInput(false)}
-                    variant="outline"
-                    className="flex-1 rounded-pill mono-label"
-                  >
+                  <Button onClick={() => setShowNoteInput(false)} variant="outline" className="flex-1 rounded-pill mono-label">
                     Cancel
                   </Button>
-                  <Button
-                    onClick={handleSendToDoctor}
-                    disabled={sending}
-                    className="flex-1 rounded-pill mono-label bg-primary text-primary-foreground"
-                  >
+                  <Button onClick={handleSendToDoctor} disabled={sending} className="flex-1 rounded-pill mono-label bg-primary text-primary-foreground">
                     <Send className="w-3.5 h-3.5 mr-1.5" />
                     {sending ? "Sending..." : "Send"}
                   </Button>
                 </div>
               </div>
             ) : (
-              <Button
-                onClick={() => setShowNoteInput(true)}
-                className="w-full rounded-pill mono-label bg-primary text-primary-foreground py-6"
-              >
+              <Button onClick={() => setShowNoteInput(true)} className="w-full rounded-pill mono-label bg-primary text-primary-foreground py-6">
                 <Send className="w-4 h-4 mr-2" />
                 Send to Doctor for Review
               </Button>
             )}
-            <Button
-              onClick={() => navigate("/patient/scans")}
-              variant="outline"
-              className="w-full rounded-pill mono-label py-6"
-            >
+            <Button onClick={() => navigate("/patient/scans")} variant="outline" className="w-full rounded-pill mono-label py-6">
               <BookmarkPlus className="w-4 h-4 mr-2" />
               Save & Track Progress
             </Button>
@@ -309,7 +315,6 @@ export default function ScanResults() {
           </div>
         )}
 
-        {/* Marketplace CTA when detections exist */}
         {detections.length > 0 && (
           <button
             onClick={() => navigate("/patient/chat", { state: { activeTab: "find", fromDetection: true } })}
@@ -323,6 +328,16 @@ export default function ScanResults() {
           </button>
         )}
       </div>
+
+      {/* Detection Education Sheet */}
+      {selectedTag && (
+        <DetectionTagSheet
+          tag={selectedTag}
+          open={!!selectedTag}
+          onClose={() => setSelectedTag(null)}
+          {...getDetectionDetails(selectedTag)}
+        />
+      )}
 
       <PatientBottomNav />
     </div>
