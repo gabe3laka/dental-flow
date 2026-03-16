@@ -341,11 +341,12 @@ function DentalModel({
     if (allTeeth.length >= 4) {
       const ys = allTeeth.map((t) => t.center.y);
       const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-      // Sort upper right→left (descending X), lower same
+      // Ascending X: patient's right (−X) → center → patient's left (+X)
+      // Maps T18→T11→T21→T28 correctly for standard front-facing model
       const upper = allTeeth.filter((t) => t.center.y >= midY)
-        .sort((a, b) => b.center.x - a.center.x);
+        .sort((a, b) => a.center.x - b.center.x);
       const lower = allTeeth.filter((t) => t.center.y < midY)
-        .sort((a, b) => b.center.x - a.center.x);
+        .sort((a, b) => a.center.x - b.center.x);
 
       const assignIds = (
         arr: typeof allTeeth,
@@ -601,127 +602,168 @@ function ToothChart2D({
     onToothSelect?.(id);
   };
 
+  const dataCount = Object.values(toothData).filter((s) => s !== "no_data").length;
+
   const renderTooth = (def: ToothDef) => {
-    const status = toothData[def.id] ?? "no_data";
-    const isNoData = status === "no_data";
+    const status: ToothStatus = (toothData[def.id] ?? "no_data") as ToothStatus;
     const color = STATUS_COLORS_2D[status];
+    const isNoData = status === "no_data";
     const isHovered = hovered === def.id;
     const isSelected = selected === def.id;
+    const toothNum = def.id.replace("T", "");
+    const isUpper = def.cy < 150;
+    // Tooltip above upper teeth, below lower — with edge clamping
+    const ttY = isUpper ? def.cy - 26 : def.cy + 14;
+    const ttX = Math.max(34, Math.min(def.cx, 226));
 
     return (
-      <g key={def.id}>
-        {/* Permanent white outline ring for visibility */}
-        <ellipse
-          cx={def.cx}
-          cy={def.cy}
-          rx={def.rx + 2}
-          ry={def.ry + 2}
-          fill="none"
-          stroke="rgba(255,255,255,0.45)"
-          strokeWidth={1}
-        />
-        {/* Selection ring */}
+      <g
+        key={def.id}
+        style={{ cursor: "pointer" }}
+        onMouseEnter={() => setHovered(def.id)}
+        onMouseLeave={() => setHovered(null)}
+        onClick={() => handleClick(def.id)}
+      >
+        {/* Selection glow */}
         {isSelected && (
           <ellipse
-            cx={def.cx}
-            cy={def.cy}
-            rx={def.rx + 4}
-            ry={def.ry + 4}
-            fill="none"
-            stroke="#4f7cff"
-            strokeWidth={1.5}
-            strokeDasharray="3 2"
-            opacity={0.8}
+            cx={def.cx} cy={def.cy}
+            rx={def.rx + 5} ry={def.ry + 5}
+            fill="rgba(79,124,255,0.18)"
+            stroke="#4f7cff" strokeWidth={1.5}
           />
         )}
+
+        {/* Hover ring */}
+        {isHovered && !isSelected && (
+          <ellipse
+            cx={def.cx} cy={def.cy}
+            rx={def.rx + 3} ry={def.ry + 3}
+            fill="rgba(255,255,255,0.07)"
+            stroke="rgba(255,255,255,0.35)" strokeWidth={0.8}
+          />
+        )}
+
+        {/* Tooth body — cream enamel */}
         <ellipse
-          cx={def.cx}
-          cy={def.cy}
-          rx={isHovered ? def.rx + 1 : def.rx}
-          ry={isHovered ? def.ry + 1 : def.ry}
-          fill={isNoData ? "rgba(255,255,255,0.12)" : color}
-          opacity={isHovered || isSelected ? 0.9 : 0.3}
-          stroke={isSelected ? "#4f7cff" : isHovered ? "#ffffff" : "transparent"}
-          strokeWidth={isSelected ? 1.5 : isHovered ? 1.2 : 0}
-          onMouseEnter={() => setHovered(def.id)}
-          onMouseLeave={() => setHovered(null)}
-          onClick={() => handleClick(def.id)}
-          className="cursor-pointer transition-opacity"
+          cx={def.cx} cy={def.cy}
+          rx={def.rx} ry={def.ry}
+          fill="rgba(248,244,236,0.90)"
+          stroke="rgba(255,255,255,0.28)" strokeWidth={0.5}
         />
+
+        {/* Status color overlay */}
+        {!isNoData && (
+          <ellipse
+            cx={def.cx} cy={def.cy}
+            rx={def.rx - 0.8} ry={def.ry - 0.8}
+            fill={color}
+            opacity={isHovered || isSelected ? 0.65 : 0.42}
+          />
+        )}
+
+        {/* Tooth number */}
+        <text
+          x={def.cx} y={def.cy + 1.8}
+          textAnchor="middle"
+          fill={isNoData ? "rgba(110,110,130,0.75)" : "rgba(255,255,255,0.95)"}
+          fontSize={def.rx >= 8 ? "4.5" : "4"}
+          fontFamily="'Courier New', monospace"
+          fontWeight="700"
+          style={{ pointerEvents: "none", userSelect: "none" } as React.CSSProperties}
+        >
+          {toothNum}
+        </text>
+
         {/* Hover tooltip */}
         {isHovered && (
-          <>
+          <g>
             <rect
-              x={def.cx - 30}
-              y={def.cy - 22}
-              width={60}
-              height={16}
+              x={ttX - 34} y={ttY}
+              width={68} height={15}
               rx={4}
-              fill="hsl(240 30% 14%)"
+              fill="rgba(10,12,28,0.96)"
+              stroke="rgba(255,255,255,0.1)" strokeWidth={0.5}
             />
             <text
-              x={def.cx}
-              y={def.cy - 11}
+              x={ttX} y={ttY + 9.5}
               textAnchor="middle"
-              fill="white"
-              fontSize="6"
-              fontFamily="monospace"
-              letterSpacing="0.08em"
+              fill="rgba(255,255,255,0.88)"
+              fontSize="5.5"
+              fontFamily="'Courier New', monospace"
+              style={{ pointerEvents: "none" } as React.CSSProperties}
             >
-              {def.id} · {status.replace("_", " ").toUpperCase()}
+              {def.id} · {status.replace(/_/g, " ").toUpperCase()}
             </text>
-          </>
+          </g>
         )}
       </g>
     );
   };
 
   return (
-    <div className="flex flex-col items-center justify-center w-full h-full py-2">
-      <svg viewBox="0 0 260 300" className="w-full max-w-xs mx-auto" style={{ maxHeight: "100%" }}>
+    <div className="flex flex-col items-center justify-center w-full h-full">
+      <svg
+        viewBox="0 0 260 314"
+        className="w-full max-w-[280px] mx-auto"
+        style={{ maxHeight: "100%", overflow: "visible" }}
+        aria-label="2D dental chart"
+      >
+        <defs>
+          <radialGradient id="gumU" cx="50%" cy="90%" r="80%">
+            <stop offset="0%" stopColor="rgba(195,100,108,0.28)" />
+            <stop offset="100%" stopColor="rgba(180,80,90,0.04)" />
+          </radialGradient>
+          <radialGradient id="gumL" cx="50%" cy="10%" r="80%">
+            <stop offset="0%" stopColor="rgba(195,100,108,0.28)" />
+            <stop offset="100%" stopColor="rgba(180,80,90,0.04)" />
+          </radialGradient>
+        </defs>
+
+        {/* Upper gum arch */}
         <path
-          d="M 30 130 Q 30 18, 130 10 Q 230 18, 230 130"
-          fill="none"
-          stroke="rgba(255,255,255,0.06)"
-          strokeWidth="28"
-          strokeLinecap="round"
+          d="M 18 140 L 18 102 Q 22 10, 130 6 Q 238 10, 242 102 L 242 140 Z"
+          fill="url(#gumU)"
+          stroke="rgba(215,120,128,0.14)" strokeWidth={0.8}
         />
-        {/* UPPER label inside the arch */}
-        <text
-          x="130"
-          y="78"
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize="10"
-          fontFamily="monospace"
-          fontWeight="600"
-          letterSpacing="0.22em"
-          opacity="0.5"
-        >
-          UPPER
-        </text>
+
+        {/* Lower gum arch */}
+        <path
+          d="M 18 160 L 18 198 Q 22 300, 130 304 Q 238 300, 242 198 L 242 160 Z"
+          fill="url(#gumL)"
+          stroke="rgba(215,120,128,0.14)" strokeWidth={0.8}
+        />
+
+        {/* Midline vertical */}
+        <line
+          x1={130} y1={10} x2={130} y2={300}
+          stroke="rgba(255,255,255,0.08)" strokeWidth={0.7}
+          strokeDasharray="4 3"
+        />
+
+        {/* Horizontal divider between arches */}
+        <line
+          x1={22} y1={150} x2={238} y2={150}
+          stroke="rgba(255,255,255,0.08)" strokeWidth={0.7}
+        />
+
+        {/* Quadrant labels */}
+        <text x={64}  y={145} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7" fontFamily="'Courier New', monospace" fontWeight="700">UR</text>
+        <text x={196} y={145} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7" fontFamily="'Courier New', monospace" fontWeight="700">UL</text>
+        <text x={64}  y={160} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7" fontFamily="'Courier New', monospace" fontWeight="700">LR</text>
+        <text x={196} y={160} textAnchor="middle" fill="rgba(255,255,255,0.18)" fontSize="7" fontFamily="'Courier New', monospace" fontWeight="700">LL</text>
+
+        {/* Teeth */}
         {UPPER_TEETH.map(renderTooth)}
-        <path
-          d="M 30 170 Q 30 282, 130 290 Q 230 282, 230 170"
-          fill="none"
-          stroke="rgba(255,255,255,0.06)"
-          strokeWidth="28"
-          strokeLinecap="round"
-        />
         {LOWER_TEETH.map(renderTooth)}
-        {/* LOWER label inside the arch */}
+
+        {/* Footer count */}
         <text
-          x="130"
-          y="228"
-          textAnchor="middle"
-          fill="currentColor"
-          fontSize="10"
-          fontFamily="monospace"
-          fontWeight="600"
-          letterSpacing="0.22em"
-          opacity="0.5"
+          x={130} y={311} textAnchor="middle"
+          fill="rgba(255,255,255,0.18)"
+          fontSize="5.8" fontFamily="'Courier New', monospace" letterSpacing="0.06em"
         >
-          LOWER
+          {dataCount}/32 TEETH MAPPED
         </text>
       </svg>
     </div>
