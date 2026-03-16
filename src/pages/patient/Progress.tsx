@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ProgressRing } from "@/components/ui/progress-ring";
-import { TeethVisualization } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ScanActivityChart } from "@/components/patient/ScanActivityChart";
@@ -37,12 +37,17 @@ const CATEGORY_LABELS: Record<string, string> = {
   retainer: "Retainer", periodontal: "Periodontal", general: "General",
 };
 
-function getAiInsightFallback(complianceStreak: number, progressPercent: number): string {
-  if (complianceStreak > 14 && progressPercent > 60) return "You're ahead of schedule — your consistency is paying off. Keep it up!";
-  if (complianceStreak > 7) return "Great streak! Your compliance is above average. You're well on track.";
-  if (progressPercent > 50) return "You're past the halfway mark. Stay consistent with your scans.";
-  if (complianceStreak > 3) return "Good start on building a scanning habit. Try to scan regularly for best results.";
-  return "Getting started is the hardest part. Submit a scan today to begin tracking your progress.";
+/** Map AI analysis teeth to toothData for 3D visualization */
+function aiTeethToToothData(teeth: any[]): Record<string, ToothStatus> {
+  const map: Record<string, ToothStatus> = {};
+  if (!Array.isArray(teeth)) return map;
+  for (const t of teeth) {
+    if (!t.id) continue;
+    if (t.status === "on_track" || t.status === "healthy") map[t.id] = "on_track";
+    else if (t.status === "deviation") map[t.id] = "deviation";
+    else map[t.id] = "attention";
+  }
+  return map;
 }
 
 function computeWeeklyData(scans: ScanRecord[], startDate: Date) {
@@ -109,7 +114,6 @@ export default function Progress() {
   const [loadingMilestones, setLoadingMilestones] = useState(true);
   const [treatmentCategory, setTreatmentCategory] = useState<string | null>(null);
   const [complianceStreak, setComplianceStreak] = useState(0);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [latestScan, setLatestScan] = useState<ScanRecord | null>(null);
   const [allScans, setAllScans] = useState<ScanRecord[]>([]);
   const [patientId, setPatientId] = useState<string | null>(null);
@@ -144,7 +148,6 @@ export default function Progress() {
           .eq("patient_id", patient.id).order("target_date", { ascending: true });
         setMilestones(milestonesData || []);
 
-        // Fetch ALL scans for trends/activity
         const { data: scansData } = await supabase
           .from("scans")
           .select("id, submitted_at, quality_score, detection_tags, sent_to_doctor, ai_analysis")
@@ -157,17 +160,6 @@ export default function Progress() {
         }));
         setAllScans(mapped);
         if (mapped.length > 0) setLatestScan(mapped[0]);
-
-        try {
-          const { data: summaryData } = await supabase.functions.invoke("generate-patient-summary", {
-            body: {
-              compliance_streak: patient.compliance_streak || 0,
-              treatment_category: patient.treatment_category,
-              days_elapsed: elapsed, days_remaining: remaining, recent_scan_status: "pending",
-            },
-          });
-          if (summaryData?.summary) setAiSummary(summaryData.summary);
-        } catch { /* use fallback */ }
       } catch (e) {
         logError(e, { operation: "Progress/loadData", userId: user?.id });
       } finally {
@@ -203,6 +195,9 @@ export default function Progress() {
   const trends = computeTrends(allScans);
   const daysSinceLastScan = latestScan ? differenceInDays(new Date(), new Date(latestScan.submitted_at)) : 999;
   const hasUnsentScans = allScans.some((s) => !s.sent_to_doctor && s.detection_tags && s.detection_tags.length > 0);
+
+  // Derive toothData from latest scan's AI analysis
+  const latestToothData = aiTeethToToothData(latestScan?.ai_analysis?.teeth || []);
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
@@ -249,39 +244,12 @@ export default function Progress() {
         </div>
       </div>
 
-      {/* Scan Activity Chart */}
-      {allScans.length > 0 && (
-        <div className="mb-6">
-          <ScanActivityChart
-            weeklyData={weeklyData}
-            currentStreak={weekStreak}
-            averagePerWeek={avgPerWeek}
-            totalScans={allScans.length}
-          />
-        </div>
-      )}
-
-      {/* Detection Trends */}
-      {trends.length > 0 && (
-        <div className="mb-6">
-          <DetectionTrendCard trends={trends} />
-        </div>
-      )}
-
-      {/* AI Insight */}
-      <div className="rounded-card p-5 mb-6 bg-card border border-border border-l-2 border-l-primary">
-        <span className="mono-label text-primary mb-2 block">AI INSIGHT</span>
-        <p className="font-display text-base italic text-foreground/80 leading-relaxed">
-          {aiSummary || getAiInsightFallback(complianceStreak, progressPercent)}
-        </p>
-      </div>
-
-      {/* 3D Tooth Map */}
+      {/* 3D Tooth Map — prominent, moved up */}
       <div className="mb-6">
-        <span className="mono-label text-muted-foreground mb-3 block">TOOTH MAP</span>
+        <span className="mono-label text-muted-foreground mb-3 block">YOUR TOOTH MAP</span>
         <div className="rounded-card overflow-hidden bg-card border border-border dark">
           <div className="px-4 pt-5 pb-2 bg-card">
-            <TeethVisualization showToggle showLegend />
+            <TeethVisualization showToggle showLegend toothData={latestToothData} />
           </div>
           <div className="px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
             <div className="flex items-center justify-between mb-1.5">
@@ -315,6 +283,25 @@ export default function Progress() {
           hasUnreadReviews={false}
         />
       </div>
+
+      {/* Scan Activity Chart */}
+      {allScans.length > 0 && (
+        <div className="mb-6">
+          <ScanActivityChart
+            weeklyData={weeklyData}
+            currentStreak={weekStreak}
+            averagePerWeek={avgPerWeek}
+            totalScans={allScans.length}
+          />
+        </div>
+      )}
+
+      {/* Detection Trends */}
+      {trends.length > 0 && (
+        <div className="mb-6">
+          <DetectionTrendCard trends={trends} />
+        </div>
+      )}
 
       {/* Milestones */}
       <div className="mb-8">

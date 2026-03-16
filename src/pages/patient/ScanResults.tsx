@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TeethVisualization } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -22,6 +22,21 @@ interface ScanData {
   status: string;
   zones_captured: any;
   patient_id: string;
+}
+
+/** Map AI analysis teeth array to toothData for 3D visualization */
+function aiTeethToToothData(teeth: any[]): Record<string, ToothStatus> {
+  const map: Record<string, ToothStatus> = {};
+  if (!Array.isArray(teeth)) return map;
+  for (const t of teeth) {
+    const id = t.id;
+    if (!id) continue;
+    const status = t.status;
+    if (status === "on_track" || status === "healthy") map[id] = "on_track";
+    else if (status === "deviation") map[id] = "deviation";
+    else map[id] = "attention";
+  }
+  return map;
 }
 
 function QualityScoreAnimation({ targetScore }: { targetScore: number }) {
@@ -61,7 +76,11 @@ export default function ScanResults() {
   const [patientNote, setPatientNote] = useState("");
   const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [analysisPolling, setAnalysisPolling] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollCountRef = useRef(0);
 
+  // Initial load
   useEffect(() => {
     if (!scanId || !user) return;
     (async () => {
@@ -72,12 +91,17 @@ export default function ScanResults() {
           .eq("id", scanId)
           .single();
         if (data) {
-          setScan({
+          const scanData: ScanData = {
             ...data,
             detection_tags: Array.isArray(data.detection_tags) ? (data.detection_tags as string[]) : null,
             sent_to_doctor: (data as any).sent_to_doctor ?? false,
             ai_analysis: (data as any).ai_analysis,
-          });
+          };
+          setScan(scanData);
+          // Start polling if ai_analysis is empty
+          if (!scanData.ai_analysis || !scanData.ai_analysis.teeth || scanData.ai_analysis.teeth.length === 0) {
+            setAnalysisPolling(true);
+          }
         }
       } catch (e) {
         logError(e, { operation: "ScanResults/load", userId: user?.id });
@@ -86,6 +110,40 @@ export default function ScanResults() {
       }
     })();
   }, [scanId, user]);
+
+  // Poll for AI analysis completion
+  useEffect(() => {
+    if (!analysisPolling || !scanId) return;
+    pollCountRef.current = 0;
+
+    pollRef.current = setInterval(async () => {
+      pollCountRef.current++;
+      if (pollCountRef.current > 10) {
+        setAnalysisPolling(false);
+        if (pollRef.current) clearInterval(pollRef.current);
+        return;
+      }
+      try {
+        const { data } = await supabase
+          .from("scans")
+          .select("ai_analysis, detection_tags, quality_score")
+          .eq("id", scanId)
+          .single();
+        if (data?.ai_analysis && (data.ai_analysis as any).teeth?.length > 0) {
+          setScan((prev) => prev ? {
+            ...prev,
+            ai_analysis: data.ai_analysis,
+            detection_tags: Array.isArray(data.detection_tags) ? (data.detection_tags as string[]) : prev.detection_tags,
+            quality_score: data.quality_score ?? prev.quality_score,
+          } : prev);
+          setAnalysisPolling(false);
+          if (pollRef.current) clearInterval(pollRef.current);
+        }
+      } catch { /* ignore polling errors */ }
+    }, 3000);
+
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [analysisPolling, scanId]);
 
   const handleSendToDoctor = async () => {
     if (!scan || !user) return;
@@ -127,7 +185,6 @@ export default function ScanResults() {
     }
   };
 
-  // Find detection details from AI analysis
   const getDetectionDetails = (tag: string) => {
     const teeth = scan?.ai_analysis?.teeth || [];
     const match = teeth.find((t: any) => t.zone?.toLowerCase().includes(tag.toLowerCase()) || t.status !== "healthy");
@@ -165,6 +222,20 @@ export default function ScanResults() {
   const teethData = scan.ai_analysis?.teeth || [];
   const detections = scan.detection_tags || [];
   const zones = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+  const toothData = aiTeethToToothData(teethData);
+
+  // If a detection tag is selected, highlight affected teeth
+  const activeToothData = selectedTag ? (() => {
+    const affected = teethData.filter((t: any) =>
+      t.zone?.toLowerCase().includes(selectedTag.toLowerCase()) || t.status !== "healthy"
+    );
+    if (affected.length === 0) return toothData;
+    const highlighted: Record<string, ToothStatus> = {};
+    for (const t of affected) {
+      if (t.id) highlighted[t.id] = "attention";
+    }
+    return { ...toothData, ...highlighted };
+  })() : toothData;
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
@@ -191,7 +262,12 @@ export default function ScanResults() {
       <div className="rounded-card bg-card border border-border p-4 mb-4">
         <span className="mono-label text-primary mb-3 block">AI ANALYSIS</span>
 
-        {teethData.length > 0 ? (
+        {analysisPolling ? (
+          <div className="flex items-center gap-3 py-4">
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            <span className="text-sm text-muted-foreground">Analyzing your scan...</span>
+          </div>
+        ) : teethData.length > 0 ? (
           <div className="space-y-2">
             {teethData.map((tooth: any, i: number) => (
               <div key={i} className="flex items-center justify-between py-2 border-b border-border last:border-0">
@@ -215,11 +291,11 @@ export default function ScanResults() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground italic">AI analysis processing...</p>
+          <p className="text-sm text-muted-foreground italic">No analysis data available for this scan.</p>
         )}
       </div>
 
-      {/* Detection Tags — now interactive */}
+      {/* Detection Tags — interactive */}
       {detections.length > 0 && (
         <div className="rounded-card bg-card border border-border p-4 mb-4">
           <span className="mono-label text-muted-foreground mb-3 block">DETECTIONS</span>
@@ -228,7 +304,9 @@ export default function ScanResults() {
               <button
                 key={i}
                 onClick={() => setSelectedTag(tag)}
-                className="mono-label px-3 py-1.5 rounded-pill bg-primary/15 text-primary cursor-pointer hover:bg-primary/25 transition"
+                className={`mono-label px-3 py-1.5 rounded-pill cursor-pointer transition ${
+                  selectedTag === tag ? "bg-primary text-primary-foreground" : "bg-primary/15 text-primary hover:bg-primary/25"
+                }`}
               >
                 {tag}
               </button>
@@ -265,8 +343,14 @@ export default function ScanResults() {
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
           <div className="px-3 pt-3 pb-3 bg-card">
-            <TeethVisualization compact showLegend={false} showToggle={false} />
+            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} />
           </div>
+          {selectedTag && (
+            <div className="px-4 pb-3 border-t border-border pt-2" style={{ background: "hsl(var(--card))" }}>
+              <span className="mono-label text-primary block mb-1">SELECTED: {selectedTag.toUpperCase()}</span>
+              <p className="text-xs text-muted-foreground">Affected teeth are highlighted on the 3D map above. Tap the tag again or another tag to change.</p>
+            </div>
+          )}
         </div>
       )}
 
