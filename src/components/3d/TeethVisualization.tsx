@@ -4,7 +4,7 @@ import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 
 /* ─── Types ─── */
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
