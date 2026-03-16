@@ -579,11 +579,15 @@ export type Database = {
       }
       scans: {
         Row: {
+          ai_analysis: Json | null
           created_at: string
           detection_tags: Json | null
           id: string
           patient_id: string
+          patient_note: string | null
           quality_score: number | null
+          sent_to_doctor: boolean | null
+          sent_to_doctor_at: string | null
           source: string | null
           status: Database["public"]["Enums"]["scan_status"]
           submitted_at: string
@@ -592,11 +596,15 @@ export type Database = {
           zones_captured: Json | null
         }
         Insert: {
+          ai_analysis?: Json | null
           created_at?: string
           detection_tags?: Json | null
           id?: string
           patient_id: string
+          patient_note?: string | null
           quality_score?: number | null
+          sent_to_doctor?: boolean | null
+          sent_to_doctor_at?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["scan_status"]
           submitted_at?: string
@@ -605,11 +613,15 @@ export type Database = {
           zones_captured?: Json | null
         }
         Update: {
+          ai_analysis?: Json | null
           created_at?: string
           detection_tags?: Json | null
           id?: string
           patient_id?: string
+          patient_note?: string | null
           quality_score?: number | null
+          sent_to_doctor?: boolean | null
+          sent_to_doctor_at?: string | null
           source?: string | null
           status?: Database["public"]["Enums"]["scan_status"]
           submitted_at?: string

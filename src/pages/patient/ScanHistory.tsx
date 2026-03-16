@@ -9,8 +9,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send } from "lucide-react";
 import { logError } from "@/lib/logger";
+import { toast } from "@/hooks/use-toast";
 
 type ScanRow = {
   id: string;
@@ -19,6 +20,8 @@ type ScanRow = {
   quality_score: number | null;
   thumbnail_url: string | null;
   detection_tags: string[] | null;
+  sent_to_doctor: boolean;
+  patient_id: string;
 };
 
 type ReviewRow = {
@@ -46,12 +49,13 @@ export default function ScanHistory() {
       if (!patient) return;
       const { data } = await supabase
         .from("scans")
-        .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags")
+        .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id")
         .eq("patient_id", patient.id)
         .order("submitted_at", { ascending: false });
       const mapped = (data || []).map((s: any) => ({
         ...s,
         detection_tags: Array.isArray(s.detection_tags) ? s.detection_tags : null,
+        sent_to_doctor: s.sent_to_doctor ?? false,
       }));
       setAllScans(mapped);
     })();
@@ -75,7 +79,7 @@ export default function ScanHistory() {
 
         let query = supabase
           .from("scans")
-          .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags")
+          .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id")
           .eq("patient_id", patient.id)
           .order("submitted_at", { ascending: false });
 
@@ -87,6 +91,7 @@ export default function ScanHistory() {
         setScans((data || []).map((s: any) => ({
           ...s,
           detection_tags: Array.isArray(s.detection_tags) ? s.detection_tags : null,
+          sent_to_doctor: s.sent_to_doctor ?? false,
         })));
       } catch (e) {
         logError(e, { operation: "ScanHistory/loadScans", userId: user?.id });
@@ -199,6 +204,13 @@ export default function ScanHistory() {
                     {formatDate(scan.submitted_at)}
                   </p>
                   <p className="text-sm font-medium">SCAN #{String(scans.length - idx).padStart(3, "0")}</p>
+                  <p className="mono-label mt-0.5" style={{ fontSize: 9 }}>
+                    {scan.sent_to_doctor ? (
+                      <span className="text-status-success">SENT TO DOCTOR</span>
+                    ) : (
+                      <span className="text-muted-foreground">AI ANALYZED · NOT SENT</span>
+                    )}
+                  </p>
                 </div>
                 <StatusBadge variant={scan.status as any} />
                 {expandedId === scan.id ? (
@@ -251,16 +263,59 @@ export default function ScanHistory() {
                     )}
                   </div>
 
-                  {/* Doctor Review Info */}
-                  {reviews[scan.id] ? (
+                  {/* Send to Doctor / Review Status */}
+                  {!scan.sent_to_doctor ? (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const { data: patient } = await supabase
+                              .from("patients")
+                              .select("assigned_doctor_id")
+                              .eq("id", scan.patient_id)
+                              .single();
+                            if (!patient?.assigned_doctor_id) {
+                              toast({ title: "No doctor assigned", description: "Find a doctor in Chat tab first.", variant: "destructive" });
+                              return;
+                            }
+                            await supabase.from("scan_reviews").insert({
+                              scan_id: scan.id,
+                              doctor_id: patient.assigned_doctor_id,
+                              review_notes: "Patient submitted for review",
+                              action_type: "none" as const,
+                            });
+                            await supabase.from("scans").update({
+                              sent_to_doctor: true,
+                              sent_to_doctor_at: new Date().toISOString(),
+                            } as any).eq("id", scan.id);
+                            setScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
+                            setAllScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
+                            toast({ title: "Sent to doctor!", description: "Your doctor will review this scan." });
+                          } catch (err: any) {
+                            toast({ title: "Error", description: err.message, variant: "destructive" });
+                          }
+                        }}
+                        size="sm"
+                        className="rounded-pill mono-label bg-primary text-primary-foreground"
+                      >
+                        <Send className="w-3 h-3 mr-1" />
+                        Send to Doctor
+                      </Button>
+                      <Button
+                        onClick={() => navigate(`/patient/scans/${scan.id}/results`)}
+                        size="sm"
+                        variant="outline"
+                        className="rounded-pill mono-label"
+                      >
+                        View Results
+                      </Button>
+                    </div>
+                  ) : reviews[scan.id] ? (
                     <div className="space-y-2">
-                      <p className="text-sm text-foreground">
-                        Doctor reviewed this scan
-                      </p>
+                      <p className="text-sm text-foreground">Doctor reviewed this scan</p>
                       {reviews[scan.id]!.review_notes && (
-                        <p className="text-xs text-muted-foreground">
-                          {reviews[scan.id]!.review_notes}
-                        </p>
+                        <p className="text-xs text-muted-foreground">{reviews[scan.id]!.review_notes}</p>
                       )}
                       {reviews[scan.id]!.response_video_url && (
                         <div className="w-full h-32 rounded-card bg-popover flex items-center justify-center">
@@ -271,9 +326,7 @@ export default function ScanHistory() {
                       )}
                     </div>
                   ) : reviews[scan.id] === null ? (
-                    <p className="text-xs text-muted-foreground italic">
-                      Awaiting your doctor's review
-                    </p>
+                    <p className="text-xs text-muted-foreground italic">Awaiting your doctor's review</p>
                   ) : (
                     <Skeleton className="h-8" />
                   )}
