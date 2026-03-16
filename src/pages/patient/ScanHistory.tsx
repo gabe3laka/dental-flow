@@ -79,7 +79,7 @@ export default function ScanHistory() {
 
         let query = supabase
           .from("scans")
-          .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags")
+          .select("id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id")
           .eq("patient_id", patient.id)
           .order("submitted_at", { ascending: false });
 
