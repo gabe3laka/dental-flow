@@ -35,12 +35,112 @@ function findNearestTooth(centers: ToothCenter[], point: THREE.Vector3): string 
   let bestDist = Infinity;
   for (const tc of centers) {
     const d = tc.center.distanceTo(point);
-    if (d < bestDist) {
-      bestDist = d;
-      bestId = tc.id;
-    }
+    if (d < bestDist) { bestDist = d; bestId = tc.id; }
   }
   return bestId;
+}
+
+/**
+ * Split a merged jaw mesh into individual tooth meshes via connected-component
+ * analysis on the index buffer. Each disconnected island of triangles → one mesh.
+ */
+function splitMergedMesh(mesh: THREE.Mesh): THREE.Mesh[] {
+  const geo = mesh.geometry;
+  const posAttr = geo.attributes.position;
+  const indexAttr = geo.index;
+  if (!indexAttr || !posAttr) return [mesh];
+
+  const vertCount = posAttr.count;
+  const indexCount = indexAttr.count;
+
+  // Build adjacency list
+  const adj: number[][] = Array.from({ length: vertCount }, () => []);
+  for (let i = 0; i < indexCount; i += 3) {
+    const a = indexAttr.getX(i), b = indexAttr.getX(i + 1), c = indexAttr.getX(i + 2);
+    adj[a].push(b, c);
+    adj[b].push(a, c);
+    adj[c].push(a, b);
+  }
+
+  // Flood-fill connected components
+  const visited = new Uint8Array(vertCount);
+  const components: number[][] = [];
+  for (let start = 0; start < vertCount; start++) {
+    if (visited[start]) continue;
+    const stack = [start];
+    const verts: number[] = [];
+    visited[start] = 1;
+    while (stack.length) {
+      const v = stack.pop()!;
+      verts.push(v);
+      for (const nb of adj[v]) {
+        if (!visited[nb]) { visited[nb] = 1; stack.push(nb); }
+      }
+    }
+    components.push(verts);
+  }
+
+  if (components.length <= 1) return [mesh];
+
+  // Map old vertex index → component index (for fast face bucketing)
+  const vertToComp = new Int32Array(vertCount).fill(-1);
+  components.forEach((verts, ci) => { for (const v of verts) vertToComp[v] = ci; });
+
+  // Pre-bucket faces by component
+  const compFaces: number[][] = components.map(() => []);
+  for (let i = 0; i < indexCount; i += 3) {
+    const a = indexAttr.getX(i);
+    compFaces[vertToComp[a]].push(indexAttr.getX(i), indexAttr.getX(i + 1), indexAttr.getX(i + 2));
+  }
+
+  const normAttr = geo.attributes.normal;
+  const uvAttr   = geo.attributes.uv;
+
+  return components.map((verts, ci) => {
+    const oldToNew = new Map<number, number>();
+    verts.forEach((v, i) => oldToNew.set(v, i));
+
+    const positions = new Float32Array(verts.length * 3);
+    verts.forEach((v, i) => {
+      positions[i * 3]     = posAttr.getX(v);
+      positions[i * 3 + 1] = posAttr.getY(v);
+      positions[i * 3 + 2] = posAttr.getZ(v);
+    });
+
+    const rawFaces = compFaces[ci];
+    const faces = new Uint32Array(rawFaces.length);
+    for (let j = 0; j < rawFaces.length; j++) faces[j] = oldToNew.get(rawFaces[j])!;
+
+    const splitGeo = new THREE.BufferGeometry();
+    splitGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    splitGeo.setIndex(new THREE.BufferAttribute(faces, 1));
+
+    if (normAttr) {
+      const normals = new Float32Array(verts.length * 3);
+      verts.forEach((v, i) => {
+        normals[i * 3]     = normAttr.getX(v);
+        normals[i * 3 + 1] = normAttr.getY(v);
+        normals[i * 3 + 2] = normAttr.getZ(v);
+      });
+      splitGeo.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+    } else {
+      splitGeo.computeVertexNormals();
+    }
+
+    if (uvAttr) {
+      const uvs = new Float32Array(verts.length * 2);
+      verts.forEach((v, i) => {
+        uvs[i * 2]     = uvAttr.getX(v);
+        uvs[i * 2 + 1] = uvAttr.getY(v);
+      });
+      splitGeo.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+    }
+
+    const sm = new THREE.Mesh(splitGeo);
+    sm.castShadow = true;
+    sm.userData = { isTooth: true };
+    return sm;
+  });
 }
 export type RenderMode = "3d" | "2d";
 
@@ -147,162 +247,126 @@ function DentalModel({
   const { scene } = useGLTF("/teeth.glb");
   const groupRef = useRef<THREE.Group>(null);
   const toothCentersRef = useRef<ToothCenter[]>([]);
+  const hoveredMeshRef = useRef<THREE.Mesh | null>(null);
+  const meshByIdRef = useRef<Map<string, THREE.Mesh>>(new Map());
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
-
-  /* Debug: log scene graph once */
-  useEffect(() => {
-    scene.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        const geo = child.geometry;
-        const vCount = geo?.attributes?.position?.count ?? 0;
-        console.log(`[TeethGLB] Mesh: "${child.name}" | vertices: ${vCount} | material: "${(child.material as any)?.name || 'unnamed'}"`);
-      }
-    });
-  }, [scene]);
   const emissive = STATUS_EMISSIVE[overallStatus];
 
-  /* Clone scene, apply materials, and dynamically assign FDI IDs */
+  const makeEnamelMat = useCallback(() =>
+    new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color("#f5f0e8"),
+      emissive: new THREE.Color(emissive.color),
+      emissiveIntensity: emissive.intensity,
+      roughness: 0.18,
+      metalness: 0.04,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.22,
+      transmission: 0.06,
+      thickness: 0.9,
+      ior: 1.48,
+      envMapIntensity: 1.3,
+    }), [emissive]);
+
+  /* Clone, split merged jaws, assign FDI IDs */
   const clonedScene = useMemo(() => {
     const cloned = scene.clone(true);
+    meshByIdRef.current.clear();
 
-    // Step 1: Categorise meshes as gum vs tooth and collect tooth mesh centers
-    const toothMeshes: { mesh: THREE.Mesh; center: THREE.Vector3 }[] = [];
-
+    // First pass: collect without mutating
+    const gumList: THREE.Mesh[] = [];
+    const toothList: THREE.Mesh[] = [];
     cloned.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return;
-
       const srcMat = Array.isArray(child.material) ? child.material[0] : child.material;
-      const matName: string = (srcMat?.name ?? "").toLowerCase();
-      const meshName: string = (child.name ?? "").toLowerCase();
-
-      const isGum = matName.includes("gum") || matName.includes("gingiva") ||
-                    matName.includes("material.001") || meshName.includes("gum") ||
-                    meshName.includes("gingiva");
-
-      let isGumByColor = false;
-      if (srcMat && 'color' in srcMat) {
+      const matName = (srcMat?.name ?? "").toLowerCase();
+      const meshName = (child.name ?? "").toLowerCase();
+      const isGumName = matName.includes("gum") || matName.includes("gingiva") ||
+                        matName.includes("material.001") || meshName.includes("gum") ||
+                        meshName.includes("gingiva");
+      let isGumColor = false;
+      if (srcMat && "color" in srcMat) {
         const c = (srcMat as THREE.MeshStandardMaterial).color;
-        if (c && c.r > 0.6 && c.g < 0.4 && c.b < 0.5) isGumByColor = true;
+        if (c && c.r > 0.6 && c.g < 0.4 && c.b < 0.5) isGumColor = true;
       }
+      if (isGumName || isGumColor) gumList.push(child);
+      else toothList.push(child);
+    });
 
-      if (isGum || isGumByColor) {
-        child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#d4878a"),
-          roughness: 0.72,
-          metalness: 0.0,
-          clearcoat: 0.05,
-          clearcoatRoughness: 0.9,
-          transmission: 0.05,
-          thickness: 0.5,
+    // Apply gum material
+    gumList.forEach((m) => {
+      m.material = new THREE.MeshPhysicalMaterial({
+        color: new THREE.Color("#d4878a"),
+        roughness: 0.72,
+        metalness: 0.0,
+        clearcoat: 0.05,
+        clearcoatRoughness: 0.9,
+        transmission: 0.05,
+        thickness: 0.5,
+      });
+      m.userData.isGum = true;
+      m.raycast = () => {};
+    });
+
+    // Split merged tooth meshes → individual tooth meshes
+    const allTeeth: { mesh: THREE.Mesh; center: THREE.Vector3 }[] = [];
+    toothList.forEach((orig) => {
+      const splits = splitMergedMesh(orig);
+      if (splits.length > 1 && orig.parent) {
+        orig.parent.remove(orig);
+        splits.forEach((sm) => {
+          sm.material = makeEnamelMat();
+          sm.userData.isTooth = true;
+          orig.parent!.add(sm);
+          sm.updateWorldMatrix(true, false);
+          const box = new THREE.Box3().setFromObject(sm);
+          const c = new THREE.Vector3();
+          box.getCenter(c);
+          allTeeth.push({ mesh: sm, center: c });
         });
-        child.userData.isGum = true;
-        child.raycast = () => {};
       } else {
-        child.material = new THREE.MeshPhysicalMaterial({
-          color: new THREE.Color("#f5f0e8"),
-          emissive: new THREE.Color(emissive.color),
-          emissiveIntensity: emissive.intensity,
-          roughness: 0.18,
-          metalness: 0.04,
-          clearcoat: 0.65,
-          clearcoatRoughness: 0.22,
-          transmission: 0.06,
-          thickness: 0.9,
-          ior: 1.48,
-          envMapIntensity: 1.3,
-        });
-        child.userData.isTooth = true;
-        child.castShadow = true;
-
-        // Compute bounding box center in world space of the cloned scene
-        child.updateWorldMatrix(true, false);
-        const box = new THREE.Box3().setFromObject(child);
-        const center = new THREE.Vector3();
-        box.getCenter(center);
-        toothMeshes.push({ mesh: child, center });
+        orig.material = makeEnamelMat();
+        orig.userData.isTooth = true;
+        orig.castShadow = true;
+        orig.updateWorldMatrix(true, false);
+        const box = new THREE.Box3().setFromObject(orig);
+        const c = new THREE.Vector3();
+        box.getCenter(c);
+        allTeeth.push({ mesh: orig, center: c });
       }
     });
 
-    // Step 2: Determine if we have individual tooth meshes or merged jaws
-    // If we have >= 20 tooth meshes, assume individual teeth
-    // If fewer, we have merged meshes — we'll build a synthetic center grid
+    // Assign FDI IDs by sorted position
+    if (allTeeth.length >= 4) {
+      const ys = allTeeth.map((t) => t.center.y);
+      const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+      // Sort upper right→left (descending X), lower same
+      const upper = allTeeth.filter((t) => t.center.y >= midY)
+        .sort((a, b) => b.center.x - a.center.x);
+      const lower = allTeeth.filter((t) => t.center.y < midY)
+        .sort((a, b) => b.center.x - a.center.x);
 
-    if (toothMeshes.length >= 20) {
-      // Individual tooth meshes — sort by position and assign FDI IDs
-      // Find the midpoint Y to separate upper vs lower
-      const allY = toothMeshes.map(t => t.center.y);
-      const midY = (Math.min(...allY) + Math.max(...allY)) / 2;
-
-      const upper = toothMeshes.filter(t => t.center.y >= midY).sort((a, b) => a.center.x - b.center.x);
-      const lower = toothMeshes.filter(t => t.center.y < midY).sort((a, b) => a.center.x - b.center.x);
-
-      // Assign FDI IDs based on position order
-      const assignIds = (meshes: typeof toothMeshes, fdiOrder: string[]) => {
-        // If mesh count doesn't match FDI count, distribute evenly
-        meshes.forEach((item, idx) => {
-          const fdiIdx = Math.min(idx, fdiOrder.length - 1);
-          // Map proportionally if counts differ
-          const mappedIdx = meshes.length === fdiOrder.length
-            ? idx
-            : Math.round((idx / (meshes.length - 1 || 1)) * (fdiOrder.length - 1));
-          const toothId = fdiOrder[Math.min(mappedIdx, fdiOrder.length - 1)];
-          item.mesh.userData.toothId = toothId;
+      const assignIds = (
+        arr: typeof allTeeth,
+        order: string[]
+      ) => {
+        arr.forEach((item, i) => {
+          const mapped = arr.length === order.length
+            ? i
+            : Math.round((i / Math.max(arr.length - 1, 1)) * (order.length - 1));
+          const id = order[Math.min(mapped, order.length - 1)];
+          item.mesh.userData.toothId = id;
+          meshByIdRef.current.set(id, item.mesh);
         });
       };
-
       assignIds(upper, UPPER_FDI_ORDER);
       assignIds(lower, LOWER_FDI_ORDER);
-
-      console.log(`[TeethGLB] Assigned FDI IDs to ${upper.length} upper + ${lower.length} lower individual tooth meshes`);
-    } else {
-      // Merged meshes — we can't assign per-mesh IDs, but we build a synthetic
-      // center grid for nearest-point lookup based on the model's bounding box
-      console.log(`[TeethGLB] Found ${toothMeshes.length} tooth mesh(es) — using nearest-center fallback`);
     }
 
-    // Step 3: Build tooth centers for nearest-point fallback (always useful)
-    const centers: ToothCenter[] = [];
-
-    // Collect centers from meshes that got individual IDs
-    toothMeshes.forEach(({ mesh, center }) => {
-      if (mesh.userData.toothId) {
-        centers.push({ id: mesh.userData.toothId, center: center.clone() });
-      }
-    });
-
-    // If we have merged meshes (few/no individual IDs), generate synthetic centers
-    // based on the overall model bounding box
-    if (centers.length < 16) {
-      const modelBox = new THREE.Box3().setFromObject(cloned);
-      const modelSize = new THREE.Vector3();
-      const modelCenter = new THREE.Vector3();
-      modelBox.getSize(modelSize);
-      modelBox.getCenter(modelCenter);
-
-      // Build a dental arch of synthetic centers
-      const buildArchCenters = (fdiOrder: string[], yOffset: number, archRadius: number) => {
-        const count = fdiOrder.length;
-        fdiOrder.forEach((id, i) => {
-          // Distribute teeth along an arch (semicircle)
-          // i=0 is rightmost, i=count-1 is leftmost
-          const t = i / (count - 1); // 0 to 1
-          const angle = Math.PI * (1 - t); // PI to 0 (right to left)
-          const x = modelCenter.x + Math.cos(angle) * archRadius;
-          const z = modelCenter.z - Math.sin(angle) * archRadius * 0.5; // front-back curve
-          const y = modelCenter.y + yOffset;
-          centers.push({ id, center: new THREE.Vector3(x, y, z) });
-        });
-      };
-
-      const archR = modelSize.x * 0.45;
-      buildArchCenters(UPPER_FDI_ORDER, modelSize.y * 0.15, archR);
-      buildArchCenters(LOWER_FDI_ORDER, -modelSize.y * 0.15, archR);
-
-      console.log(`[TeethGLB] Generated ${centers.length} synthetic tooth centers for merged mesh fallback`);
-    }
-
-    toothCentersRef.current = centers;
+    // Build centers ref for nearest-point fallback
+    toothCentersRef.current = allTeeth
+      .filter((t) => t.mesh.userData.toothId)
+      .map((t) => ({ id: t.mesh.userData.toothId as string, center: t.center.clone() }));
 
     return cloned;
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -320,11 +384,10 @@ function DentalModel({
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
-  /* Update emissive when toothData changes */
+  /* Update base emissive when toothData / overallStatus changes */
   useEffect(() => {
     clonedScene.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) return;
-      if (child.userData.isGum) return;
+      if (!(child instanceof THREE.Mesh) || child.userData.isGum) return;
       const mat = child.material as THREE.MeshPhysicalMaterial;
       if (!mat) return;
       mat.emissive.set(emissive.color);
@@ -332,40 +395,85 @@ function DentalModel({
     });
   }, [clonedScene, emissive]);
 
-  /* Identify tooth from raycast event — model-driven */
-  const getToothIdFromEvent = useCallback((e: any): string | null => {
-    // First: check if the hit mesh has a directly assigned toothId
-    if (e.object?.userData?.toothId) {
-      return e.object.userData.toothId;
-    }
-    // Fallback: find nearest center to the world-space hit point
-    if (e.point && toothCentersRef.current.length > 0) {
-      return findNearestTooth(toothCentersRef.current, e.point);
-    }
-    return null;
-  }, []);
+  /* Apply selection highlight */
+  useEffect(() => {
+    meshByIdRef.current.forEach((mesh, id) => {
+      const mat = mesh.material as THREE.MeshPhysicalMaterial;
+      if (!mat) return;
+      if (id === selectedTooth) {
+        mat.emissive.set(SELECTED_EMISSIVE.color);
+        mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
+      } else {
+        mat.emissive.set(emissive.color);
+        mat.emissiveIntensity = emissive.intensity;
+      }
+    });
+  }, [selectedTooth, emissive]);
 
-  /* Pointer handlers */
+  /* Pointer handlers — directly mutate hovered mesh material */
   const handleOver = useCallback((e: any) => {
     e.stopPropagation?.();
     if (e.object?.userData?.isGum) return;
-    const toothId = getToothIdFromEvent(e);
+
+    // Restore previous hovered mesh
+    if (hoveredMeshRef.current && hoveredMeshRef.current !== e.object) {
+      const prev = hoveredMeshRef.current;
+      const mat = prev.material as THREE.MeshPhysicalMaterial;
+      if (mat) {
+        const prevId: string = prev.userData.toothId;
+        if (prevId === selectedTooth) {
+          mat.emissive.set(SELECTED_EMISSIVE.color);
+          mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
+        } else {
+          mat.emissive.set(emissive.color);
+          mat.emissiveIntensity = emissive.intensity;
+        }
+      }
+    }
+
+    // Highlight new hovered mesh in light blue
+    hoveredMeshRef.current = e.object;
+    const mat = e.object?.material as THREE.MeshPhysicalMaterial;
+    if (mat && e.object?.userData?.toothId !== selectedTooth) {
+      mat.emissive.set("#60a5fa");
+      mat.emissiveIntensity = 0.4;
+    }
+
+    const toothId: string | null =
+      e.object?.userData?.toothId ??
+      findNearestTooth(toothCentersRef.current, e.point);
     onHover(toothId);
     document.body.style.cursor = "pointer";
-  }, [onHover, getToothIdFromEvent]);
+  }, [onHover, emissive, selectedTooth]);
 
   const handleOut = useCallback((e: any) => {
     if (e.object?.userData?.isGum) return;
+    if (hoveredMeshRef.current) {
+      const mat = hoveredMeshRef.current.material as THREE.MeshPhysicalMaterial;
+      const id: string = hoveredMeshRef.current.userData.toothId;
+      if (mat) {
+        if (id === selectedTooth) {
+          mat.emissive.set(SELECTED_EMISSIVE.color);
+          mat.emissiveIntensity = SELECTED_EMISSIVE.intensity;
+        } else {
+          mat.emissive.set(emissive.color);
+          mat.emissiveIntensity = emissive.intensity;
+        }
+      }
+      hoveredMeshRef.current = null;
+    }
     onHover(null);
     document.body.style.cursor = "auto";
-  }, [onHover]);
+  }, [onHover, emissive, selectedTooth]);
 
   const handleClick = useCallback((e: any) => {
     e.stopPropagation?.();
     if (e.object?.userData?.isGum) return;
-    const toothId = getToothIdFromEvent(e);
+    const toothId: string | null =
+      e.object?.userData?.toothId ??
+      findNearestTooth(toothCentersRef.current, e.point);
     if (toothId) onClick(toothId);
-  }, [onClick, getToothIdFromEvent]);
+  }, [onClick]);
 
   return (
     <group ref={groupRef} scale={[scale, scale, scale]} position={[offset.x, offset.y, offset.z]}>
