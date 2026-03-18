@@ -12,7 +12,7 @@ export type ViewMode = "both" | "upper" | "lower";
 
 export interface ToothDetection {
   type: "plaque" | "tartar" | "recession" | "cavity" | "inflammation" | "crowding" | "spacing" | "appliance_fit";
-  surface?: "buccal" | "lingual" | "occlusal" | "mesial" | "distal";
+  surface?: "buccal" | "lingual" | "occlusal" | "cervical" | "mesial" | "distal";
   severity?: "mild" | "moderate" | "severe";
 }
 
@@ -346,6 +346,7 @@ function DentalModel({
   const toothCentersRef = useRef<ToothCenter[]>([]);
   const hoveredMeshRef = useRef<THREE.Mesh | null>(null);
   const meshByIdRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const meshInitialTransformsRef = useRef<Map<string, { rotation: THREE.Euler; position: THREE.Vector3; scale: THREE.Vector3 }>>(new Map());
 
   const overallStatus = useMemo(() => resolveOverallStatus(toothData), [toothData]);
   const emissive = STATUS_EMISSIVE[overallStatus];
@@ -369,6 +370,7 @@ function DentalModel({
   const clonedScene = useMemo(() => {
     const cloned = scene.clone(true);
     meshByIdRef.current.clear();
+    meshInitialTransformsRef.current.clear();
 
     // First pass: collect without mutating
     const gumList: THREE.Mesh[] = [];
@@ -470,6 +472,15 @@ function DentalModel({
       assignIds(upper, UPPER_FDI_ORDER);
       assignIds(lower, LOWER_FDI_ORDER);
     }
+
+    // Snapshot initial mesh transforms so geometry effect can reset before re-applying
+    meshByIdRef.current.forEach((mesh, id) => {
+      meshInitialTransformsRef.current.set(id, {
+        rotation: mesh.rotation.clone(),
+        position: mesh.position.clone(),
+        scale: mesh.scale.clone(),
+      });
+    });
 
     // Build centers ref for nearest-point fallback
     toothCentersRef.current = allTeeth
@@ -584,6 +595,14 @@ function DentalModel({
     Object.entries(toothGeometry).forEach(([toothId, tg]) => {
       const mesh = meshByIdRef.current.get(toothId);
       if (!mesh || !tg) return;
+
+      // Reset to initial transform before applying — prevents stacking on multiple reanalyzes
+      const init = meshInitialTransformsRef.current.get(toothId);
+      if (init) {
+        mesh.rotation.copy(init.rotation);
+        mesh.position.copy(init.position);
+        mesh.scale.copy(init.scale);
+      }
 
       // Axial rotation (Y axis — crown rotation as seen from occlusal view)
       if (tg.rotation_axial) mesh.rotation.y += tg.rotation_axial * DEG;
