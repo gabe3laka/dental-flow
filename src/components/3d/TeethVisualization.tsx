@@ -583,6 +583,7 @@ function DentalModel({
 function Scene({
   viewMode,
   toothData,
+  detectionData,
   selectedTooth,
   onHover,
   onClick,
@@ -591,6 +592,7 @@ function Scene({
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
@@ -604,7 +606,7 @@ function Scene({
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
       <ambientLight intensity={0.38} />
       <Environment preset="studio" />
-      <DentalModel toothData={toothData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
+      <DentalModel toothData={toothData} detectionData={detectionData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
       <OrbitControls
