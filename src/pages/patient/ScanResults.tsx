@@ -79,6 +79,7 @@ export default function ScanResults() {
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
   const [analysisPolling, setAnalysisPolling] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
 
@@ -204,6 +205,30 @@ export default function ScanResults() {
     }
   };
 
+  const handleReanalyze = async () => {
+    if (!scan || reanalyzing) return;
+    setReanalyzing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("analyze-scan-teeth", {
+        body: { scan_id: scan.id },
+      });
+      if (error) throw error;
+      // Update local state with fresh analysis
+      if (data?.teeth) {
+        setScan((prev) => prev ? {
+          ...prev,
+          ai_analysis: data,
+          detection_tags: Array.isArray(data.detection_tags) ? data.detection_tags : prev.detection_tags,
+        } : prev);
+        toast({ title: "Analysis updated", description: "3D tooth map rebuilt from your scan photos." });
+      }
+    } catch (e: any) {
+      toast({ title: "Re-analysis failed", description: e.message || "Could not re-analyze scan.", variant: "destructive" });
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
   const getDetectionDetails = (tag: string) => {
     const teeth = scan?.ai_analysis?.teeth || [];
     const match = teeth.find((t: any) => t.zone?.toLowerCase().includes(tag.toLowerCase()) || t.status !== "healthy");
@@ -314,7 +339,22 @@ export default function ScanResults() {
 
       {/* AI Analysis Breakdown */}
       <div className="rounded-card bg-card border border-border p-4 mb-4">
-        <span className="mono-label text-primary mb-3 block">AI ANALYSIS</span>
+        <div className="flex items-center justify-between mb-3">
+          <span className="mono-label text-primary">AI ANALYSIS</span>
+          {!analysisPolling && zones.length > 0 && (
+            <button
+              onClick={handleReanalyze}
+              disabled={reanalyzing}
+              className="mono-label text-[10px] text-muted-foreground hover:text-primary transition flex items-center gap-1 disabled:opacity-50"
+            >
+              {reanalyzing ? (
+                <><Loader2 className="w-3 h-3 animate-spin" /> RE-ANALYZING...</>
+              ) : (
+                "↻ REFRESH FROM PHOTOS"
+              )}
+            </button>
+          )}
+        </div>
 
         {analysisPolling ? (
           <div className="flex items-center gap-3 py-4">
