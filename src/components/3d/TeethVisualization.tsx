@@ -152,6 +152,7 @@ export type RenderMode = "3d" | "2d";
 
 export interface TeethVisualizationProps {
   toothData?: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   compact?: boolean;
   className?: string;
   showLegend?: boolean;
