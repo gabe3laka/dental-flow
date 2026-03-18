@@ -416,6 +416,65 @@ function DentalModel({
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
+  /* Apply detection overlays */
+  const overlayGroupRef = useRef<THREE.Group>(new THREE.Group());
+
+  useEffect(() => {
+    // Clear previous overlays
+    const group = overlayGroupRef.current;
+    while (group.children.length) group.remove(group.children[0]);
+
+    if (!detectionData || Object.keys(detectionData).length === 0) return;
+
+    meshByIdRef.current.forEach((mesh, id) => {
+      const detections = detectionData[id];
+      if (!detections || detections.length === 0) return;
+
+      // Find the primary (most severe) detection for base tooth tinting
+      const severityOrder = { severe: 3, moderate: 2, mild: 1 };
+      const sorted = [...detections].sort((a, b) =>
+        (severityOrder[b.severity || "mild"] || 0) - (severityOrder[a.severity || "mild"] || 0)
+      );
+      const primary = sorted[0];
+      const matCfg = DETECTION_MATERIALS[primary.type];
+
+      if (matCfg) {
+        // Tint the base tooth material
+        const baseMat = mesh.material as THREE.MeshPhysicalMaterial;
+        if (baseMat) {
+          const tintColor = new THREE.Color(matCfg.color);
+          const enamelColor = new THREE.Color("#f5f0e8");
+          const blendFactor = primary.severity === "severe" ? 0.35 : primary.severity === "moderate" ? 0.22 : 0.12;
+          baseMat.color.copy(enamelColor).lerp(tintColor, blendFactor);
+          baseMat.roughness = 0.18 + (matCfg.roughness - 0.18) * blendFactor * 2;
+        }
+
+        // Create overlay mesh for deposit-type detections (plaque, tartar, cavity)
+        if (["plaque", "tartar", "cavity"].includes(primary.type)) {
+          const overlayGeo = mesh.geometry.clone();
+          const overlayMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(matCfg.color),
+            transparent: true,
+            opacity: matCfg.opacity * (primary.severity === "severe" ? 1.2 : primary.severity === "moderate" ? 1.0 : 0.7),
+            roughness: matCfg.roughness,
+            metalness: matCfg.metalness,
+            depthWrite: false,
+            side: THREE.FrontSide,
+          });
+          const overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
+          // Copy world transform from original tooth
+          mesh.updateWorldMatrix(true, false);
+          overlayMesh.applyMatrix4(mesh.matrixWorld);
+          // Scale slightly outward for layered effect
+          overlayMesh.scale.multiplyScalar(1.003);
+          overlayMesh.userData.isOverlay = true;
+          overlayMesh.raycast = () => {};
+          group.add(overlayMesh);
+        }
+      }
+    });
+  }, [detectionData, clonedScene]);
+
   /* Update base emissive when toothData / overallStatus changes */
   useEffect(() => {
     clonedScene.traverse((child) => {
