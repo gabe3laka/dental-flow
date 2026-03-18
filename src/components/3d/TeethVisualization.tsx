@@ -1004,6 +1004,7 @@ export function TeethVisualization({
                 <Scene
                   viewMode={viewMode}
                   toothData={toothData}
+                  detectionData={detectionData}
                   selectedTooth={selectedTooth}
                   onHover={setHoveredTooth}
                   onClick={handleClick}
