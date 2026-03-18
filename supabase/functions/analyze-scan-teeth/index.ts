@@ -32,7 +32,7 @@ serve(async (req) => {
           type: "function",
           function: {
             name: "analyze_teeth",
-            description: "Return per-tooth analysis and detection tags",
+            description: "Return per-tooth analysis with specific detections and detection tags",
             parameters: {
               type: "object",
               properties: {
@@ -41,14 +41,27 @@ serve(async (req) => {
                   items: {
                     type: "object",
                     properties: {
-                      id: { type: "string" },
-                      zone: { type: "string" },
+                      id: { type: "string", description: "FDI tooth ID like T14, T21, etc." },
+                      zone: { type: "string", description: "Human-readable tooth name" },
                       deviation: { type: "string" },
                       target: { type: "string" },
                       confidence: { type: "string" },
-                      status: { type: "string" },
+                      status: { type: "string", enum: ["healthy", "on_track", "deviation", "attention"] },
+                      detections: {
+                        type: "array",
+                        description: "Specific conditions detected on this tooth",
+                        items: {
+                          type: "object",
+                          properties: {
+                            type: { type: "string", enum: ["plaque", "tartar", "recession", "cavity", "inflammation", "crowding", "spacing", "appliance_fit"] },
+                            surface: { type: "string", enum: ["buccal", "lingual", "occlusal", "mesial", "distal"], description: "Which surface of the tooth is affected" },
+                            severity: { type: "string", enum: ["mild", "moderate", "severe"] },
+                          },
+                          required: ["type", "surface", "severity"],
+                        },
+                      },
                     },
-                    required: ["id", "zone", "deviation", "target", "confidence", "status"],
+                    required: ["id", "zone", "deviation", "target", "confidence", "status", "detections"],
                   },
                 },
                 detection_tags: { type: "array", items: { type: "string" } },
@@ -60,7 +73,7 @@ serve(async (req) => {
         }],
         tool_choice: { type: "function", function: { name: "analyze_teeth" } },
         messages: [
-          { role: "system", content: "You are a dental AI analyst. Generate realistic per-tooth analysis for a dental scan. Include 3-5 teeth with deviations, targets, confidence percentages, and status. Detection tags should be from: plaque, inflammation, bone change, tartar, recession, appliance fit. Only include tags that are detected." },
+          { role: "system", content: "You are a dental AI analyst. Generate realistic per-tooth analysis for a dental scan. Include 5-8 teeth with deviations, targets, confidence percentages, and status. For each tooth, include a 'detections' array listing specific conditions found (plaque, tartar, recession, cavity, inflammation, crowding, spacing, appliance_fit) with the affected surface (buccal, lingual, occlusal, mesial, distal) and severity (mild, moderate, severe). Detection tags should be from: plaque, inflammation, bone change, tartar, recession, appliance fit. Only include tags that are detected. Make the detections realistic — e.g. plaque is more common on lingual surfaces of lower anterior teeth, tartar on lingual of lower incisors, recession on buccal of canines/premolars." },
           { role: "user", content: `Scan zones: ${JSON.stringify(scan.zones_captured || [])}\nTreatment plan: ${treatment_plan || "Standard orthodontic"}` },
         ],
       }),

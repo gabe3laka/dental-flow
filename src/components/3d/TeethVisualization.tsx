@@ -10,6 +10,12 @@ import { RotateCcw, X } from "lucide-react";
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
 
+export interface ToothDetection {
+  type: "plaque" | "tartar" | "recession" | "cavity" | "inflammation" | "crowding" | "spacing" | "appliance_fit";
+  surface?: "buccal" | "lingual" | "occlusal" | "mesial" | "distal";
+  severity?: "mild" | "moderate" | "severe";
+}
+
 /* ─── FDI tooth ID assignment order ─── */
 // Upper arch: right molars → right incisors → left incisors → left molars
 const UPPER_FDI_ORDER = [
