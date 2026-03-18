@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection, type ToothGeometry, DETECTION_MATERIALS } from "@/components/3d/TeethVisualization";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -76,6 +76,8 @@ export default function ScanResults() {
   const [patientNote, setPatientNote] = useState("");
   const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
+  const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
   const [analysisPolling, setAnalysisPolling] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
@@ -144,6 +146,23 @@ export default function ScanResults() {
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [analysisPolling, scanId]);
+
+  // Load signed URLs for zone images (used in 3D tooth photo panel)
+  useEffect(() => {
+    if (!scan?.zones_captured || !Array.isArray(scan.zones_captured)) return;
+    const zones: Array<{ zone: string; path: string }> = scan.zones_captured;
+    if (!zones.length) return;
+    (async () => {
+      const urls: Record<string, string> = {};
+      for (const z of zones) {
+        try {
+          const { data } = await supabase.storage.from("scan-videos").createSignedUrl(z.path, 3600);
+          if (data?.signedUrl) urls[z.zone] = data.signedUrl;
+        } catch { /* skip */ }
+      }
+      setZoneSignedUrls(urls);
+    })();
+  }, [scan?.zones_captured]);
 
   const handleSendToDoctor = async () => {
     if (!scan || !user) return;
@@ -230,6 +249,31 @@ export default function ScanResults() {
     if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
       detectionDataMap[t.id] = t.detections;
     }
+  }
+
+  // Extract per-tooth geometry for 3D position/rotation adjustments
+  const toothGeometryMap: Record<string, ToothGeometry> = {};
+  for (const t of teethData) {
+    if (t.id && t.geometry && typeof t.geometry === "object") {
+      toothGeometryMap[t.id] = t.geometry as ToothGeometry;
+    }
+  }
+
+  // Helper: determine most relevant zone image for a tooth
+  function getZoneForTooth(toothId: string): string | null {
+    const frontIds = new Set(["T11", "T21", "T12", "T22", "T41", "T31", "T42", "T32"]);
+    const isUpper = toothId.startsWith("T1") || toothId.startsWith("T2");
+    const num = parseInt(toothId.slice(1));
+    const candidates: string[] = [isUpper ? "UPPER" : "LOWER"];
+    if (frontIds.has(toothId)) candidates.push("FRONT");
+    if ((num >= 13 && num <= 18) || (num >= 43 && num <= 48)) candidates.push("RIGHT");
+    if ((num >= 23 && num <= 28) || (num >= 33 && num <= 38)) candidates.push("LEFT");
+    // Also try lowercase zone keys (ScanPhotoGrid stores them as lowercase)
+    for (const c of candidates) {
+      if (zoneSignedUrls[c]) return c;
+      if (zoneSignedUrls[c.toLowerCase()]) return c.toLowerCase();
+    }
+    return null;
   }
 
   // If a detection tag is selected, highlight affected teeth
@@ -353,8 +397,69 @@ export default function ScanResults() {
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
           <div className="px-3 pt-3 pb-3 bg-card">
-            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} detectionData={detectionDataMap} />
+            <TeethVisualization
+              compact
+              showLegend
+              showToggle={false}
+              toothData={activeToothData}
+              detectionData={detectionDataMap}
+              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
+              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
+            />
           </div>
+
+          {/* Zone photo + detection detail panel for selected tooth */}
+          {selectedTooth3D && (() => {
+            const findings = detectionDataMap[selectedTooth3D] ?? [];
+            const zoneKey = getZoneForTooth(selectedTooth3D);
+            const photoUrl = zoneKey ? zoneSignedUrls[zoneKey] : null;
+
+            return (
+              <div className="border-t border-border">
+                <div className="flex gap-3 p-3 items-start">
+                  {photoUrl && (
+                    <div className="rounded-lg overflow-hidden flex-shrink-0 border border-border" style={{ width: 96, height: 72 }}>
+                      <img src={photoUrl} alt={`${zoneKey} scan`} className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="mono-label text-foreground text-xs">{selectedTooth3D}</span>
+                      {zoneKey && (
+                        <span className="mono-label text-muted-foreground text-[10px]">
+                          {zoneKey.toUpperCase()} ZONE
+                        </span>
+                      )}
+                    </div>
+                    {findings.length === 0 ? (
+                      <span className="mono-label text-status-success text-[10px]">NO DETECTIONS</span>
+                    ) : (
+                      <div className="space-y-0.5">
+                        {findings.map((f, i) => (
+                          <div key={i} className="flex items-center gap-1.5">
+                            <div
+                              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                              style={{ background: DETECTION_MATERIALS[f.type]?.color ?? "#888" }}
+                            />
+                            <span className="text-[10px] text-foreground capitalize">
+                              {f.surface && `${f.surface} · `}{f.type.replace("_", " ")} · {f.severity}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setSelectedTooth3D(null)}
+                    className="text-muted-foreground hover:text-foreground flex-shrink-0 p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           {selectedTag && (
             <div className="px-4 pb-3 border-t border-border pt-2" style={{ background: "hsl(var(--card))" }}>
               <span className="mono-label text-primary block mb-1">SELECTED: {selectedTag.toUpperCase()}</span>

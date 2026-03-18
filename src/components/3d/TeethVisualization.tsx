@@ -153,6 +153,7 @@ export type RenderMode = "3d" | "2d";
 export interface TeethVisualizationProps {
   toothData?: Record<string, ToothStatus>;
   detectionData?: Record<string, ToothDetection[]>;
+  toothGeometry?: Record<string, ToothGeometry>;
   compact?: boolean;
   className?: string;
   showLegend?: boolean;
@@ -239,8 +240,17 @@ function ResetHandler({
   return null;
 }
 
+/* ─── Tooth geometry type (from AI per-tooth geometry analysis) ─── */
+export interface ToothGeometry {
+  rotation_axial?: number;  // degrees, Y-axis rotation
+  tilt_buccal?: number;     // degrees, Z-axis tilt
+  tilt_mesial?: number;     // degrees, X-axis tilt
+  crowding_mm?: number;     // mm offset inward along arch
+  size_scale?: number;      // uniform scale multiplier (clamped 0.80–1.20)
+}
+
 /* ─── Detection material configs ─── */
-const DETECTION_MATERIALS: Record<string, { color: string; opacity: number; roughness: number; metalness: number }> = {
+export const DETECTION_MATERIALS: Record<string, { color: string; opacity: number; roughness: number; metalness: number }> = {
   plaque:        { color: "#e8d44d", opacity: 0.45, roughness: 0.75, metalness: 0.0 },
   tartar:        { color: "#c4a43a", opacity: 0.55, roughness: 0.85, metalness: 0.05 },
   cavity:        { color: "#4a3728", opacity: 0.6,  roughness: 0.9,  metalness: 0.0 },
@@ -251,16 +261,82 @@ const DETECTION_MATERIALS: Record<string, { color: string; opacity: number; roug
   appliance_fit: { color: "#f97316", opacity: 0.35, roughness: 0.5,  metalness: 0.0 },
 };
 
+/**
+ * Classify each vertex of a tooth mesh by its surface (buccal/lingual/occlusal/cervical/mesial/distal)
+ * using vertex normals and position relative to the dental arch center.
+ */
+function classifyVertexSurfaces(
+  mesh: THREE.Mesh,
+  archCenter: THREE.Vector3,
+  isUpper: boolean
+): Map<number, string> {
+  const geo = mesh.geometry;
+  const posAttr = geo.attributes.position;
+  const normAttr = geo.attributes.normal;
+  if (!normAttr || !posAttr) return new Map();
+
+  const result = new Map<number, string>();
+  const box = new THREE.Box3().setFromBufferAttribute(posAttr as THREE.BufferAttribute);
+  const height = Math.max(box.max.y - box.min.y, 0.001);
+
+  // Cervical zone: top 22% of upper teeth (near gum), bottom 22% of lower teeth
+  const cervicalThreshold = isUpper
+    ? box.max.y - height * 0.22
+    : box.min.y + height * 0.22;
+
+  const toothCenter = new THREE.Vector3();
+  box.getCenter(toothCenter);
+
+  // Arch-outward direction: from arch center toward this tooth (ignoring Y)
+  const archOutward = new THREE.Vector3(
+    toothCenter.x - archCenter.x,
+    0,
+    toothCenter.z - archCenter.z
+  );
+  if (archOutward.lengthSq() > 0.0001) archOutward.normalize();
+  else archOutward.set(0, 0, 1); // fallback for center teeth
+
+  const norm = new THREE.Vector3();
+  const pos = new THREE.Vector3();
+
+  for (let i = 0; i < posAttr.count; i++) {
+    norm.fromBufferAttribute(normAttr as THREE.BufferAttribute, i);
+    pos.fromBufferAttribute(posAttr as THREE.BufferAttribute, i);
+
+    // Cervical (by position — gumline area)
+    if (isUpper && pos.y > cervicalThreshold) { result.set(i, "cervical"); continue; }
+    if (!isUpper && pos.y < cervicalThreshold) { result.set(i, "cervical"); continue; }
+
+    // Occlusal: normal pointing toward opposing arch
+    const occlusialDot = isUpper ? -norm.y : norm.y;
+    if (occlusialDot > 0.45) { result.set(i, "occlusal"); continue; }
+
+    // Buccal/lingual: by dot product with arch-outward vector
+    const buccalDot = norm.dot(archOutward);
+    if (buccalDot > 0.30) {
+      result.set(i, "buccal");
+    } else if (buccalDot < -0.30) {
+      result.set(i, "lingual");
+    } else {
+      // Mesial/distal: proximal surfaces (left/right along arch)
+      result.set(i, norm.x > 0 ? "distal" : "mesial");
+    }
+  }
+  return result;
+}
+
 /* ─── The loaded GLB model ─── */
 function DentalModel({
   toothData,
   detectionData,
+  toothGeometry,
   selectedTooth,
   onHover,
   onClick,
 }: {
   toothData: Record<string, ToothStatus>;
   detectionData?: Record<string, ToothDetection[]>;
+  toothGeometry?: Record<string, ToothGeometry>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
@@ -416,64 +492,123 @@ function DentalModel({
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
-  /* Apply detection overlays */
-  const overlayGroupRef = useRef<THREE.Group>(new THREE.Group());
-
+  /* Apply per-surface detection vertex colors — paints condition colors on specific surfaces */
   useEffect(() => {
-    // Clear previous overlays
-    const group = overlayGroupRef.current;
-    while (group.children.length) group.remove(group.children[0]);
+    // First pass: reset all teeth that had vertex colors applied previously
+    meshByIdRef.current.forEach((mesh) => {
+      const mat = mesh.material as THREE.MeshPhysicalMaterial;
+      if (mat && mat.vertexColors) {
+        mat.vertexColors = false;
+        mat.color.set("#f5f0e8");
+        mat.needsUpdate = true;
+      }
+      if (mesh.geometry.attributes.color) {
+        mesh.geometry.deleteAttribute("color");
+      }
+    });
 
     if (!detectionData || Object.keys(detectionData).length === 0) return;
+
+    // Build arch center from all tooth centers (Y ignored — horizontal plane only)
+    const centers = toothCentersRef.current;
+    if (centers.length === 0) return;
+    const archCenter = centers
+      .reduce((acc, tc) => acc.add(tc.center), new THREE.Vector3())
+      .divideScalar(centers.length);
+    archCenter.y = 0;
+
+    const enamelColor = new THREE.Color("#f5f0e8");
+    const severityOrder: Record<string, number> = { severe: 3, moderate: 2, mild: 1 };
 
     meshByIdRef.current.forEach((mesh, id) => {
       const detections = detectionData[id];
       if (!detections || detections.length === 0) return;
 
-      // Find the primary (most severe) detection for base tooth tinting
-      const severityOrder = { severe: 3, moderate: 2, mild: 1 };
-      const sorted = [...detections].sort((a, b) =>
-        (severityOrder[b.severity || "mild"] || 0) - (severityOrder[a.severity || "mild"] || 0)
+      const isUpper = id.startsWith("T1") || id.startsWith("T2");
+      const surfaceMap = classifyVertexSurfaces(mesh, archCenter, isUpper);
+      const vertCount = mesh.geometry.attributes.position.count;
+
+      // Initialize all vertices to enamel color
+      const colors = new Float32Array(vertCount * 3);
+      for (let i = 0; i < vertCount; i++) {
+        colors[i * 3]     = enamelColor.r;
+        colors[i * 3 + 1] = enamelColor.g;
+        colors[i * 3 + 2] = enamelColor.b;
+      }
+
+      // Sort detections: mild first so severe overwrites on same surface
+      const sorted = [...detections].sort(
+        (a, b) => (severityOrder[a.severity || "mild"] ?? 1) - (severityOrder[b.severity || "mild"] ?? 1)
       );
-      const primary = sorted[0];
-      const matCfg = DETECTION_MATERIALS[primary.type];
 
-      if (matCfg) {
-        // Tint the base tooth material
-        const baseMat = mesh.material as THREE.MeshPhysicalMaterial;
-        if (baseMat) {
-          const tintColor = new THREE.Color(matCfg.color);
-          const enamelColor = new THREE.Color("#f5f0e8");
-          const blendFactor = primary.severity === "severe" ? 0.35 : primary.severity === "moderate" ? 0.22 : 0.12;
-          baseMat.color.copy(enamelColor).lerp(tintColor, blendFactor);
-          baseMat.roughness = 0.18 + (matCfg.roughness - 0.18) * blendFactor * 2;
-        }
+      let anyPainted = false;
+      for (const det of sorted) {
+        const matCfg = DETECTION_MATERIALS[det.type];
+        if (!matCfg) continue;
 
-        // Create overlay mesh for deposit-type detections (plaque, tartar, cavity)
-        if (["plaque", "tartar", "cavity"].includes(primary.type)) {
-          const overlayGeo = mesh.geometry.clone();
-          const overlayMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(matCfg.color),
-            transparent: true,
-            opacity: matCfg.opacity * (primary.severity === "severe" ? 1.2 : primary.severity === "moderate" ? 1.0 : 0.7),
-            roughness: matCfg.roughness,
-            metalness: matCfg.metalness,
-            depthWrite: false,
-            side: THREE.FrontSide,
-          });
-          const overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
-          // Copy world transform from original tooth
-          mesh.updateWorldMatrix(true, false);
-          overlayMesh.applyMatrix4(mesh.matrixWorld);
-          // Scale slightly outward for layered effect
-          overlayMesh.scale.multiplyScalar(1.003);
-          overlayMesh.userData.isOverlay = true;
-          overlayMesh.raycast = () => {};
-          group.add(overlayMesh);
+        const condColor = new THREE.Color(matCfg.color);
+        const blendT = det.severity === "severe" ? 0.65
+                     : det.severity === "moderate" ? 0.42 : 0.26;
+        const blended = enamelColor.clone().lerp(condColor, blendT);
+
+        const targetSurface = det.surface ?? "buccal";
+        for (const [vi, surf] of surfaceMap) {
+          if (surf === targetSurface) {
+            colors[vi * 3]     = blended.r;
+            colors[vi * 3 + 1] = blended.g;
+            colors[vi * 3 + 2] = blended.b;
+            anyPainted = true;
+          }
         }
+      }
+
+      if (anyPainted) {
+        mesh.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        mesh.geometry.attributes.color.needsUpdate = true;
+        const mat = mesh.material as THREE.MeshPhysicalMaterial;
+        // White base color so vertex colors show accurately; emissive still works additively
+        mat.color.set(1, 1, 1);
+        mat.vertexColors = true;
+        mat.needsUpdate = true;
       }
     });
   }, [detectionData, clonedScene]);
+
+  /* Apply AI-estimated tooth geometry transforms (rotation, crowding, size) */
+  useEffect(() => {
+    if (!toothGeometry || Object.keys(toothGeometry).length === 0) return;
+    const DEG = Math.PI / 180;
+    const SCALE_MIN = 0.80;
+    const SCALE_MAX = 1.20;
+
+    Object.entries(toothGeometry).forEach(([toothId, tg]) => {
+      const mesh = meshByIdRef.current.get(toothId);
+      if (!mesh || !tg) return;
+
+      // Axial rotation (Y axis — crown rotation as seen from occlusal view)
+      if (tg.rotation_axial) mesh.rotation.y += tg.rotation_axial * DEG;
+      // Buccal tilt (Z axis relative to viewer)
+      if (tg.tilt_buccal) mesh.rotation.z += tg.tilt_buccal * DEG;
+      // Mesial tilt (X axis along arch)
+      if (tg.tilt_mesial) mesh.rotation.x += tg.tilt_mesial * DEG;
+
+      // Crowding: nudge tooth along arch-inward direction
+      if (tg.crowding_mm) {
+        const tc = toothCentersRef.current.find((c) => c.id === toothId);
+        if (tc) {
+          const inward = new THREE.Vector3(-tc.center.x, 0, -tc.center.z);
+          if (inward.lengthSq() > 0.0001) inward.normalize();
+          mesh.position.addScaledVector(inward, tg.crowding_mm * 0.01);
+        }
+      }
+
+      // Size scaling (clamped to safe range)
+      if (tg.size_scale) {
+        const s = Math.max(SCALE_MIN, Math.min(SCALE_MAX, tg.size_scale));
+        mesh.scale.setScalar(s);
+      }
+    });
+  }, [clonedScene, toothGeometry]);
 
   /* Update base emissive when toothData / overallStatus changes */
   useEffect(() => {
@@ -574,7 +709,6 @@ function DentalModel({
         onPointerOut={handleOut}
         onClick={handleClick}
       />
-      <primitive object={overlayGroupRef.current} />
     </group>
   );
 }
@@ -584,6 +718,7 @@ function Scene({
   viewMode,
   toothData,
   detectionData,
+  toothGeometry,
   selectedTooth,
   onHover,
   onClick,
@@ -593,6 +728,7 @@ function Scene({
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
   detectionData?: Record<string, ToothDetection[]>;
+  toothGeometry?: Record<string, ToothGeometry>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
@@ -606,7 +742,7 @@ function Scene({
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
       <ambientLight intensity={0.38} />
       <Environment preset="studio" />
-      <DentalModel toothData={toothData} detectionData={detectionData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
+      <DentalModel toothData={toothData} detectionData={detectionData} toothGeometry={toothGeometry} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
       <OrbitControls
@@ -894,6 +1030,7 @@ const TOOTH_NAMES: Record<string, string> = {
 export function TeethVisualization({
   toothData = {},
   detectionData,
+  toothGeometry,
   compact = false,
   className,
   showLegend = true,
@@ -1006,6 +1143,7 @@ export function TeethVisualization({
                   viewMode={viewMode}
                   toothData={toothData}
                   detectionData={detectionData}
+                  toothGeometry={toothGeometry}
                   selectedTooth={selectedTooth}
                   onHover={setHoveredTooth}
                   onClick={handleClick}
