@@ -1028,7 +1028,7 @@ export function TeethVisualization({
               <div
                 className="absolute z-20 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 shadow-md"
                 style={{
-                  left: Math.min(mousePos.x + 12, (canvasContainerRef.current?.offsetWidth ?? 300) - 140),
+                  left: Math.min(mousePos.x + 12, (canvasContainerRef.current?.offsetWidth ?? 300) - 180),
                   top: mousePos.y - 36,
                 }}
               >
@@ -1038,6 +1038,11 @@ export function TeethVisualization({
                 <span className="mono-label text-muted-foreground text-[10px] ml-1.5">
                   {TOOTH_NAMES[hoveredTooth]?.split(" ").slice(-2).join(" ") || ""}
                 </span>
+                {detectionData?.[hoveredTooth] && detectionData[hoveredTooth].length > 0 && (
+                  <span className="mono-label text-status-warning text-[10px] ml-1.5">
+                    · {detectionData[hoveredTooth].map(d => d.type.replace("_", " ").toUpperCase()).join(", ")}
+                  </span>
+                )}
               </div>
             )}
 
