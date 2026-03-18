@@ -239,14 +239,28 @@ function ResetHandler({
   return null;
 }
 
+/* ─── Detection material configs ─── */
+const DETECTION_MATERIALS: Record<string, { color: string; opacity: number; roughness: number; metalness: number }> = {
+  plaque:        { color: "#e8d44d", opacity: 0.45, roughness: 0.75, metalness: 0.0 },
+  tartar:        { color: "#c4a43a", opacity: 0.55, roughness: 0.85, metalness: 0.05 },
+  cavity:        { color: "#4a3728", opacity: 0.6,  roughness: 0.9,  metalness: 0.0 },
+  recession:     { color: "#d4878a", opacity: 0.35, roughness: 0.6,  metalness: 0.0 },
+  inflammation:  { color: "#c0392b", opacity: 0.4,  roughness: 0.5,  metalness: 0.0 },
+  crowding:      { color: "#8b5cf6", opacity: 0.3,  roughness: 0.4,  metalness: 0.0 },
+  spacing:       { color: "#3b82f6", opacity: 0.3,  roughness: 0.4,  metalness: 0.0 },
+  appliance_fit: { color: "#f97316", opacity: 0.35, roughness: 0.5,  metalness: 0.0 },
+};
+
 /* ─── The loaded GLB model ─── */
 function DentalModel({
   toothData,
+  detectionData,
   selectedTooth,
   onHover,
   onClick,
 }: {
   toothData: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
