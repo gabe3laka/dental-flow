@@ -199,6 +199,14 @@ export default function Progress() {
   // Derive toothData from latest scan's AI analysis
   const latestToothData = aiTeethToToothData(latestScan?.ai_analysis?.teeth || []);
 
+  // Extract per-tooth detections for 3D overlay
+  const latestDetectionData: Record<string, ToothDetection[]> = {};
+  for (const t of (latestScan?.ai_analysis?.teeth || [])) {
+    if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
+      latestDetectionData[t.id] = t.detections;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       <span className="mono-label text-muted-foreground">TREATMENT</span>
