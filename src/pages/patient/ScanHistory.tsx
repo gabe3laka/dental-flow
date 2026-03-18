@@ -243,7 +243,7 @@ export default function ScanHistory() {
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
                   <div className="rounded-lg overflow-hidden bg-card border border-border dark">
                     <div className="px-3 pt-3 pb-1 bg-card">
-                      <TeethVisualization compact showLegend showToggle={false} toothData={getToothData(scan)} />
+                      <TeethVisualization compact showLegend showToggle={false} toothData={getToothData(scan)} detectionData={getDetectionData(scan)} />
                     </div>
                     <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
                       <div className="flex items-center justify-between mb-1">
