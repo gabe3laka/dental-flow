@@ -574,6 +574,7 @@ function DentalModel({
         onPointerOut={handleOut}
         onClick={handleClick}
       />
+      <primitive object={overlayGroupRef.current} />
     </group>
   );
 }
