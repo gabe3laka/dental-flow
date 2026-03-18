@@ -224,10 +224,20 @@ export default function ScanResults() {
   const zones = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
   const toothData = aiTeethToToothData(teethData);
 
+  // Extract per-tooth detections for 3D overlay
+  const detectionDataMap: Record<string, ToothDetection[]> = {};
+  for (const t of teethData) {
+    if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
+      detectionDataMap[t.id] = t.detections;
+    }
+  }
+
   // If a detection tag is selected, highlight affected teeth
   const activeToothData = selectedTag ? (() => {
     const affected = teethData.filter((t: any) =>
-      t.zone?.toLowerCase().includes(selectedTag.toLowerCase()) || t.status !== "healthy"
+      t.zone?.toLowerCase().includes(selectedTag.toLowerCase()) ||
+      (Array.isArray(t.detections) && t.detections.some((d: any) => d.type === selectedTag.toLowerCase().replace(" ", "_"))) ||
+      t.status !== "healthy"
     );
     if (affected.length === 0) return toothData;
     const highlighted: Record<string, ToothStatus> = {};
