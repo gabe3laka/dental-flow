@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
