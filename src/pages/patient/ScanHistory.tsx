@@ -4,7 +4,7 @@ import { PillNav } from "@/components/ui/pill-nav";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -153,16 +153,29 @@ export default function ScanHistory() {
   const getToothData = (scan: ScanRow): Record<string, ToothStatus> => {
     const base = aiTeethToToothData(scan.ai_analysis?.teeth || []);
     if (!highlightedTag || expandedId !== scan.id) return base;
-    // Highlight teeth related to the selected detection tag
     const teeth = scan.ai_analysis?.teeth || [];
     const affected = teeth.filter((t: any) =>
-      t.zone?.toLowerCase().includes(highlightedTag.toLowerCase()) || t.status !== "healthy"
+      t.zone?.toLowerCase().includes(highlightedTag.toLowerCase()) ||
+      (Array.isArray(t.detections) && t.detections.some((d: any) => d.type === highlightedTag.toLowerCase().replace(" ", "_"))) ||
+      t.status !== "healthy"
     );
     const highlighted: Record<string, ToothStatus> = {};
     for (const t of affected) {
       if (t.id) highlighted[t.id] = "attention";
     }
     return { ...base, ...highlighted };
+  };
+
+  /** Get detectionData for a scan's 3D overlay */
+  const getDetectionData = (scan: ScanRow): Record<string, ToothDetection[]> => {
+    const map: Record<string, ToothDetection[]> = {};
+    const teeth = scan.ai_analysis?.teeth || [];
+    for (const t of teeth) {
+      if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
+        map[t.id] = t.detections;
+      }
+    }
+    return map;
   };
 
   return (
@@ -230,7 +243,7 @@ export default function ScanHistory() {
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
                   <div className="rounded-lg overflow-hidden bg-card border border-border dark">
                     <div className="px-3 pt-3 pb-1 bg-card">
-                      <TeethVisualization compact showLegend showToggle={false} toothData={getToothData(scan)} />
+                      <TeethVisualization compact showLegend showToggle={false} toothData={getToothData(scan)} detectionData={getDetectionData(scan)} />
                     </div>
                     <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
                       <div className="flex items-center justify-between mb-1">

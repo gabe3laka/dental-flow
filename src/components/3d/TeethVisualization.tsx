@@ -10,6 +10,12 @@ import { RotateCcw, X } from "lucide-react";
 export type ToothStatus = "on_track" | "deviation" | "attention" | "no_data";
 export type ViewMode = "both" | "upper" | "lower";
 
+export interface ToothDetection {
+  type: "plaque" | "tartar" | "recession" | "cavity" | "inflammation" | "crowding" | "spacing" | "appliance_fit";
+  surface?: "buccal" | "lingual" | "occlusal" | "mesial" | "distal";
+  severity?: "mild" | "moderate" | "severe";
+}
+
 /* ─── FDI tooth ID assignment order ─── */
 // Upper arch: right molars → right incisors → left incisors → left molars
 const UPPER_FDI_ORDER = [
@@ -146,6 +152,7 @@ export type RenderMode = "3d" | "2d";
 
 export interface TeethVisualizationProps {
   toothData?: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   compact?: boolean;
   className?: string;
   showLegend?: boolean;
@@ -232,14 +239,28 @@ function ResetHandler({
   return null;
 }
 
+/* ─── Detection material configs ─── */
+const DETECTION_MATERIALS: Record<string, { color: string; opacity: number; roughness: number; metalness: number }> = {
+  plaque:        { color: "#e8d44d", opacity: 0.45, roughness: 0.75, metalness: 0.0 },
+  tartar:        { color: "#c4a43a", opacity: 0.55, roughness: 0.85, metalness: 0.05 },
+  cavity:        { color: "#4a3728", opacity: 0.6,  roughness: 0.9,  metalness: 0.0 },
+  recession:     { color: "#d4878a", opacity: 0.35, roughness: 0.6,  metalness: 0.0 },
+  inflammation:  { color: "#c0392b", opacity: 0.4,  roughness: 0.5,  metalness: 0.0 },
+  crowding:      { color: "#8b5cf6", opacity: 0.3,  roughness: 0.4,  metalness: 0.0 },
+  spacing:       { color: "#3b82f6", opacity: 0.3,  roughness: 0.4,  metalness: 0.0 },
+  appliance_fit: { color: "#f97316", opacity: 0.35, roughness: 0.5,  metalness: 0.0 },
+};
+
 /* ─── The loaded GLB model ─── */
 function DentalModel({
   toothData,
+  detectionData,
   selectedTooth,
   onHover,
   onClick,
 }: {
   toothData: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
@@ -395,6 +416,65 @@ function DentalModel({
     return { scale: s, offset: center.multiplyScalar(-s) };
   }, [clonedScene]);
 
+  /* Apply detection overlays */
+  const overlayGroupRef = useRef<THREE.Group>(new THREE.Group());
+
+  useEffect(() => {
+    // Clear previous overlays
+    const group = overlayGroupRef.current;
+    while (group.children.length) group.remove(group.children[0]);
+
+    if (!detectionData || Object.keys(detectionData).length === 0) return;
+
+    meshByIdRef.current.forEach((mesh, id) => {
+      const detections = detectionData[id];
+      if (!detections || detections.length === 0) return;
+
+      // Find the primary (most severe) detection for base tooth tinting
+      const severityOrder = { severe: 3, moderate: 2, mild: 1 };
+      const sorted = [...detections].sort((a, b) =>
+        (severityOrder[b.severity || "mild"] || 0) - (severityOrder[a.severity || "mild"] || 0)
+      );
+      const primary = sorted[0];
+      const matCfg = DETECTION_MATERIALS[primary.type];
+
+      if (matCfg) {
+        // Tint the base tooth material
+        const baseMat = mesh.material as THREE.MeshPhysicalMaterial;
+        if (baseMat) {
+          const tintColor = new THREE.Color(matCfg.color);
+          const enamelColor = new THREE.Color("#f5f0e8");
+          const blendFactor = primary.severity === "severe" ? 0.35 : primary.severity === "moderate" ? 0.22 : 0.12;
+          baseMat.color.copy(enamelColor).lerp(tintColor, blendFactor);
+          baseMat.roughness = 0.18 + (matCfg.roughness - 0.18) * blendFactor * 2;
+        }
+
+        // Create overlay mesh for deposit-type detections (plaque, tartar, cavity)
+        if (["plaque", "tartar", "cavity"].includes(primary.type)) {
+          const overlayGeo = mesh.geometry.clone();
+          const overlayMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(matCfg.color),
+            transparent: true,
+            opacity: matCfg.opacity * (primary.severity === "severe" ? 1.2 : primary.severity === "moderate" ? 1.0 : 0.7),
+            roughness: matCfg.roughness,
+            metalness: matCfg.metalness,
+            depthWrite: false,
+            side: THREE.FrontSide,
+          });
+          const overlayMesh = new THREE.Mesh(overlayGeo, overlayMat);
+          // Copy world transform from original tooth
+          mesh.updateWorldMatrix(true, false);
+          overlayMesh.applyMatrix4(mesh.matrixWorld);
+          // Scale slightly outward for layered effect
+          overlayMesh.scale.multiplyScalar(1.003);
+          overlayMesh.userData.isOverlay = true;
+          overlayMesh.raycast = () => {};
+          group.add(overlayMesh);
+        }
+      }
+    });
+  }, [detectionData, clonedScene]);
+
   /* Update base emissive when toothData / overallStatus changes */
   useEffect(() => {
     clonedScene.traverse((child) => {
@@ -494,6 +574,7 @@ function DentalModel({
         onPointerOut={handleOut}
         onClick={handleClick}
       />
+      <primitive object={overlayGroupRef.current} />
     </group>
   );
 }
@@ -502,6 +583,7 @@ function DentalModel({
 function Scene({
   viewMode,
   toothData,
+  detectionData,
   selectedTooth,
   onHover,
   onClick,
@@ -510,6 +592,7 @@ function Scene({
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
+  detectionData?: Record<string, ToothDetection[]>;
   selectedTooth: string | null;
   onHover: (id: string | null) => void;
   onClick: (id: string) => void;
@@ -523,7 +606,7 @@ function Scene({
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
       <ambientLight intensity={0.38} />
       <Environment preset="studio" />
-      <DentalModel toothData={toothData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
+      <DentalModel toothData={toothData} detectionData={detectionData} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
       <OrbitControls
@@ -810,6 +893,7 @@ const TOOTH_NAMES: Record<string, string> = {
 /* ─── Main exported component ─── */
 export function TeethVisualization({
   toothData = {},
+  detectionData,
   compact = false,
   className,
   showLegend = true,
@@ -856,6 +940,7 @@ export function TeethVisualization({
   const displayTooth = hoveredTooth || selectedTooth;
   const toothName = displayTooth ? TOOTH_NAMES[displayTooth] || displayTooth : null;
   const toothStatus = displayTooth ? (toothData[displayTooth] ?? "no_data") : null;
+  const toothDetections = displayTooth && detectionData ? detectionData[displayTooth] : undefined;
 
   return (
     <div className={cn("relative", className)}>
@@ -920,6 +1005,7 @@ export function TeethVisualization({
                 <Scene
                   viewMode={viewMode}
                   toothData={toothData}
+                  detectionData={detectionData}
                   selectedTooth={selectedTooth}
                   onHover={setHoveredTooth}
                   onClick={handleClick}
@@ -942,7 +1028,7 @@ export function TeethVisualization({
               <div
                 className="absolute z-20 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 shadow-md"
                 style={{
-                  left: Math.min(mousePos.x + 12, (canvasContainerRef.current?.offsetWidth ?? 300) - 140),
+                  left: Math.min(mousePos.x + 12, (canvasContainerRef.current?.offsetWidth ?? 300) - 180),
                   top: mousePos.y - 36,
                 }}
               >
@@ -952,13 +1038,18 @@ export function TeethVisualization({
                 <span className="mono-label text-muted-foreground text-[10px] ml-1.5">
                   {TOOTH_NAMES[hoveredTooth]?.split(" ").slice(-2).join(" ") || ""}
                 </span>
+                {detectionData?.[hoveredTooth] && detectionData[hoveredTooth].length > 0 && (
+                  <span className="mono-label text-status-warning text-[10px] ml-1.5">
+                    · {detectionData[hoveredTooth].map(d => d.type.replace("_", " ").toUpperCase()).join(", ")}
+                  </span>
+                )}
               </div>
             )}
 
             {/* Bottom info bar for selected tooth */}
             {selectedTooth && (
               <div className="absolute bottom-0 left-0 right-0 z-10 bg-popover/90 backdrop-blur-sm border-t border-border px-3 py-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                   <div
                     className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ background: STATUS_COLORS_2D[toothStatus ?? "no_data"] }}
@@ -966,12 +1057,17 @@ export function TeethVisualization({
                   <span className="mono-label text-foreground text-[11px]">
                     {selectedTooth}
                   </span>
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
                     {toothName}
                   </span>
                   <span className="mono-label text-[10px] text-muted-foreground uppercase">
                     · {(toothStatus ?? "no_data").replace("_", " ")}
                   </span>
+                  {toothDetections && toothDetections.length > 0 && (
+                    <span className="mono-label text-[10px] text-status-warning uppercase">
+                      · {toothDetections.map(d => d.type.replace("_", " ")).join(", ")}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => setSelectedTooth(null)}

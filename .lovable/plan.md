@@ -1,96 +1,210 @@
 
 
-# Plan: Personalized 3D Tooth Map with Detection Overlays
+# Fix 10 Known Gaps / Unimplemented Features
 
-## Problem
+## Overview
 
-The 3D map currently shows a generic white tooth model with only emissive glow colors (green/amber/red) to indicate status. The user wants:
+This plan addresses every unimplemented feature identified in the audit. Each fix is scoped to be functional and production-appropriate.
 
-1. **Detection-specific visual effects on exact teeth** — plaque shown as yellow deposits, tartar as brown buildup, recession as exposed roots, inflammation as reddened gums near teeth
-2. **Per-tooth material customization based on AI analysis** — each tooth's material should reflect what the AI found in the scan photos, not just a uniform glow
+---
 
-## Approach
+## 1. Notification Toggles -- Persist to Database
 
-True photogrammetric 3D reconstruction from 2D phone photos is not feasible in-browser. Instead, we will:
+**Problem:** Patient Profile toggles (`Switch`) use `defaultChecked` with no database storage. Changes are lost on refresh.
 
-- **Enhance the AI analysis** to return per-tooth detection types (what condition, which surface)
-- **Apply detection-specific materials** to individual tooth meshes in the 3D model, making each tooth visually distinct based on its findings
-- **Add 3D overlay meshes** (small geometry patches) on affected teeth to represent deposits like plaque/tartar
+**Fix:**
+- Create a new `user_preferences` table with columns: `id`, `user_id`, `pref_key` (text), `pref_value` (boolean), `updated_at`
+- RLS: users can read/write their own rows, admins can read all
+- On Profile mount, fetch preferences and set toggle state
+- On toggle change, upsert into `user_preferences`
 
-This creates a personalized-looking model where you can see exactly which tooth has plaque (yellowish rough patches), which has tartar (brown calcified spots), recession (gum pulled back), etc.
+**Files:** Migration (new table), `src/pages/patient/Profile.tsx`
 
-## Changes
+---
 
-### 1. Enhance AI Analysis Output (`analyze-scan-teeth/index.ts`)
+## 2. Automations Execution Engine
 
-Update the tool schema to include per-tooth `detections` array:
-```
-teeth: [{
-  id: "T14",
-  zone: "Upper Right First Premolar",
-  status: "attention",
-  confidence: "87%",
-  detections: [
-    { type: "plaque", surface: "buccal", severity: "moderate" },
-    { type: "tartar", surface: "lingual", severity: "mild" }
-  ]
-}]
-```
+**Problem:** Automations are stored in the `automations` table but never run. No cron job or Edge Function exists.
 
-This tells the 3D renderer exactly what to show and where on each tooth.
+**Fix:**
+- Create Edge Function `run-automations/index.ts` that:
+  1. Fetches all enabled automations
+  2. For each `no_scan` type: finds patients of that doctor who haven't submitted a scan in `trigger_days` days
+  3. For each `low_compliance` type: finds patients with compliance_streak below a threshold
+  4. For each `recurring` type: checks if `trigger_days` have passed since last automated message
+  5. Inserts messages into the `messages` table using the `message_template` (replacing `{patient_name}` and `{days}` placeholders)
+- Register in `supabase/config.toml` with `verify_jwt = false`
+- Set up a `pg_cron` job to call this function daily via SQL insert (not migration)
 
-### 2. Add Detection Materials & Overlays (`TeethVisualization.tsx`)
+**Files:** `supabase/functions/run-automations/index.ts`, `supabase/config.toml`
 
-**New prop**: `detectionData` — a record mapping tooth IDs to their detection arrays.
+---
 
-**Per-tooth material customization**:
-- **Plaque**: Yellowish tint (`#e8d44d`), increased roughness (0.7), reduced clearcoat — looks like a film deposit
-- **Tartar**: Brown-yellow tint (`#c4a43a`), high roughness (0.85), slight metalness — calcified appearance
-- **Recession**: Normal tooth material but gum mesh near that tooth gets modified (color shifts to pale pink, slight transparency to show "exposed" root)
-- **Inflammation**: Gum near affected teeth turns deep red (`#c0392b`) with increased emissive
-- **Cavity**: Dark spot (`#4a3728`), very high roughness, no clearcoat
-- **Healthy/On-track**: Standard clean enamel (current look)
+## 3. Team Invite Acceptance Flow
 
-**Implementation**: After FDI ID assignment in the `clonedScene` useMemo, iterate through `detectionData` and apply detection-specific material overrides per tooth. For plaque/tartar, create a secondary semi-transparent mesh (clone of tooth geometry, slightly scaled up by 1.002) with the deposit material — this creates a visible "layer" effect on the tooth surface.
+**Problem:** Team invites stay PENDING forever. No mechanism for invited users to accept.
 
-### 3. Update `DentalModel` Component
+**Fix:**
+- After signup, check if the new user's email matches any `team_invites` record
+- Create Edge Function `accept-team-invite/index.ts` that:
+  1. Takes the authenticated user's email
+  2. Looks up pending invites matching that email
+  3. Updates `accepted_at` to `now()`
+  4. Optionally links the user to the practice
+- Call this function from the Login page after successful sign-in
+- Add a visual banner on doctor Settings when invites are accepted
 
-Add `detectionData` prop alongside existing `toothData`:
-```typescript
-interface ToothDetection {
-  type: "plaque" | "tartar" | "recession" | "cavity" | "inflammation" | "crowding" | "spacing";
-  surface?: "buccal" | "lingual" | "occlusal" | "mesial" | "distal";
-  severity?: "mild" | "moderate" | "severe";
-}
+**Files:** `supabase/functions/accept-team-invite/index.ts`, `supabase/config.toml`, `src/pages/Login.tsx`
 
-// DentalModel receives:
-detectionData?: Record<string, ToothDetection[]>;
-```
+---
 
-After mesh splitting and FDI assignment:
-- For each tooth with detections, replace its enamel material with a detection-specific material
-- For deposit-type detections (plaque, tartar), add a semi-transparent overlay mesh
-- For gum-related detections (recession, inflammation), modify nearby gum mesh color
+## 4. Deactivate Practice Backend Logic
 
-### 4. Pass Detection Data from ScanResults/ScanHistory
+**Problem:** The "Deactivate Practice" button in doctor Settings has no `onClick` handler.
 
-Extract detection info from `ai_analysis.teeth[].detections` and pass as the new `detectionData` prop to `TeethVisualization`.
+**Fix:**
+- Add confirmation dialog (type "DEACTIVATE" to confirm)
+- On confirm: update `profiles.suspended = true` and `profiles.suspension_reason = 'self_deactivated'` for the doctor
+- Show a toast and sign the user out
+- On login, if `suspended === true`, show a banner: "Your practice has been deactivated. Contact support to reactivate."
 
-### 5. Update Hover/Selection Info
+**Files:** `src/pages/doctor/Settings.tsx`, `src/components/ProtectedRoute.tsx`
 
-When a tooth with detections is hovered or selected, show the detection type in the tooltip and bottom info bar (e.g., "T14 · Upper Right First Premolar · PLAQUE, TARTAR").
+---
 
-## Files Modified
+## 5. Database-Driven Available Slots
+
+**Problem:** Doctor Profile page uses hardcoded `SLOT_PILLS` array.
+
+**Fix:**
+- Create `doctor_availability` table: `id`, `doctor_id` (uuid), `day_of_week` (text), `start_time` (text), `is_active` (boolean), `created_at`
+- RLS: doctors manage their own, patients can read their assigned doctor's slots
+- Doctor Settings: add an "Availability" card where doctors can add/remove/toggle time slots
+- Patient DoctorProfile: fetch from `doctor_availability` instead of hardcoded array
+
+**Files:** Migration (new table), `src/pages/doctor/Settings.tsx`, `src/pages/patient/DoctorProfile.tsx`
+
+---
+
+## 6. Billing Tab -- Stripe Integration Placeholder with Real Data
+
+**Problem:** Patient Detail billing tab shows only a static placeholder.
+
+**Fix:**
+- Show the patient's assigned doctor's subscription tier and status
+- Display a treatment cost estimate section (editable by doctor) using a new `estimated_cost` column on `patients` table
+- Show payment status: "Managed by your practice" with practice name
+- Still note that full Stripe checkout is coming soon, but make the tab informative
+
+**Files:** Migration (add `estimated_cost` to `patients`), `src/pages/doctor/PatientDetail.tsx`
+
+---
+
+## 7. Manage Billing -- Stripe Portal Link
+
+**Problem:** "Manage Billing" button just shows a "coming soon" toast.
+
+**Fix:**
+- Create Edge Function `create-billing-portal/index.ts` that:
+  1. Takes the doctor's `stripe_customer_id` from `subscriptions`
+  2. If it exists, creates a Stripe Billing Portal session and returns the URL
+  3. If no Stripe customer, returns an error prompting setup
+- On click: call the function and redirect to the Stripe portal URL
+- Fallback: if no Stripe secret is configured, keep the "coming soon" toast but with a clearer message
+
+**Files:** `supabase/functions/create-billing-portal/index.ts`, `supabase/config.toml`, `src/pages/doctor/Settings.tsx`
+
+*Note: This requires a `STRIPE_SECRET_KEY` secret. The plan will prompt you to add it if you want full Stripe integration, otherwise the button will show a more informative "Connect Stripe to manage billing" message.*
+
+---
+
+## 8. Device Pairing -- Generate Unique Code
+
+**Problem:** Pairing modal always shows hardcoded `ARC-7F2K-9M`.
+
+**Fix:**
+- Generate a random pairing code on modal open: `ARC-XXXX-XX` format using `crypto.getRandomValues()`
+- Store the code in `patients` table (add `pairing_code` column, nullable text)
+- On "Done" click: save the code to the patient record and set `device_linked = true`
+- Display the stored code if device is already linked; allow "Unlink" to clear it
+
+**Files:** Migration (add `pairing_code` to `patients`), `src/pages/patient/Profile.tsx`
+
+---
+
+## 9. Share Progress -- Generate Real Shareable Link
+
+**Problem:** Share Progress button only shows a toast, does not create an actual link.
+
+**Fix:**
+- Create a `progress_shares` table: `id`, `patient_id`, `share_token` (text, unique), `created_at`, `expires_at` (default 7 days)
+- RLS: patients can insert their own, anyone can read by token
+- On "Share Progress" click: insert a row, generate a URL like `/shared/progress/{token}`, copy to clipboard
+- Create a new public page `/shared/progress/:token` that shows read-only progress data (ToothArch, quality, milestones)
+
+**Files:** Migration (new table), `src/pages/patient/Progress.tsx`, new file `src/pages/public/SharedProgress.tsx`, `src/App.tsx` (add route)
+
+---
+
+## 10. Scan Compare URL Fix
+
+**Problem:** PatientDetail navigates to `/doctor/scans/compare?ids=id1,id2` but ScanCompare reads `?a=` and `?b=`.
+
+**Fix:**
+- Update `ScanCompare` to also parse the `ids` parameter: split by comma, assign first to `scanA` and second to `scanB`
+- Keep backward compatibility with `?a=` and `?b=` format
+- This is a one-line logic fix
+
+**Files:** `src/pages/doctor/ScanCompare.tsx`
+
+---
+
+## Implementation Order
+
+| Priority | Item | Complexity |
+|----------|------|------------|
+| 1 | #10 Scan Compare URL fix | Trivial |
+| 2 | #1 Notification preferences | Low |
+| 3 | #8 Device pairing code | Low |
+| 4 | #9 Share Progress link | Medium |
+| 5 | #4 Deactivate Practice | Low |
+| 6 | #5 Available Slots | Medium |
+| 7 | #6 Billing tab | Low |
+| 8 | #3 Team invite acceptance | Medium |
+| 9 | #2 Automation engine | High |
+| 10 | #7 Stripe billing portal | Medium (requires secret) |
+
+## Database Changes Summary
+
+| Change | Type |
+|--------|------|
+| `user_preferences` table | New table |
+| `doctor_availability` table | New table |
+| `progress_shares` table | New table |
+| `patients.pairing_code` column | Add column |
+| `patients.estimated_cost` column | Add column |
+
+## New Files
+
+| File | Purpose |
+|------|---------|
+| `supabase/functions/run-automations/index.ts` | Cron-driven automation execution |
+| `supabase/functions/accept-team-invite/index.ts` | Team invite acceptance |
+| `supabase/functions/create-billing-portal/index.ts` | Stripe portal session |
+| `src/pages/public/SharedProgress.tsx` | Public progress sharing page |
+
+## Modified Files
 
 | File | Changes |
 |------|---------|
-| `src/components/3d/TeethVisualization.tsx` | Add `detectionData` prop, detection-specific materials, overlay meshes, updated tooltips |
-| `src/pages/patient/ScanResults.tsx` | Extract and pass `detectionData` from `ai_analysis` to `TeethVisualization` |
-| `src/pages/patient/ScanHistory.tsx` | Same — pass `detectionData` |
-| `src/pages/patient/Progress.tsx` | Same — pass `detectionData` from latest scan |
-| `supabase/functions/analyze-scan-teeth/index.ts` | Add `detections` array to per-tooth schema |
-
-## Visual Result
-
-A tooth with plaque will have a visible yellowish rough film on it. A tooth with tartar will show brown calcified deposits. Recession will show the gum pulled back. When the user rotates the 3D model, they see exactly which teeth have which issues — it looks personalized to their mouth rather than a generic template.
+| `src/pages/doctor/ScanCompare.tsx` | Parse `ids` param |
+| `src/pages/patient/Profile.tsx` | Persist toggles, dynamic pairing code |
+| `src/pages/patient/Progress.tsx` | Real share link generation |
+| `src/pages/patient/DoctorProfile.tsx` | Fetch slots from DB |
+| `src/pages/doctor/Settings.tsx` | Deactivate logic, availability editor, Stripe portal |
+| `src/pages/doctor/PatientDetail.tsx` | Billing tab with real data |
+| `src/pages/Login.tsx` | Call accept-team-invite after login |
+| `src/components/ProtectedRoute.tsx` | Suspended account check |
+| `src/App.tsx` | Add shared progress route |
+| `supabase/config.toml` | Register 3 new edge functions |
 

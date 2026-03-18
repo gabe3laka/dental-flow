@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -224,10 +224,20 @@ export default function ScanResults() {
   const zones = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
   const toothData = aiTeethToToothData(teethData);
 
+  // Extract per-tooth detections for 3D overlay
+  const detectionDataMap: Record<string, ToothDetection[]> = {};
+  for (const t of teethData) {
+    if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
+      detectionDataMap[t.id] = t.detections;
+    }
+  }
+
   // If a detection tag is selected, highlight affected teeth
   const activeToothData = selectedTag ? (() => {
     const affected = teethData.filter((t: any) =>
-      t.zone?.toLowerCase().includes(selectedTag.toLowerCase()) || t.status !== "healthy"
+      t.zone?.toLowerCase().includes(selectedTag.toLowerCase()) ||
+      (Array.isArray(t.detections) && t.detections.some((d: any) => d.type === selectedTag.toLowerCase().replace(" ", "_"))) ||
+      t.status !== "healthy"
     );
     if (affected.length === 0) return toothData;
     const highlighted: Record<string, ToothStatus> = {};
@@ -343,7 +353,7 @@ export default function ScanResults() {
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
           <div className="px-3 pt-3 pb-3 bg-card">
-            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} />
+            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} detectionData={detectionDataMap} />
           </div>
           {selectedTag && (
             <div className="px-4 pb-3 border-t border-border pt-2" style={{ background: "hsl(var(--card))" }}>
