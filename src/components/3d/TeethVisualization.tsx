@@ -893,6 +893,7 @@ const TOOTH_NAMES: Record<string, string> = {
 /* ─── Main exported component ─── */
 export function TeethVisualization({
   toothData = {},
+  detectionData,
   compact = false,
   className,
   showLegend = true,
