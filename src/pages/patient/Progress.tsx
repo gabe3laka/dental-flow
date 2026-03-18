@@ -257,7 +257,7 @@ export default function Progress() {
         <span className="mono-label text-muted-foreground mb-3 block">YOUR TOOTH MAP</span>
         <div className="rounded-card overflow-hidden bg-card border border-border dark">
           <div className="px-4 pt-5 pb-2 bg-card">
-            <TeethVisualization showToggle showLegend toothData={latestToothData} />
+            <TeethVisualization showToggle showLegend toothData={latestToothData} detectionData={latestDetectionData} />
           </div>
           <div className="px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
             <div className="flex items-center justify-between mb-1.5">

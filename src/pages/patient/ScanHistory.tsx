@@ -4,7 +4,7 @@ import { PillNav } from "@/components/ui/pill-nav";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
