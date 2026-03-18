@@ -353,7 +353,7 @@ export default function ScanResults() {
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
           <div className="px-3 pt-3 pb-3 bg-card">
-            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} />
+            <TeethVisualization compact showLegend showToggle={false} toothData={activeToothData} detectionData={detectionDataMap} />
           </div>
           {selectedTag && (
             <div className="px-4 pb-3 border-t border-border pt-2" style={{ background: "hsl(var(--card))" }}>
