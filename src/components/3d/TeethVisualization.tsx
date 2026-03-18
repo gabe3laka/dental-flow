@@ -940,6 +940,7 @@ export function TeethVisualization({
   const displayTooth = hoveredTooth || selectedTooth;
   const toothName = displayTooth ? TOOTH_NAMES[displayTooth] || displayTooth : null;
   const toothStatus = displayTooth ? (toothData[displayTooth] ?? "no_data") : null;
+  const toothDetections = displayTooth && detectionData ? detectionData[displayTooth] : undefined;
 
   return (
     <div className={cn("relative", className)}>
