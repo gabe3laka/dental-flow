@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ProgressRing } from "@/components/ui/progress-ring";
-import { TeethVisualization, type ToothStatus } from "@/components/3d/TeethVisualization";
+import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { ScanActivityChart } from "@/components/patient/ScanActivityChart";
