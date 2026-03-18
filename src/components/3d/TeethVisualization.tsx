@@ -1049,7 +1049,7 @@ export function TeethVisualization({
             {/* Bottom info bar for selected tooth */}
             {selectedTooth && (
               <div className="absolute bottom-0 left-0 right-0 z-10 bg-popover/90 backdrop-blur-sm border-t border-border px-3 py-2 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                   <div
                     className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                     style={{ background: STATUS_COLORS_2D[toothStatus ?? "no_data"] }}
@@ -1057,12 +1057,17 @@ export function TeethVisualization({
                   <span className="mono-label text-foreground text-[11px]">
                     {selectedTooth}
                   </span>
-                  <span className="text-[11px] text-muted-foreground truncate max-w-[160px]">
+                  <span className="text-[11px] text-muted-foreground truncate max-w-[120px]">
                     {toothName}
                   </span>
                   <span className="mono-label text-[10px] text-muted-foreground uppercase">
                     · {(toothStatus ?? "no_data").replace("_", " ")}
                   </span>
+                  {toothDetections && toothDetections.length > 0 && (
+                    <span className="mono-label text-[10px] text-status-warning uppercase">
+                      · {toothDetections.map(d => d.type.replace("_", " ")).join(", ")}
+                    </span>
+                  )}
                 </div>
                 <button
                   onClick={() => setSelectedTooth(null)}
