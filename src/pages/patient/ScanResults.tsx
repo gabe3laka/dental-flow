@@ -11,7 +11,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan, Trash2 } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan, Trash2, Camera } from "lucide-react";
+
+const ZONE_LABEL_ORDER = ["FRONT_SMILE", "UPPER_ARCH", "LOWER_ARCH", "LEFT_BITE", "RIGHT_BITE", "UPPER_CLOSE", "LOWER_CLOSE"];
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -83,7 +85,8 @@ export default function ScanResults() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [panoramaTab, setPanoramaTab] = useState<"panorama" | "3dmap">("panorama");
+  const [showPhotoContext, setShowPhotoContext] = useState(true);
+  const [panoramaOpen, setPanoramaOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
 
@@ -549,44 +552,89 @@ export default function ScanResults() {
         </div>
       )}
 
-      {/* 3D+ view */}
+      {/* 3D+ Polycam-style view */}
       {viewMode === "3dplus" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
-          {/* Sub-tab toggle */}
+          {/* Header — scan stats like Polycam's model info bar */}
+          <div className="px-4 py-2.5 flex items-center justify-between border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="mono-label text-primary text-[10px]">3D DENTAL SCAN</span>
+              <span className="mono-label text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">AI-PERSONALIZED</span>
+            </div>
+            <span className="mono-label text-muted-foreground text-[9px]">
+              {zones.length > 0 ? `${zones.length} ZONES` : ""}{scan.quality_score != null ? ` · ${scan.quality_score}% QUALITY` : ""}
+            </span>
+          </div>
+
+          {/* Mode toggle: SCAN CONTEXT / AI ANALYSIS */}
           <div className="flex border-b border-border">
-            {(["panorama", "3dmap"] as const).map((tab) => (
+            {([true, false] as const).map((isPhoto) => (
               <button
-                key={tab}
-                onClick={() => setPanoramaTab(tab)}
-                className={`flex-1 py-2.5 mono-label text-[10px] transition border-b-2 -mb-px ${
-                  panoramaTab === tab
+                key={String(isPhoto)}
+                onClick={() => setShowPhotoContext(isPhoto)}
+                className={`flex-1 py-2 mono-label text-[10px] transition border-b-2 -mb-px ${
+                  showPhotoContext === isPhoto
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground"
                 }`}
               >
-                {tab === "panorama" ? "360 VIEW" : "3D MAP"}
+                {isPhoto ? "SCAN CONTEXT" : "AI ANALYSIS"}
               </button>
             ))}
           </div>
-          {/* Panorama or 3D model */}
-          {panoramaTab === "panorama" ? (
-            <MouthPanorama zoneSignedUrls={zoneSignedUrls} />
-          ) : (
-            <div className="px-3 pt-3 pb-3 bg-card dark">
-              <TeethVisualization
-                compact
-                showLegend
-                showToggle={false}
-                toothData={activeToothData}
-                detectionData={detectionDataMap}
-                toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
-                onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
-              />
+
+          {/* 3D model — with photo backdrops in SCAN CONTEXT mode */}
+          <div className="px-3 pt-3 pb-3 bg-card dark">
+            <TeethVisualization
+              compact
+              showLegend
+              showToggle={false}
+              toothData={activeToothData}
+              detectionData={detectionDataMap}
+              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
+              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
+              zonePhotoUrls={zoneSignedUrls}
+              showPhotoBackdrops={showPhotoContext}
+            />
+          </div>
+
+          {/* Source photo evidence strip — like Polycam's reference photos */}
+          {Object.keys(zoneSignedUrls).length > 0 && (
+            <div className="px-3 py-2.5 border-t border-border">
+              <div className="flex items-center justify-between mb-2">
+                <span className="mono-label text-muted-foreground text-[9px]">SOURCE PHOTOS</span>
+                <button
+                  onClick={() => setPanoramaOpen(true)}
+                  className="mono-label text-[9px] text-primary flex items-center gap-1 hover:opacity-80 transition"
+                >
+                  <Camera className="w-2.5 h-2.5" />
+                  360 VIEW
+                </button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {ZONE_LABEL_ORDER.map((zoneId) => {
+                  const url = zoneSignedUrls[zoneId];
+                  if (!url) return null;
+                  return (
+                    <div key={zoneId} className="flex-shrink-0 w-16">
+                      <img
+                        src={url}
+                        alt={zoneId}
+                        className="w-16 h-12 object-cover rounded-md border border-border"
+                      />
+                      <span className="mono-label text-[8px] text-muted-foreground block text-center mt-0.5 truncate">
+                        {zoneId.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
+
           {/* Zone count + refresh */}
           {zones.length > 0 && (
-            <div className="px-4 pb-3 flex items-center justify-between">
+            <div className="px-4 pb-3 flex items-center justify-between border-t border-border pt-2">
               <span className="mono-label text-muted-foreground text-[10px]">
                 {zones.length} ZONE{zones.length > 1 ? "S" : ""} ANALYZED
               </span>
@@ -601,6 +649,7 @@ export default function ScanResults() {
               )}
             </div>
           )}
+
           {/* New 3D+ scan CTA */}
           <div className="px-4 pb-4 border-t border-border pt-3">
             <button
@@ -613,6 +662,21 @@ export default function ScanResults() {
             <p className="text-center text-[10px] text-muted-foreground mt-2">
               Guided 7-zone capture · AI-personalized 3D map
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* 360 panorama fullscreen modal */}
+      {panoramaOpen && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <span className="font-mono text-white text-xs tracking-widest">360 MOUTH VIEW</span>
+            <button onClick={() => setPanoramaOpen(false)} className="text-white/60 hover:text-white transition">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="flex-1">
+            <MouthPanorama zoneSignedUrls={zoneSignedUrls} height="100%" />
           </div>
         </div>
       )}

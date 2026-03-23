@@ -1,6 +1,7 @@
 import { useRef, useMemo, useState, useCallback, useEffect, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
+import { OrbitControls, Environment, useGLTF, useTexture } from "@react-three/drei";
+import { EXTERIOR_ZONE_CONFIGS, BACKDROP_R, zoneTransform } from "@/lib/zoneConfigs";
 import * as THREE from "three";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -160,6 +161,8 @@ export interface TeethVisualizationProps {
   showToggle?: boolean;
   onToothSelect?: (toothId: string) => void;
   defaultRenderMode?: RenderMode;
+  zonePhotoUrls?: Record<string, string>;
+  showPhotoBackdrops?: boolean;
 }
 
 /* ─── Status emissive colors ─── */
@@ -732,6 +735,63 @@ function DentalModel({
   );
 }
 
+/* ─── Photo backdrop planes (Polycam-style: zone photos behind the teeth model) ─── */
+function ZoneBackdropPlane({
+  azDeg,
+  elDeg,
+  w,
+  h,
+  url,
+}: {
+  azDeg: number;
+  elDeg: number;
+  w: number;
+  h: number;
+  url: string;
+}) {
+  const { position, rotation } = useMemo(
+    () => zoneTransform(azDeg, elDeg, BACKDROP_R),
+    [azDeg, elDeg]
+  );
+  const texture = useTexture(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return (
+    <mesh position={position} rotation={rotation}>
+      <planeGeometry args={[w, h]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        opacity={0.22}
+        toneMapped={false}
+        depthWrite={false}
+        side={THREE.FrontSide}
+      />
+    </mesh>
+  );
+}
+
+function PhotoBackdrops({ zonePhotoUrls }: { zonePhotoUrls: Record<string, string> }) {
+  return (
+    <>
+      {EXTERIOR_ZONE_CONFIGS.map((cfg) => {
+        const url = zonePhotoUrls[cfg.id] ?? zonePhotoUrls[cfg.id.toLowerCase()];
+        if (!url) return null;
+        return (
+          <Suspense key={cfg.id} fallback={null}>
+            <ZoneBackdropPlane
+              azDeg={cfg.azDeg}
+              elDeg={cfg.elDeg}
+              w={cfg.w}
+              h={cfg.h}
+              url={url}
+            />
+          </Suspense>
+        );
+      })}
+    </>
+  );
+}
+
 /* ─── Full 3D scene ─── */
 function Scene({
   viewMode,
@@ -743,6 +803,8 @@ function Scene({
   onClick,
   controlsRef,
   resetTrigger,
+  zonePhotoUrls,
+  showPhotoBackdrops,
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
@@ -753,6 +815,8 @@ function Scene({
   onClick: (id: string) => void;
   controlsRef: React.RefObject<any>;
   resetTrigger: number;
+  zonePhotoUrls?: Record<string, string>;
+  showPhotoBackdrops?: boolean;
 }) {
   return (
     <>
@@ -761,6 +825,9 @@ function Scene({
       <directionalLight position={[0, -2, 3]} intensity={0.28} color="#ffffff" />
       <ambientLight intensity={0.38} />
       <Environment preset="studio" />
+      {showPhotoBackdrops && zonePhotoUrls && Object.keys(zonePhotoUrls).length > 0 && (
+        <PhotoBackdrops zonePhotoUrls={zonePhotoUrls} />
+      )}
       <DentalModel toothData={toothData} detectionData={detectionData} toothGeometry={toothGeometry} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
       <CameraAnimator viewMode={viewMode} />
       <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
@@ -1056,6 +1123,8 @@ export function TeethVisualization({
   showToggle = true,
   onToothSelect,
   defaultRenderMode = "3d",
+  zonePhotoUrls,
+  showPhotoBackdrops = false,
 }: TeethVisualizationProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [hoveredTooth, setHoveredTooth] = useState<string | null>(null);
@@ -1168,6 +1237,8 @@ export function TeethVisualization({
                   onClick={handleClick}
                   controlsRef={controlsRef}
                   resetTrigger={resetTrigger}
+                  zonePhotoUrls={zonePhotoUrls}
+                  showPhotoBackdrops={showPhotoBackdrops}
                 />
               </Canvas>
             </Suspense>

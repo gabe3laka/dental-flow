@@ -3,46 +3,12 @@ import { Canvas } from "@react-three/fiber";
 import { OrbitControls, useTexture } from "@react-three/drei";
 import * as THREE from "three";
 import { Loader2 } from "lucide-react";
+import { ZONE_CONFIGS, SPHERE_R, zoneTransform, type ZoneConfig } from "@/lib/zoneConfigs";
 
 export interface MouthPanoramaProps {
   zoneSignedUrls: Record<string, string>;
   className?: string;
-}
-
-interface ZoneConfig {
-  id: string;
-  azDeg: number;
-  elDeg: number;
-  w: number;
-  h: number;
-}
-
-const SPHERE_R = 5;
-
-const ZONE_CONFIGS: ZoneConfig[] = [
-  { id: "FRONT_SMILE",  azDeg:   0, elDeg:   0, w: 5.0, h: 3.75 },
-  { id: "UPPER_ARCH",   azDeg:   0, elDeg:  55, w: 5.5, h: 3.50 },
-  { id: "LOWER_ARCH",   azDeg:   0, elDeg: -55, w: 5.5, h: 3.50 },
-  { id: "LEFT_BITE",    azDeg: -60, elDeg:   0, w: 5.0, h: 3.75 },
-  { id: "RIGHT_BITE",   azDeg:  60, elDeg:   0, w: 5.0, h: 3.75 },
-  { id: "UPPER_CLOSE",  azDeg:   0, elDeg:  20, w: 4.5, h: 3.40 },
-  { id: "LOWER_CLOSE",  azDeg:   0, elDeg: -20, w: 4.5, h: 3.40 },
-];
-
-function zoneTransform(azDeg: number, elDeg: number, R: number) {
-  const az = (azDeg * Math.PI) / 180;
-  const el = (elDeg * Math.PI) / 180;
-  const x = R * Math.sin(az) * Math.cos(el);
-  const y = R * Math.sin(el);
-  const z = R * Math.cos(az) * Math.cos(el);
-  const dummy = new THREE.Object3D();
-  dummy.position.set(x, y, z);
-  dummy.lookAt(0, 0, 0);
-  dummy.rotateY(Math.PI);
-  return {
-    position: [x, y, z] as [number, number, number],
-    rotation: [dummy.rotation.x, dummy.rotation.y, dummy.rotation.z] as [number, number, number],
-  };
+  height?: number | string;
 }
 
 function BackgroundSphere() {
@@ -127,11 +93,11 @@ function PanoramaLoader() {
   );
 }
 
-export function MouthPanorama({ zoneSignedUrls, className }: MouthPanoramaProps) {
+export function MouthPanorama({ zoneSignedUrls, className, height = 320 }: MouthPanoramaProps) {
   return (
     <div
       className={`relative w-full overflow-hidden bg-[#060a14] ${className ?? ""}`}
-      style={{ height: 320 }}
+      style={{ height }}
     >
       <Suspense fallback={<PanoramaLoader />}>
         <Canvas
