@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -74,7 +74,7 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3dplus">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
@@ -410,16 +410,19 @@ export default function ScanResults() {
       )}
 
       {/* View Toggle */}
-      <div className="flex gap-2 mb-4">
-        {(["analysis", "photos", "3d"] as const).map((mode) => (
+      <div className="flex gap-1.5 mb-4">
+        {(["analysis", "photos", "3d", "3dplus"] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
-            className={`flex-1 py-2 rounded-pill mono-label transition ${
+            className={`flex-1 py-2 rounded-pill mono-label text-[10px] transition ${
               viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
             }`}
           >
-            {mode === "analysis" ? "ANALYSIS" : mode === "photos" ? "PHOTOS" : "3D MAP"}
+            {mode === "analysis" ? "ANALYSIS"
+              : mode === "photos" ? "PHOTOS"
+              : mode === "3d" ? "3D MAP"
+              : "3D+"}
           </button>
         ))}
       </div>
@@ -506,6 +509,59 @@ export default function ScanResults() {
               <p className="text-xs text-muted-foreground">Affected teeth are highlighted on the 3D map above. Tap the tag again or another tag to change.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* 3D+ view */}
+      {viewMode === "3dplus" && (
+        <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
+          {/* Header */}
+          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-border">
+            <span className="mono-label text-primary text-xs">3D+ MAP</span>
+            <span className="mono-label text-[9px] px-2 py-0.5 rounded-full bg-primary/15 text-primary">AI-PERSONALIZED</span>
+          </div>
+          {/* Visualization */}
+          <div className="px-3 pt-3 pb-3 bg-card dark">
+            <TeethVisualization
+              compact
+              showLegend
+              showToggle={false}
+              toothData={activeToothData}
+              detectionData={detectionDataMap}
+              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
+              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
+            />
+          </div>
+          {/* Zone count + refresh */}
+          {zones.length > 0 && (
+            <div className="px-4 pb-3 flex items-center justify-between">
+              <span className="mono-label text-muted-foreground text-[10px]">
+                {zones.length} ZONE{zones.length > 1 ? "S" : ""} ANALYZED
+              </span>
+              {!analysisPolling && (
+                <button
+                  onClick={handleReanalyze}
+                  disabled={reanalyzing}
+                  className="mono-label text-[10px] text-muted-foreground hover:text-primary transition flex items-center gap-1 disabled:opacity-50"
+                >
+                  {reanalyzing ? <><Loader2 className="w-3 h-3 animate-spin" /> RE-ANALYZING...</> : "↻ REFRESH"}
+                </button>
+              )}
+            </div>
+          )}
+          {/* New 3D+ scan CTA */}
+          <div className="px-4 pb-4 border-t border-border pt-3">
+            <button
+              onClick={() => navigate("/patient/scan/3d-plus")}
+              className="w-full py-3 rounded-pill bg-primary text-primary-foreground mono-label text-xs flex items-center justify-center gap-2"
+            >
+              <Scan className="w-3.5 h-3.5" />
+              START NEW 3D+ SCAN
+            </button>
+            <p className="text-center text-[10px] text-muted-foreground mt-2">
+              Guided 7-zone capture · AI-personalized 3D map
+            </p>
+          </div>
         </div>
       )}
 
