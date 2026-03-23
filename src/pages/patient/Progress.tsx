@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePatientData } from "@/hooks/use-patient-data";
 import { format, differenceInWeeks, differenceInDays } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 interface Milestone {
@@ -280,6 +280,15 @@ export default function Progress() {
               Reflects your latest scan from {differenceInDays(new Date(), new Date(latestScan.submitted_at))} days ago
             </p>
           )}
+          <div className="px-5 pb-4" style={{ background: "hsl(var(--card))" }}>
+            <Button
+              onClick={() => navigate("/patient/scan/3d-plus")}
+              className="w-full rounded-pill mono-label bg-primary text-primary-foreground"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1" />
+              Scan with 3D+
+            </Button>
+          </div>
         </div>
       </div>
 
