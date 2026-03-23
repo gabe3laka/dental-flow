@@ -276,6 +276,7 @@ export default function ScanCapture3DPlus() {
         .insert({
           patient_id: patient.id,
           status: "pending",
+          source: "3d_plus",
           video_url: zonesMeta[0]?.path ?? null,
           zones_captured: zonesMeta,
         })

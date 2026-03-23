@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -80,6 +80,8 @@ export default function ScanResults() {
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
   const [analysisPolling, setAnalysisPolling] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
 
@@ -229,6 +231,29 @@ export default function ScanResults() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!scan) return;
+    setDeleting(true);
+    try {
+      const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+      const paths = zones.map((z) => z.path).filter(Boolean) as string[];
+      if (paths.length > 0) {
+        await supabase.storage.from("scan-videos").remove(paths);
+      }
+      await supabase.from("scans").delete().eq("id", scan.id);
+      const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
+      if (pt && (pt as any).total_scans > 0) {
+        await supabase.from("patients").update({ total_scans: (pt as any).total_scans - 1 }).eq("id", scan.patient_id);
+      }
+      toast({ title: "Scan deleted" });
+      navigate("/patient/scans");
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e.message, variant: "destructive" });
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   const getDetectionDetails = (tag: string) => {
     const teeth = scan?.ai_analysis?.teeth || [];
     const match = teeth.find((t: any) => t.zone?.toLowerCase().includes(tag.toLowerCase()) || t.status !== "healthy");
@@ -284,16 +309,26 @@ export default function ScanResults() {
     }
   }
 
-  // Helper: determine most relevant zone image for a tooth
+  // Helper: determine most relevant zone image for a tooth.
+  // Handles both standard zone names (UPPER/LOWER/FRONT/LEFT/RIGHT)
+  // and 3D+ zone names (UPPER_ARCH/LOWER_ARCH/FRONT_SMILE/etc.) — single source of truth.
   function getZoneForTooth(toothId: string): string | null {
     const frontIds = new Set(["T11", "T21", "T12", "T22", "T41", "T31", "T42", "T32"]);
     const isUpper = toothId.startsWith("T1") || toothId.startsWith("T2");
     const num = parseInt(toothId.slice(1));
-    const candidates: string[] = [isUpper ? "UPPER" : "LOWER"];
-    if (frontIds.has(toothId)) candidates.push("FRONT");
-    if ((num >= 13 && num <= 18) || (num >= 43 && num <= 48)) candidates.push("RIGHT");
-    if ((num >= 23 && num <= 28) || (num >= 33 && num <= 38)) candidates.push("LEFT");
-    // Also try lowercase zone keys (ScanPhotoGrid stores them as lowercase)
+    // Ordered preference: standard names first, then 3D+ equivalents
+    const candidates: string[] = [
+      isUpper ? "UPPER" : "LOWER",
+      isUpper ? "UPPER_ARCH" : "LOWER_ARCH",
+    ];
+    if (frontIds.has(toothId)) {
+      candidates.push("FRONT", "FRONT_SMILE");
+      candidates.push(isUpper ? "UPPER_CLOSE" : "LOWER_CLOSE");
+    }
+    if ((num >= 13 && num <= 18) || (num >= 43 && num <= 48)) candidates.push("RIGHT", "RIGHT_BITE");
+    if ((num >= 23 && num <= 28) || (num >= 33 && num <= 38)) candidates.push("LEFT", "LEFT_BITE");
+    // Close-up as final fallback
+    candidates.push(isUpper ? "UPPER_CLOSE" : "LOWER_CLOSE");
     for (const c of candidates) {
       if (zoneSignedUrls[c]) return c;
       if (zoneSignedUrls[c.toLowerCase()]) return c.toLowerCase();
@@ -599,6 +634,35 @@ export default function ScanResults() {
               <BookmarkPlus className="w-4 h-4 mr-2" />
               Save & Track Progress
             </Button>
+            {/* Delete scan — only available before sending to doctor */}
+            {confirmDelete ? (
+              <div className="rounded-card border border-destructive/30 bg-destructive/5 p-4 flex items-center justify-between">
+                <span className="mono-label text-destructive text-xs">DELETE THIS SCAN PERMANENTLY?</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="mono-label text-xs text-destructive border border-destructive/40 px-3 py-1.5 rounded-pill hover:bg-destructive/10 transition disabled:opacity-50"
+                  >
+                    {deleting ? "DELETING..." : "DELETE"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="mono-label text-xs text-muted-foreground hover:text-foreground transition px-2"
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="w-full flex items-center justify-center gap-1.5 py-3 mono-label text-xs text-muted-foreground hover:text-destructive transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete Scan
+              </button>
+            )}
           </>
         ) : (
           <div className="rounded-card bg-status-success/10 border border-status-success/30 p-4 flex items-center gap-3">

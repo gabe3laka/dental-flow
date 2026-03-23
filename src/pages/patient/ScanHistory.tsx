@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send, Trash2 } from "lucide-react";
 import { logError } from "@/lib/logger";
 import { toast } from "@/hooks/use-toast";
 
@@ -24,6 +24,7 @@ type ScanRow = {
   sent_to_doctor: boolean;
   patient_id: string;
   ai_analysis: any;
+  zones_captured: any;
 };
 
 type ReviewRow = {
@@ -58,8 +59,10 @@ export default function ScanHistory() {
   const [reviews, setReviews] = useState<Record<string, ReviewRow | null>>({});
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [highlightedTag, setHighlightedTag] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  const SCAN_COLUMNS = "id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id, ai_analysis" as const;
+  const SCAN_COLUMNS = "id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id, ai_analysis, zones_captured" as const;
 
   useEffect(() => {
     if (!user) return;
@@ -126,6 +129,33 @@ export default function ScanHistory() {
         .select("review_notes, response_video_url, doctor_id")
         .eq("scan_id", scanId).limit(1).maybeSingle();
       setReviews((r) => ({ ...r, [scanId]: data || null }));
+    }
+  };
+
+  const handleDelete = async (scan: ScanRow) => {
+    setDeleting(scan.id);
+    try {
+      // Delete storage files first
+      const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+      const paths = zones.map((z) => z.path).filter(Boolean) as string[];
+      if (paths.length > 0) {
+        await supabase.storage.from("scan-videos").remove(paths);
+      }
+      // Delete scan record
+      await supabase.from("scans").delete().eq("id", scan.id);
+      // Decrement patient total_scans
+      const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
+      if (pt && (pt as any).total_scans > 0) {
+        await supabase.from("patients").update({ total_scans: (pt as any).total_scans - 1 }).eq("id", scan.patient_id);
+      }
+      setScans((prev) => prev.filter((s) => s.id !== scan.id));
+      setAllScans((prev) => prev.filter((s) => s.id !== scan.id));
+      setConfirmDeleteId(null);
+      toast({ title: "Scan deleted" });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e.message, variant: "destructive" });
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -297,38 +327,67 @@ export default function ScanHistory() {
                   </div>
 
                   {!scan.sent_to_doctor ? (
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const { data: patient } = await supabase
-                              .from("patients").select("assigned_doctor_id").eq("id", scan.patient_id).single();
-                            if (!patient?.assigned_doctor_id) {
-                              toast({ title: "No doctor assigned", description: "Find a doctor in Chat tab first.", variant: "destructive" });
-                              return;
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              const { data: patient } = await supabase
+                                .from("patients").select("assigned_doctor_id").eq("id", scan.patient_id).single();
+                              if (!patient?.assigned_doctor_id) {
+                                toast({ title: "No doctor assigned", description: "Find a doctor in Chat tab first.", variant: "destructive" });
+                                return;
+                              }
+                              await supabase.from("scan_reviews").insert({
+                                scan_id: scan.id, doctor_id: patient.assigned_doctor_id,
+                                review_notes: "Patient submitted for review", action_type: "none" as const,
+                              });
+                              await supabase.from("scans").update({
+                                sent_to_doctor: true, sent_to_doctor_at: new Date().toISOString(),
+                              } as any).eq("id", scan.id);
+                              setScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
+                              setAllScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
+                              toast({ title: "Sent to doctor!", description: "Your doctor will review this scan." });
+                            } catch (err: any) {
+                              toast({ title: "Error", description: err.message, variant: "destructive" });
                             }
-                            await supabase.from("scan_reviews").insert({
-                              scan_id: scan.id, doctor_id: patient.assigned_doctor_id,
-                              review_notes: "Patient submitted for review", action_type: "none" as const,
-                            });
-                            await supabase.from("scans").update({
-                              sent_to_doctor: true, sent_to_doctor_at: new Date().toISOString(),
-                            } as any).eq("id", scan.id);
-                            setScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
-                            setAllScans((prev) => prev.map((s) => s.id === scan.id ? { ...s, sent_to_doctor: true } : s));
-                            toast({ title: "Sent to doctor!", description: "Your doctor will review this scan." });
-                          } catch (err: any) {
-                            toast({ title: "Error", description: err.message, variant: "destructive" });
-                          }
-                        }}
-                        size="sm" className="rounded-pill mono-label bg-primary text-primary-foreground"
-                      >
-                        <Send className="w-3 h-3 mr-1" />Send to Doctor
-                      </Button>
-                      <Button onClick={() => navigate(`/patient/scans/${scan.id}/results`)} size="sm" variant="outline" className="rounded-pill mono-label">
-                        View Results
-                      </Button>
+                          }}
+                          size="sm" className="rounded-pill mono-label bg-primary text-primary-foreground"
+                        >
+                          <Send className="w-3 h-3 mr-1" />Send to Doctor
+                        </Button>
+                        <Button onClick={() => navigate(`/patient/scans/${scan.id}/results`)} size="sm" variant="outline" className="rounded-pill mono-label">
+                          View Results
+                        </Button>
+                      </div>
+                      {/* Delete — only for unsent scans */}
+                      {confirmDeleteId === scan.id ? (
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="mono-label text-destructive text-[10px]">DELETE THIS SCAN?</span>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDelete(scan); }}
+                            disabled={deleting === scan.id}
+                            className="mono-label text-[10px] text-destructive border border-destructive/40 px-2 py-0.5 rounded-pill hover:bg-destructive/10 transition disabled:opacity-50"
+                          >
+                            {deleting === scan.id ? "DELETING..." : "YES, DELETE"}
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                            className="mono-label text-[10px] text-muted-foreground hover:text-foreground transition"
+                          >
+                            CANCEL
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(scan.id); }}
+                          className="flex items-center gap-1 mono-label text-[10px] text-muted-foreground hover:text-destructive transition pt-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          DELETE SCAN
+                        </button>
+                      )}
                     </div>
                   ) : reviews[scan.id] ? (
                     <div className="space-y-2">

@@ -23,17 +23,21 @@ interface ScanPhotoGridProps {
   className?: string;
 }
 
+// Canonical zone label map — covers both standard scan names and 3D+ names (single source of truth)
 const ZONE_LABELS: Record<string, string> = {
-  upper: "UPPER",
-  lower: "LOWER",
-  left: "LEFT",
-  right: "RIGHT",
-  front: "FRONT",
-  "zone-0": "UPPER",
-  "zone-1": "LOWER",
-  "zone-2": "LEFT",
-  "zone-3": "RIGHT",
-  "zone-4": "FRONT",
+  // Standard scan zones
+  upper: "UPPER", lower: "LOWER", left: "LEFT", right: "RIGHT", front: "FRONT",
+  UPPER: "UPPER", LOWER: "LOWER", LEFT: "LEFT", RIGHT: "RIGHT", FRONT: "FRONT",
+  // 3D+ scan zones
+  front_smile: "FRONT SMILE", FRONT_SMILE: "FRONT SMILE",
+  upper_arch: "UPPER ARCH",   UPPER_ARCH: "UPPER ARCH",
+  lower_arch: "LOWER ARCH",   LOWER_ARCH: "LOWER ARCH",
+  left_bite: "LEFT BITE",     LEFT_BITE: "LEFT BITE",
+  right_bite: "RIGHT BITE",   RIGHT_BITE: "RIGHT BITE",
+  upper_close: "UPPER CLOSE", UPPER_CLOSE: "UPPER CLOSE",
+  lower_close: "LOWER CLOSE", LOWER_CLOSE: "LOWER CLOSE",
+  // Fallback index-based keys
+  "zone-0": "UPPER", "zone-1": "LOWER", "zone-2": "LEFT", "zone-3": "RIGHT", "zone-4": "FRONT",
 };
 
 export function ScanPhotoGrid({ scanId, zonesCaptured, annotations, className }: ScanPhotoGridProps) {
