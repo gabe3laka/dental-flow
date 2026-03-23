@@ -4,49 +4,66 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { Loader2, FlipHorizontal } from "lucide-react";
+import { Loader2, FlipHorizontal, Camera, Crosshair, Sparkles } from "lucide-react";
 
 /* ─── Zone config ─── */
 const ZONES = [
-  { id: "FRONT_SMILE", label: "Front Smile",  instruction: "Show all front teeth, lips apart, camera level" },
+  { id: "FRONT_SMILE", label: "Front Smile",  instruction: "Face camera straight — show all front teeth, lips apart" },
   { id: "UPPER_ARCH",  label: "Upper Arch",   instruction: "Tilt head back, open wide — upper teeth facing camera" },
   { id: "LOWER_ARCH",  label: "Lower Arch",   instruction: "Tilt chin down, open wide — lower teeth facing camera" },
-  { id: "LEFT_BITE",   label: "Left Bite",    instruction: "Turn slightly left, show left side bite" },
-  { id: "RIGHT_BITE",  label: "Right Bite",   instruction: "Turn slightly right, show right side bite" },
-  { id: "UPPER_CLOSE", label: "Upper Close",  instruction: "Close-up of upper front teeth and gumline" },
-  { id: "LOWER_CLOSE", label: "Lower Close",  instruction: "Close-up of lower front teeth and gumline" },
+  { id: "LEFT_BITE",   label: "Left Bite",    instruction: "Turn slightly left — show left side bite" },
+  { id: "RIGHT_BITE",  label: "Right Bite",   instruction: "Turn slightly right — show right side bite" },
+  { id: "UPPER_CLOSE", label: "Upper Close",  instruction: "Move closer — show upper front teeth and gumline" },
+  { id: "LOWER_CLOSE", label: "Lower Close",  instruction: "Move closer — show lower front teeth and gumline" },
 ];
 
-const STABLE_HOLD_MS = 3000;    // auto-capture after 3s steady hold
-const QUALITY_INTERVAL_MS = 150;
-const MOTION_THRESHOLD = 18;    // pixel-diff threshold
-const SAMPLE_SIZE = 32;         // 32×32 canvas for brightness/motion
+/* ─── Target positions per zone (% of screen, where user should align their teeth) ─── */
+const ZONE_TARGETS: Record<string, { x: number; y: number }> = {
+  FRONT_SMILE:  { x: 50, y: 50 },  // center
+  UPPER_ARCH:   { x: 50, y: 35 },  // upper-center — tilt back
+  LOWER_ARCH:   { x: 50, y: 65 },  // lower-center — chin down
+  LEFT_BITE:    { x: 35, y: 50 },  // left — turn right
+  RIGHT_BITE:   { x: 65, y: 50 },  // right — turn left
+  UPPER_CLOSE:  { x: 50, y: 42 },  // center-upper
+  LOWER_CLOSE:  { x: 50, y: 58 },  // center-lower
+};
 
-/* ─── StabilityRing ─── */
-function StabilityRing({ progress, active }: { progress: number; active: boolean }) {
-  const r = 36;
+const STABLE_HOLD_MS = 3000;
+const QUALITY_INTERVAL_MS = 150;
+const MOTION_THRESHOLD = 18;
+const SAMPLE_SIZE = 32;
+
+/* ─── TargetDot ─── */
+// Blue = seeking alignment, Green = aligned + filling, Full green = captured
+function TargetDot({ progress, active, zoneCaptured }: { progress: number; active: boolean; zoneCaptured: boolean }) {
+  const r = 28;
   const circ = 2 * Math.PI * r;
   const dash = circ * Math.min(progress, 1);
-  const color = active ? (progress > 0.99 ? "#4ade80" : "#ffffff") : "rgba(255,255,255,0.2)";
+  const ringColor = zoneCaptured ? "#4ade80" : active ? "#4ade80" : "#3b82f6";
+  const bgColor   = zoneCaptured ? "rgba(74,222,128,0.22)" : active ? "rgba(74,222,128,0.12)" : "rgba(59,130,246,0.15)";
 
   return (
-    <div className="relative w-24 h-24 flex items-center justify-center">
-      <svg className="-rotate-90 absolute inset-0" width="96" height="96" viewBox="0 0 96 96">
-        <circle cx="48" cy="48" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="3" />
+    <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
+      <div
+        className="absolute inset-0 rounded-full transition-all duration-300"
+        style={{ background: bgColor }}
+      />
+      <svg className="-rotate-90 absolute inset-0" width="72" height="72" viewBox="0 0 72 72">
+        <circle cx="36" cy="36" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2.5" />
         <circle
-          cx="48" cy="48" r={r} fill="none"
-          stroke={color}
-          strokeWidth="3"
+          cx="36" cy="36" r={r} fill="none"
+          stroke={ringColor}
+          strokeWidth="2.5"
           strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={circ - dash}
-          style={{ transition: "stroke-dashoffset 0.1s linear, stroke 0.2s" }}
+          style={{ transition: "stroke-dashoffset 0.1s linear, stroke 0.25s" }}
         />
       </svg>
-      {/* Center dot */}
-      <div className={`w-4 h-4 rounded-full border-2 transition-colors ${
-        active ? "border-white bg-white/30" : "border-white/30 bg-transparent"
-      }`} />
+      <div
+        className="w-3 h-3 rounded-full transition-all duration-300"
+        style={{ background: ringColor, opacity: active || zoneCaptured ? 1 : 0.55 }}
+      />
     </div>
   );
 }
@@ -78,6 +95,7 @@ export default function ScanCapture3DPlus() {
   const [stableMs, setStableMs] = useState(0);
   const [brightnessOk, setBrightnessOk] = useState(false);
   const [motionOk, setMotionOk] = useState(false);
+  const [capturedFlash, setCapturedFlash] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -88,7 +106,6 @@ export default function ScanCapture3DPlus() {
   const capturedRef = useRef(captured);
   const currentZoneRef = useRef(currentZone);
 
-  // Keep refs in sync
   useEffect(() => { capturedRef.current = captured; }, [captured]);
   useEffect(() => { currentZoneRef.current = currentZone; }, [currentZone]);
 
@@ -140,18 +157,14 @@ export default function ScanCapture3DPlus() {
     ctx.drawImage(video, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
     const data = ctx.getImageData(0, 0, SAMPLE_SIZE, SAMPLE_SIZE).data;
 
-    // Brightness
     let sum = 0;
     for (let i = 0; i < data.length; i += 4) sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
     const brightness = sum / (SAMPLE_SIZE * SAMPLE_SIZE);
     const bOk = brightness > 35 && brightness < 225;
 
-    // Motion
     let motionSum = 0;
     if (prevFrameRef.current) {
-      for (let i = 0; i < data.length; i += 4) {
-        motionSum += Math.abs(data[i] - prevFrameRef.current[i]);
-      }
+      for (let i = 0; i < data.length; i += 4) motionSum += Math.abs(data[i] - prevFrameRef.current[i]);
     }
     const motionScore = motionSum / (SAMPLE_SIZE * SAMPLE_SIZE);
     const mOk = prevFrameRef.current ? motionScore < MOTION_THRESHOLD : false;
@@ -166,7 +179,6 @@ export default function ScanCapture3DPlus() {
       stableAccRef.current += QUALITY_INTERVAL_MS;
       setStableMs(stableAccRef.current);
       if (stableAccRef.current >= STABLE_HOLD_MS) {
-        // Auto-capture!
         stableAccRef.current = 0;
         setStableMs(0);
         triggerCapture();
@@ -203,6 +215,10 @@ export default function ScanCapture3DPlus() {
     const blob = await captureFrame();
     const blobToStore = blob ?? new Blob();
 
+    // Flash effect
+    setCapturedFlash(true);
+    setTimeout(() => setCapturedFlash(false), 350);
+
     setCaptured((prev) => {
       const next = [...prev];
       next[zone] = blobToStore;
@@ -218,14 +234,12 @@ export default function ScanCapture3DPlus() {
       });
     }
 
-    // Advance to next zone or finish
     if (zone < ZONES.length - 1) {
       setCurrentZone(zone + 1);
       stableAccRef.current = 0;
       setStableMs(0);
       prevFrameRef.current = null;
     } else {
-      // All done — stop quality loop and start submission
       if (qualityTimerRef.current) clearInterval(qualityTimerRef.current);
       setPhase("processing");
     }
@@ -240,7 +254,6 @@ export default function ScanCapture3DPlus() {
   /* ── Submit ── */
   useEffect(() => {
     if (phase !== "processing") return;
-    // Give React a tick to render processing screen, then submit
     const timer = setTimeout(() => handleSubmit(), 300);
     return () => clearTimeout(timer);
   }, [phase]); // eslint-disable-line
@@ -299,7 +312,7 @@ export default function ScanCapture3DPlus() {
     } catch (e: any) {
       logError(e, { operation: "ScanCapture3DPlus/submit", userId: user?.id });
       toast({ title: "Submission failed", description: e.message, variant: "destructive" });
-      setPhase("capture"); // Let user retry
+      setPhase("capture");
     } finally {
       setSubmitting(false);
     }
@@ -311,22 +324,37 @@ export default function ScanCapture3DPlus() {
   if (phase === "intro") {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 py-12 max-w-[480px] mx-auto">
-        <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center mb-6">
+        <span className="mono-label text-primary text-[10px] tracking-widest mb-3">DENTAL MAPPING</span>
+        <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center mb-4">
           <span className="font-mono text-primary text-2xl font-bold">3D+</span>
         </div>
-        <h1 className="font-mono text-2xl font-bold text-foreground mb-2">3D+ Scan</h1>
-        <p className="text-muted-foreground text-sm text-center mb-8 leading-relaxed">
-          Guided {ZONES.length}-zone capture. Hold steady at each position — the camera auto-captures when stable. AI generates a personalized 3D dental map.
+        <h1 className="font-mono text-2xl font-bold text-foreground mb-3">3D+ Scan</h1>
+        <p className="text-muted-foreground text-sm text-center mb-8 leading-relaxed max-w-xs">
+          Follow the on-screen targets to capture {ZONES.length} guided angles. Hold steady — the camera captures automatically.
         </p>
 
-        {/* Zone preview */}
-        <div className="w-full mb-8 space-y-2">
-          {ZONES.map((z, i) => (
-            <div key={z.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
-              <span className="font-mono text-xs text-muted-foreground w-4">{i + 1}</span>
-              <div className="flex-1">
-                <span className="font-mono text-xs text-foreground">{z.label.toUpperCase()}</span>
-                <p className="text-[10px] text-muted-foreground mt-0.5">{z.instruction}</p>
+        {/* 3-step guide */}
+        <div className="flex items-start justify-center gap-6 mb-8 w-full">
+          {[
+            { Icon: Crosshair, label: "Point at target" },
+            { Icon: Camera,    label: "Hold steady" },
+            { Icon: Sparkles,  label: "AI builds map" },
+          ].map(({ Icon, label }, i) => (
+            <div key={i} className="flex flex-col items-center gap-2 flex-1">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <Icon className="w-4 h-4 text-primary" />
+              </div>
+              <span className="mono-label text-muted-foreground text-center" style={{ fontSize: 9 }}>{label.toUpperCase()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Zone dots preview */}
+        <div className="flex items-center gap-2 mb-8">
+          {ZONES.map((_, i) => (
+            <div key={i} className="flex flex-col items-center gap-1">
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
+                <span className="font-mono text-primary text-[10px]">{i + 1}</span>
               </div>
             </div>
           ))}
@@ -336,7 +364,7 @@ export default function ScanCapture3DPlus() {
           onClick={() => setPhase("capture")}
           className="w-full py-4 rounded-full bg-primary text-primary-foreground font-mono text-sm tracking-widest uppercase"
         >
-          Start Capture
+          Start Scan
         </button>
         <button
           onClick={() => navigate(-1)}
@@ -351,16 +379,33 @@ export default function ScanCapture3DPlus() {
   /* Processing */
   if (phase === "processing") {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-6 px-8">
-        <div className="w-20 h-20 rounded-full bg-primary/20 flex items-center justify-center">
-          <Loader2 className="w-10 h-10 text-primary animate-spin" />
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-8 px-8">
+        {/* Animated orb */}
+        <div className="relative w-28 h-28">
+          <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" style={{ animationDuration: "1.5s" }} />
+          <div className="absolute inset-3 rounded-full bg-primary/25 animate-pulse" />
+          <div className="absolute inset-6 rounded-full bg-primary/40 flex items-center justify-center">
+            <span className="font-mono text-primary text-xs font-bold">3D+</span>
+          </div>
         </div>
-        <span className="font-mono text-white text-lg tracking-widest">GENERATING 3D+ MAP</span>
-        <p className="text-white/50 text-sm text-center leading-relaxed">
-          AI is analyzing your {ZONES.length} scan zones.{"\n"}This takes about 30 seconds.
-        </p>
-        <span className="font-mono text-white/25 text-[10px] tracking-widest">
-          Feel free to leave the app and come back
+
+        <div className="text-center space-y-2">
+          <span className="font-mono text-white text-base tracking-widest block">GENERATING 3D+ MAP</span>
+          <p className="text-white/40 text-xs tracking-wide">AI is analyzing {ZONES.length} scan zones</p>
+        </div>
+
+        {/* Step labels */}
+        <div className="space-y-3 w-full max-w-[240px]">
+          {["Uploading scan photos", "Running AI analysis", "Building 3D dental model"].map((step, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Loader2 className="w-3 h-3 text-primary/50 animate-spin flex-shrink-0" style={{ animationDelay: `${i * 0.3}s` }} />
+              <span className="font-mono text-white/25 text-[10px] tracking-wide">{step.toUpperCase()}</span>
+            </div>
+          ))}
+        </div>
+
+        <span className="font-mono text-white/15 text-[9px] tracking-widest text-center">
+          Feel free to leave — we'll notify you when ready
         </span>
       </div>
     );
@@ -369,6 +414,8 @@ export default function ScanCapture3DPlus() {
   /* Capture */
   const qualityPass = brightnessOk && motionOk;
   const progress = stableMs / STABLE_HOLD_MS;
+  const target = ZONE_TARGETS[ZONES[currentZone].id] ?? { x: 50, y: 50 };
+  const zoneCaptured = !!captured[currentZone];
 
   return (
     <div className="relative w-full h-screen bg-black overflow-hidden">
@@ -379,6 +426,12 @@ export default function ScanCapture3DPlus() {
         playsInline
         muted
         style={{ display: cameraReady ? "block" : "none" }}
+      />
+
+      {/* Capture flash overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none z-50 transition-opacity duration-300"
+        style={{ background: "white", opacity: capturedFlash ? 0.4 : 0 }}
       />
 
       {/* Camera initializing */}
@@ -398,7 +451,7 @@ export default function ScanCapture3DPlus() {
       )}
 
       {/* Framing rectangle */}
-      <div className="absolute inset-[14%] rounded-2xl border border-white/25 pointer-events-none" />
+      <div className="absolute inset-[14%] rounded-2xl border border-white/20 pointer-events-none" />
 
       {/* Corner brackets */}
       {[
@@ -407,15 +460,18 @@ export default function ScanCapture3DPlus() {
         ["bottom-[14%] left-[14%]", "border-b-2 border-l-2"],
         ["bottom-[14%] right-[14%]", "border-b-2 border-r-2"],
       ].map(([pos, border], i) => (
-        <div key={i} className={`absolute ${pos} w-6 h-6 ${border} border-white/70 pointer-events-none`} />
+        <div key={i} className={`absolute ${pos} w-6 h-6 ${border} border-white/60 pointer-events-none`} />
       ))}
 
       {/* Zone label + instruction — top */}
       <div className="absolute top-12 left-0 right-0 text-center pointer-events-none">
-        <span className="font-mono text-white text-sm tracking-widest">
-          {ZONES[currentZone].label.toUpperCase()}
+        <span className="font-mono text-white/55 text-[10px] tracking-widest">
+          {qualityPass ? "HOLD STEADY..." : "POINT AT BLUE TARGET"}
         </span>
-        <p className="text-white/50 text-[11px] mt-1 px-8">
+        <p className="font-mono text-white text-sm tracking-wider mt-0.5">
+          {ZONES[currentZone].label.toUpperCase()}
+        </p>
+        <p className="text-white/40 text-[11px] mt-1 px-10">
           {ZONES[currentZone].instruction}
         </p>
       </div>
@@ -426,10 +482,25 @@ export default function ScanCapture3DPlus() {
         <QualityDot label="STILL" pass={motionOk} />
       </div>
 
-      {/* Stability ring — center */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
-        <StabilityRing progress={progress} active={qualityPass} />
+      {/* Target dot — moves to zone-specific position */}
+      <div
+        className="absolute pointer-events-none transition-all duration-500"
+        style={{
+          left: `${target.x}%`,
+          top: `${target.y}%`,
+          transform: "translate(-50%, -50%)",
+        }}
+      >
+        <TargetDot progress={progress} active={qualityPass} zoneCaptured={zoneCaptured} />
       </div>
+
+      {/* Cancel — top left */}
+      <button
+        onClick={() => navigate(-1)}
+        className="absolute top-12 left-4 z-20 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center"
+      >
+        <span className="text-white text-lg leading-none">×</span>
+      </button>
 
       {/* Camera flip button */}
       {cameraReady && (
@@ -440,19 +511,11 @@ export default function ScanCapture3DPlus() {
             prevFrameRef.current = null;
             setFacingMode((m) => m === "environment" ? "user" : "environment");
           }}
-          className="absolute top-12 right-16 z-20 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center"
+          className="absolute top-12 right-4 z-20 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center"
         >
           <FlipHorizontal className="w-4 h-4 text-white" />
         </button>
       )}
-
-      {/* Cancel — top left */}
-      <button
-        onClick={() => navigate(-1)}
-        className="absolute top-12 left-4 z-20 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center"
-      >
-        <span className="text-white text-lg leading-none">×</span>
-      </button>
 
       {/* Zone progress dots */}
       <div className="absolute bottom-32 left-0 right-0 flex justify-center gap-2.5 pointer-events-none">
@@ -463,7 +526,7 @@ export default function ScanCapture3DPlus() {
               i < currentZone
                 ? "w-2.5 h-2.5 bg-green-400"
                 : i === currentZone
-                  ? "w-3.5 h-3.5 bg-white shadow-[0_0_6px_rgba(255,255,255,0.8)]"
+                  ? "w-3.5 h-3.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]"
                   : "w-2 h-2 bg-white/25"
             }`}
           />
@@ -472,7 +535,7 @@ export default function ScanCapture3DPlus() {
 
       {/* X of N counter */}
       <div className="absolute bottom-[6.5rem] left-0 right-0 text-center pointer-events-none">
-        <span className="font-mono text-white/70 text-xs tracking-widest">
+        <span className="font-mono text-white/65 text-xs tracking-widest">
           {currentZone + 1} of {ZONES.length}
         </span>
       </div>
@@ -488,19 +551,10 @@ export default function ScanCapture3DPlus() {
       {/* Manual capture fallback */}
       <button
         onClick={handleManualCapture}
-        className="absolute bottom-6 right-6 font-mono text-[9px] text-white/30 hover:text-white/60 transition tracking-widest"
+        className="absolute bottom-6 right-6 font-mono text-[9px] text-white/25 hover:text-white/60 transition tracking-widest"
       >
         TAP TO CAPTURE
       </button>
-
-      {/* Hold-still hint when quality not passing */}
-      {cameraReady && !qualityPass && (
-        <div className="absolute bottom-6 left-0 right-0 flex justify-center pointer-events-none">
-          <span className="font-mono text-[9px] text-white/30 tracking-widest">
-            {!brightnessOk ? "MORE LIGHT NEEDED" : "HOLD STILL"}
-          </span>
-        </div>
-      )}
     </div>
   );
 }
