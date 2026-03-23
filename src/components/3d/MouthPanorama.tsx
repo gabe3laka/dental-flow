@@ -1,12 +1,22 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, useTexture } from "@react-three/drei";
+import { OrbitControls, useTexture, Html } from "@react-three/drei";
 import * as THREE from "three";
 import { Loader2 } from "lucide-react";
 import { ZONE_CONFIGS, SPHERE_R, zoneTransform, type ZoneConfig } from "@/lib/zoneConfigs";
 
+/* ── Zone detection types passed in for AI overlay mode ── */
+export interface ZoneAnnotations {
+  /** Unique condition type names detected in teeth mapped to this zone */
+  types: string[];
+  /** Worst status across teeth in this zone */
+  status: "attention" | "deviation" | "on_track";
+}
+
 export interface MouthPanoramaProps {
   zoneSignedUrls: Record<string, string>;
+  /** Optional per-zone AI detections — enables floating annotation markers */
+  annotationsByZone?: Record<string, ZoneAnnotations>;
   className?: string;
   height?: number | string;
 }
@@ -65,7 +75,60 @@ function ZonePlane({ cfg, url }: { cfg: ZoneConfig; url: string | undefined }) {
   );
 }
 
-function HintOverlay() {
+/* ── Floating AI detection marker rendered at zone center ── */
+const STATUS_BADGE_COLOR: Record<ZoneAnnotations["status"], string> = {
+  attention: "#ef4444",
+  deviation: "#f59e0b",
+  on_track:  "#22c55e",
+};
+
+function ZoneAnnotationMarker({
+  azDeg,
+  elDeg,
+  ann,
+}: {
+  azDeg: number;
+  elDeg: number;
+  ann: ZoneAnnotations;
+}) {
+  // Position slightly closer than the photo planes (R=4.0) so Html appears in front
+  const position = useMemo(() => {
+    const R = SPHERE_R * 0.80;
+    const az = (azDeg * Math.PI) / 180;
+    const el = (elDeg * Math.PI) / 180;
+    return [
+      R * Math.sin(az) * Math.cos(el),
+      R * Math.sin(el),
+      R * Math.cos(az) * Math.cos(el),
+    ] as [number, number, number];
+  }, [azDeg, elDeg]);
+
+  const dot = STATUS_BADGE_COLOR[ann.status];
+
+  return (
+    <Html position={position} center distanceFactor={5} style={{ pointerEvents: "none" }}>
+      <div
+        style={{
+          background: "rgba(6,10,20,0.82)",
+          border: `1px solid ${dot}55`,
+          borderRadius: 6,
+          padding: "3px 7px",
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+        <span style={{ fontFamily: "monospace", fontSize: 9, color: "rgba(255,255,255,0.85)", letterSpacing: "0.06em" }}>
+          {ann.types.map(t => t.toUpperCase().replace(/_/g, " ")).join(" · ")}
+        </span>
+      </div>
+    </Html>
+  );
+}
+
+function HintOverlay({ label }: { label: string }) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
@@ -78,9 +141,7 @@ function HintOverlay() {
       className="absolute inset-0 flex items-end justify-center pb-4 pointer-events-none z-10 transition-opacity duration-700"
       style={{ opacity: visible ? 1 : 0 }}
     >
-      <span className="font-mono text-white/50 text-[10px] tracking-widest">
-        DRAG TO LOOK AROUND
-      </span>
+      <span className="font-mono text-white/50 text-[10px] tracking-widest">{label}</span>
     </div>
   );
 }
@@ -93,7 +154,9 @@ function PanoramaLoader() {
   );
 }
 
-export function MouthPanorama({ zoneSignedUrls, className, height = 320 }: MouthPanoramaProps) {
+export function MouthPanorama({ zoneSignedUrls, annotationsByZone, className, height = 320 }: MouthPanoramaProps) {
+  const hasAnnotations = !!annotationsByZone && Object.keys(annotationsByZone).length > 0;
+
   return (
     <div
       className={`relative w-full overflow-hidden bg-[#060a14] ${className ?? ""}`}
@@ -124,9 +187,21 @@ export function MouthPanorama({ zoneSignedUrls, className, height = 320 }: Mouth
               url={zoneSignedUrls[cfg.id] ?? zoneSignedUrls[cfg.id.toLowerCase()]}
             />
           ))}
+          {hasAnnotations && ZONE_CONFIGS.map((cfg) => {
+            const ann = annotationsByZone![cfg.id];
+            if (!ann) return null;
+            return (
+              <ZoneAnnotationMarker
+                key={cfg.id}
+                azDeg={cfg.azDeg}
+                elDeg={cfg.elDeg}
+                ann={ann}
+              />
+            );
+          })}
         </Canvas>
       </Suspense>
-      <HintOverlay />
+      <HintOverlay label={hasAnnotations ? "DRAG · AI DETECTIONS SHOWN" : "DRAG TO LOOK AROUND"} />
     </div>
   );
 }

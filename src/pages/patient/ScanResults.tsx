@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization, type ToothStatus, type ToothDetection, type ToothGeometry, DETECTION_MATERIALS } from "@/components/3d/TeethVisualization";
-import { MouthPanorama } from "@/components/3d/MouthPanorama";
+import { MouthPanorama, type ZoneAnnotations } from "@/components/3d/MouthPanorama";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -14,6 +14,23 @@ import { logError } from "@/lib/logger";
 import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan, Trash2, Camera } from "lucide-react";
 
 const ZONE_LABEL_ORDER = ["FRONT_SMILE", "UPPER_ARCH", "LOWER_ARCH", "LEFT_BITE", "RIGHT_BITE", "UPPER_CLOSE", "LOWER_CLOSE"];
+
+const STATUS_BADGE_DOT: Record<string, string> = {
+  attention: "#ef4444",
+  deviation: "#f59e0b",
+  on_track:  "#22c55e",
+};
+
+/** Which FDI tooth IDs are most visible in each zone photo */
+const ZONE_TOOTH_MAP: Record<string, string[]> = {
+  FRONT_SMILE: ["T11","T21","T12","T22","T41","T31","T42","T32"],
+  UPPER_ARCH:  ["T11","T12","T13","T14","T15","T16","T17","T18","T21","T22","T23","T24","T25","T26","T27","T28"],
+  LOWER_ARCH:  ["T41","T42","T43","T44","T45","T46","T47","T48","T31","T32","T33","T34","T35","T36","T37","T38"],
+  LEFT_BITE:   ["T23","T24","T25","T26","T27","T28","T33","T34","T35","T36","T37","T38"],
+  RIGHT_BITE:  ["T13","T14","T15","T16","T17","T18","T43","T44","T45","T46","T47","T48"],
+  UPPER_CLOSE: ["T11","T12","T13","T21","T22","T23"],
+  LOWER_CLOSE: ["T41","T42","T43","T31","T32","T33"],
+};
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -357,6 +374,23 @@ export default function ScanResults() {
     return { ...toothData, ...highlighted };
   })() : toothData;
 
+  // Build per-zone AI annotations for the MouthPanorama AI ANALYSIS overlay
+  const annotationsByZone: Record<string, ZoneAnnotations> = {};
+  for (const [zoneId, toothIds] of Object.entries(ZONE_TOOTH_MAP)) {
+    const types = new Set<string>();
+    let worstStatus: ZoneAnnotations["status"] = "on_track";
+    for (const tid of toothIds) {
+      const dets = detectionDataMap[tid] ?? [];
+      for (const d of dets) types.add(d.type);
+      const s = activeToothData[tid];
+      if (s === "attention") worstStatus = "attention";
+      else if (s === "deviation" && worstStatus !== "attention") worstStatus = "deviation";
+    }
+    if (types.size > 0) {
+      annotationsByZone[zoneId] = { types: Array.from(types), status: worstStatus };
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
       {/* Header */}
@@ -569,72 +603,73 @@ export default function ScanResults() {
             </span>
           </div>
 
-          {/* Mode toggle: SCAN CONTEXT / AI ANALYSIS */}
+          {/* Mode toggle: PHOTO MAP / AI ANALYSIS */}
           <div className="flex border-b border-border">
             {([true, false] as const).map((isPhoto) => (
               <button
                 key={String(isPhoto)}
-                onClick={() => setShowPhotoContext(isPhoto)}
+                onClick={() => { setShowPhotoContext(isPhoto); setActiveZone(null); }}
                 className={`flex-1 py-2 mono-label text-[10px] transition border-b-2 -mb-px ${
                   showPhotoContext === isPhoto
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground"
                 }`}
               >
-                {isPhoto ? "SCAN CONTEXT" : "AI ANALYSIS"}
+                {isPhoto ? "PHOTO MAP" : "AI ANALYSIS"}
               </button>
             ))}
           </div>
 
-          {/* 3D model — with photo backdrops in SCAN CONTEXT mode */}
-          <div className="px-3 pt-3 pb-3 bg-card dark">
-            <TeethVisualization
-              compact
-              showLegend
-              showToggle={false}
-              toothData={activeToothData}
-              detectionData={detectionDataMap}
-              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
-              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
-              zonePhotoUrls={zoneSignedUrls}
-              showPhotoBackdrops={showPhotoContext}
-              targetZone={activeZone ?? undefined}
+          {/* Both modes use real mouth photos — no generic model in 3D+ */}
+          {Object.keys(zoneSignedUrls).length > 0 ? (
+            <MouthPanorama
+              zoneSignedUrls={zoneSignedUrls}
+              annotationsByZone={showPhotoContext ? undefined : (Object.keys(annotationsByZone).length > 0 ? annotationsByZone : undefined)}
+              height={300}
             />
-          </div>
+          ) : (
+            <div className="flex items-center justify-center h-[300px] bg-[#060a14]">
+              <p className="mono-label text-muted-foreground text-[10px]">NO ZONE PHOTOS CAPTURED</p>
+            </div>
+          )}
 
-          {/* Source photo evidence strip — like Polycam's reference photos */}
+          {/* Zone photo strip */}
           {Object.keys(zoneSignedUrls).length > 0 && (
             <div className="px-3 py-2.5 border-t border-border">
               <div className="flex items-center justify-between mb-2">
-                <span className="mono-label text-muted-foreground text-[9px]">SOURCE PHOTOS</span>
+                <span className="mono-label text-muted-foreground text-[9px]">CAPTURED ZONES</span>
                 <button
                   onClick={() => setPanoramaOpen(true)}
                   className="mono-label text-[9px] text-primary flex items-center gap-1 hover:opacity-80 transition"
                 >
                   <Camera className="w-2.5 h-2.5" />
-                  360 VIEW
+                  FULL SCREEN
                 </button>
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {ZONE_LABEL_ORDER.map((zoneId) => {
                   const url = zoneSignedUrls[zoneId];
                   if (!url) return null;
-                  const isActive = activeZone === zoneId;
+                  const hasIssue = !!annotationsByZone[zoneId];
                   return (
-                    <button
-                      key={zoneId}
-                      onClick={() => setActiveZone(isActive ? null : zoneId)}
-                      className={`flex-shrink-0 w-16 text-left transition-opacity ${isActive ? "opacity-100" : "opacity-60 hover:opacity-100"}`}
-                    >
-                      <img
-                        src={url}
-                        alt={zoneId}
-                        className={`w-16 h-12 object-cover rounded-md border transition-colors ${isActive ? "border-primary" : "border-border"}`}
-                      />
-                      <span className={`mono-label text-[8px] block text-center mt-0.5 truncate ${isActive ? "text-primary" : "text-muted-foreground"}`}>
+                    <div key={zoneId} className="flex-shrink-0 w-16">
+                      <div className="relative">
+                        <img
+                          src={url}
+                          alt={zoneId}
+                          className="w-16 h-12 object-cover rounded-md border border-border"
+                        />
+                        {hasIssue && !showPhotoContext && (
+                          <div
+                            className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                            style={{ background: STATUS_BADGE_DOT[annotationsByZone[zoneId].status] }}
+                          />
+                        )}
+                      </div>
+                      <span className="mono-label text-[8px] text-muted-foreground block text-center mt-0.5 truncate">
                         {zoneId.replace(/_/g, " ")}
                       </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
