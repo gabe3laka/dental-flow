@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization, type ToothStatus, type ToothDetection, type ToothGeometry, DETECTION_MATERIALS } from "@/components/3d/TeethVisualization";
+import { MouthPanorama } from "@/components/3d/MouthPanorama";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -82,6 +83,7 @@ export default function ScanResults() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [panoramaTab, setPanoramaTab] = useState<"panorama" | "3dmap">("panorama");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
 
@@ -550,23 +552,38 @@ export default function ScanResults() {
       {/* 3D+ view */}
       {viewMode === "3dplus" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
-          {/* Header */}
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-border">
-            <span className="mono-label text-primary text-xs">3D+ MAP</span>
-            <span className="mono-label text-[9px] px-2 py-0.5 rounded-full bg-primary/15 text-primary">AI-PERSONALIZED</span>
+          {/* Sub-tab toggle */}
+          <div className="flex border-b border-border">
+            {(["panorama", "3dmap"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setPanoramaTab(tab)}
+                className={`flex-1 py-2.5 mono-label text-[10px] transition border-b-2 -mb-px ${
+                  panoramaTab === tab
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground"
+                }`}
+              >
+                {tab === "panorama" ? "360 VIEW" : "3D MAP"}
+              </button>
+            ))}
           </div>
-          {/* Visualization */}
-          <div className="px-3 pt-3 pb-3 bg-card dark">
-            <TeethVisualization
-              compact
-              showLegend
-              showToggle={false}
-              toothData={activeToothData}
-              detectionData={detectionDataMap}
-              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
-              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
-            />
-          </div>
+          {/* Panorama or 3D model */}
+          {panoramaTab === "panorama" ? (
+            <MouthPanorama zoneSignedUrls={zoneSignedUrls} />
+          ) : (
+            <div className="px-3 pt-3 pb-3 bg-card dark">
+              <TeethVisualization
+                compact
+                showLegend
+                showToggle={false}
+                toothData={activeToothData}
+                detectionData={detectionDataMap}
+                toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
+                onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
+              />
+            </div>
+          )}
           {/* Zone count + refresh */}
           {zones.length > 0 && (
             <div className="px-4 pb-3 flex items-center justify-between">
