@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import type { ToothStatus } from "@/components/3d/TeethVisualization";
 import { useParams, useNavigate } from "react-router-dom";
 import { PillNav } from "@/components/ui/pill-nav";
@@ -12,7 +12,7 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
-const tabs = [
+const BASE_TABS = [
   { id: "analysis", label: "ANALYSIS" },
   { id: "history", label: "HISTORY" },
   { id: "notes", label: "NOTES" },
@@ -47,6 +47,8 @@ export default function ScanReview() {
   const [aiAnalysis, setAiAnalysis] = useState<any[]>([]);
   const [copilotNote, setCopilotNote] = useState<string | null>(null);
   const [copilotLoading, setCopilotLoading] = useState(false);
+  const [videoSignedUrl, setVideoSignedUrl] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (!scanId) return;
@@ -94,6 +96,16 @@ export default function ScanReview() {
             .eq("user_id", patientData.user_id)
             .maybeSingle();
           setPatientName(profile?.full_name || "Patient");
+        }
+
+        // Load video signed URL if available
+        if (scanData.video_url) {
+          try {
+            const { data: vidData } = await supabase.storage
+              .from("scan-videos")
+              .createSignedUrl(scanData.video_url, 3600);
+            if (vidData?.signedUrl) setVideoSignedUrl(vidData.signedUrl);
+          } catch { /* non-blocking */ }
         }
       } catch (e) { logError(e, { operation: "ScanReview/loadData", userId: user?.id }); }
       finally { setLoading(false); }
@@ -188,6 +200,11 @@ export default function ScanReview() {
       toast({ title: "Error sharing scan", description: e.message, variant: "destructive" });
     }
   };
+
+  const tabs = useMemo(() => {
+    if (videoSignedUrl) return [...BASE_TABS, { id: "video", label: "VIDEO" }];
+    return BASE_TABS;
+  }, [videoSignedUrl]);
 
   const toothData = useMemo(() => {
     const data: Record<string, ToothStatus> = {};
@@ -411,6 +428,42 @@ export default function ScanReview() {
               >
                 Save Notes
               </Button>
+            </div>
+          )}
+
+          {activeTab === "video" && videoSignedUrl && (
+            <div className="space-y-3">
+              <video
+                ref={videoRef}
+                src={videoSignedUrl}
+                controls
+                className="w-full rounded-lg border border-border bg-black"
+                style={{ maxHeight: 320 }}
+              />
+              <button
+                onClick={() => {
+                  const v = videoRef.current;
+                  if (!v) return;
+                  const canvas = document.createElement("canvas");
+                  canvas.width = v.videoWidth;
+                  canvas.height = v.videoHeight;
+                  canvas.getContext("2d")!.drawImage(v, 0, 0);
+                  canvas.toBlob((blob) => {
+                    if (!blob) return;
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `scan-still-${Date.now()}.jpg`;
+                    a.click();
+                    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+                  }, "image/jpeg", 0.92);
+                }}
+                className="w-full py-2.5 rounded-full border border-border mono-label text-xs text-foreground hover:bg-primary/10 hover:border-primary/30 transition"
+              >
+                CAPTURE STILL FROM VIDEO
+              </button>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Pause the video at any point, then tap Capture Still to save that frame.
+              </p>
             </div>
           )}
 

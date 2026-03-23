@@ -31,6 +31,24 @@ export const EXTERIOR_ZONE_CONFIGS: ZoneConfig[] = ZONE_CONFIGS.map((cfg) => ({
 export const SPHERE_R = 5;
 export const BACKDROP_R = 7;
 
+/**
+ * Given a fractional position 0–1 through the guided video sweep
+ * (FRONT_SMILE at 0 → LOWER_CLOSE at 1), returns the interpolated
+ * azDeg + elDeg on the interior sphere for dense-frame placement.
+ */
+export function interpolateDenseFrameAngle(fraction: number): { azDeg: number; elDeg: number } {
+  const n = ZONE_CONFIGS.length - 1;
+  const segF = Math.max(0, Math.min(fraction * n, n - 0.001));
+  const seg = Math.floor(segF);
+  const t = segF - seg;
+  const from = ZONE_CONFIGS[seg];
+  const to   = ZONE_CONFIGS[seg + 1];
+  return {
+    azDeg: from.azDeg + (to.azDeg - from.azDeg) * t,
+    elDeg: from.elDeg + (to.elDeg - from.elDeg) * t,
+  };
+}
+
 /** Converts azimuth + elevation angles to a plane's 3D position and Euler rotation
  *  so the front face points toward the origin (toward the viewer). */
 export function zoneTransform(

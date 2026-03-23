@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization, type ToothStatus, type ToothDetection, type ToothGeometry, DETECTION_MATERIALS } from "@/components/3d/TeethVisualization";
-import { MouthPanorama, type ZoneAnnotations } from "@/components/3d/MouthPanorama";
+import { MouthPanorama, type ZoneAnnotations, type DenseFrame } from "@/components/3d/MouthPanorama";
+import { interpolateDenseFrameAngle } from "@/lib/zoneConfigs";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
@@ -42,6 +43,7 @@ interface ScanData {
   status: string;
   zones_captured: any;
   patient_id: string;
+  video_url?: string | null;
 }
 
 /** Map AI analysis teeth array to toothData for 3D visualization */
@@ -98,6 +100,9 @@ export default function ScanResults() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
+  const [denseFrameUrls, setDenseFrameUrls] = useState<DenseFrame[]>([]);
+  const [videoSignedUrl, setVideoSignedUrl] = useState<string | null>(null);
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
   const [analysisPolling, setAnalysisPolling] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -115,7 +120,7 @@ export default function ScanResults() {
       try {
         const { data } = await supabase
           .from("scans")
-          .select("id, quality_score, ai_analysis, detection_tags, sent_to_doctor, status, zones_captured, patient_id")
+          .select("id, quality_score, ai_analysis, detection_tags, sent_to_doctor, status, zones_captured, patient_id, video_url")
           .eq("id", scanId)
           .single();
         if (data) {
@@ -124,6 +129,7 @@ export default function ScanResults() {
             detection_tags: Array.isArray(data.detection_tags) ? (data.detection_tags as string[]) : null,
             sent_to_doctor: (data as any).sent_to_doctor ?? false,
             ai_analysis: (data as any).ai_analysis,
+            video_url: (data as any).video_url ?? null,
           };
           setScan(scanData);
           // Start polling if ai_analysis is empty
@@ -173,22 +179,47 @@ export default function ScanResults() {
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [analysisPolling, scanId]);
 
-  // Load signed URLs for zone images (used in 3D tooth photo panel)
+  // Load signed URLs for zone images, dense frames, and video
   useEffect(() => {
     if (!scan?.zones_captured || !Array.isArray(scan.zones_captured)) return;
-    const zones: Array<{ zone: string; path: string }> = scan.zones_captured;
-    if (!zones.length) return;
+    const allZones: Array<{ zone: string; path: string | null; quality?: number }> = scan.zones_captured;
+    if (!allZones.length) return;
     (async () => {
       const urls: Record<string, string> = {};
-      for (const z of zones) {
+      const denseItems: Array<{ fraction: number; path: string }> = [];
+
+      for (const z of allZones) {
+        if (!z.path) continue;
         try {
           const { data } = await supabase.storage.from("scan-videos").createSignedUrl(z.path, 3600);
-          if (data?.signedUrl) urls[z.zone] = data.signedUrl;
+          if (data?.signedUrl) {
+            if (z.zone.startsWith("DENSE_")) {
+              // quality field stores fraction × 1000
+              const fraction = (z.quality ?? 500) / 1000;
+              denseItems.push({ fraction, path: data.signedUrl });
+            } else {
+              urls[z.zone] = data.signedUrl;
+            }
+          }
         } catch { /* skip */ }
       }
       setZoneSignedUrls(urls);
+      setDenseFrameUrls(
+        denseItems.map(({ fraction, path }) => ({
+          ...interpolateDenseFrameAngle(fraction),
+          url: path,
+        }))
+      );
+
+      // Load video signed URL
+      if (scan.video_url) {
+        try {
+          const { data } = await supabase.storage.from("scan-videos").createSignedUrl(scan.video_url, 3600);
+          if (data?.signedUrl) setVideoSignedUrl(data.signedUrl);
+        } catch { /* skip */ }
+      }
     })();
-  }, [scan?.zones_captured]);
+  }, [scan?.zones_captured, scan?.video_url]);
 
   const handleSendToDoctor = async () => {
     if (!scan || !user) return;
@@ -313,7 +344,9 @@ export default function ScanResults() {
 
   const teethData = scan.ai_analysis?.teeth || [];
   const detections = scan.detection_tags || [];
-  const zones = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+  const allZonesCaptured = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+  // Standard zones only (exclude DENSE_* entries added by video capture)
+  const zones = allZonesCaptured.filter((z: any) => !String(z.zone).startsWith("DENSE_"));
   const toothData = aiTeethToToothData(teethData);
 
   // Extract per-tooth detections for 3D overlay
@@ -598,6 +631,7 @@ export default function ScanResults() {
             </div>
             <span className="mono-label text-muted-foreground text-[9px]">
               {zones.length > 0 ? `${zones.length} ZONES` : ""}
+              {denseFrameUrls.length > 0 ? ` · ${denseFrameUrls.length} FRAMES` : ""}
               {teethData.length > 0 ? ` · ${teethData.length} TEETH` : ""}
               {scan.quality_score != null ? ` · ${scan.quality_score}% QUALITY` : ""}
             </span>
@@ -624,6 +658,7 @@ export default function ScanResults() {
           {Object.keys(zoneSignedUrls).length > 0 ? (
             <MouthPanorama
               zoneSignedUrls={zoneSignedUrls}
+              denseFrames={denseFrameUrls.length > 0 ? denseFrameUrls : undefined}
               annotationsByZone={showPhotoContext ? undefined : (Object.keys(annotationsByZone).length > 0 ? annotationsByZone : undefined)}
               height={300}
             />
@@ -714,13 +749,34 @@ export default function ScanResults() {
       {panoramaOpen && (
         <div className="fixed inset-0 z-50 bg-black flex flex-col">
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-            <span className="font-mono text-white text-xs tracking-widest">360 MOUTH VIEW</span>
-            <button onClick={() => setPanoramaOpen(false)} className="text-white/60 hover:text-white transition">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setVideoFullscreen(false)}
+                className={`font-mono text-xs tracking-widest transition ${!videoFullscreen ? "text-white" : "text-white/40"}`}
+              >
+                360 VIEW
+              </button>
+              {videoSignedUrl && (
+                <button
+                  onClick={() => setVideoFullscreen(true)}
+                  className={`font-mono text-xs tracking-widest transition ${videoFullscreen ? "text-white" : "text-white/40"}`}
+                >
+                  RAW VIDEO
+                </button>
+              )}
+            </div>
+            <button
+              onClick={() => { setPanoramaOpen(false); setVideoFullscreen(false); }}
+              className="text-white/60 hover:text-white transition"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
           <div className="flex-1">
-            <MouthPanorama zoneSignedUrls={zoneSignedUrls} height="100%" />
+            {videoFullscreen && videoSignedUrl
+              ? <video src={videoSignedUrl} controls autoPlay className="w-full h-full object-contain" />
+              : <MouthPanorama zoneSignedUrls={zoneSignedUrls} denseFrames={denseFrameUrls.length > 0 ? denseFrameUrls : undefined} height="100%" />
+            }
           </div>
         </div>
       )}

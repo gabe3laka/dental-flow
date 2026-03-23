@@ -17,24 +17,24 @@ const ZONES = [
   { id: "LOWER_CLOSE", label: "Lower Close",  instruction: "Move closer — show lower front teeth and gumline" },
 ];
 
-/* ─── Target positions per zone (% of screen, where user should align their teeth) ─── */
+/* ─── Target positions per zone (% of screen) ─── */
 const ZONE_TARGETS: Record<string, { x: number; y: number }> = {
-  FRONT_SMILE:  { x: 50, y: 50 },  // center
-  UPPER_ARCH:   { x: 50, y: 35 },  // upper-center — tilt back
-  LOWER_ARCH:   { x: 50, y: 65 },  // lower-center — chin down
-  LEFT_BITE:    { x: 35, y: 50 },  // left — turn right
-  RIGHT_BITE:   { x: 65, y: 50 },  // right — turn left
-  UPPER_CLOSE:  { x: 50, y: 42 },  // center-upper
-  LOWER_CLOSE:  { x: 50, y: 58 },  // center-lower
+  FRONT_SMILE:  { x: 50, y: 50 },
+  UPPER_ARCH:   { x: 50, y: 35 },
+  LOWER_ARCH:   { x: 50, y: 65 },
+  LEFT_BITE:    { x: 35, y: 50 },
+  RIGHT_BITE:   { x: 65, y: 50 },
+  UPPER_CLOSE:  { x: 50, y: 42 },
+  LOWER_CLOSE:  { x: 50, y: 58 },
 };
 
 const STABLE_HOLD_MS = 3000;
 const QUALITY_INTERVAL_MS = 150;
 const MOTION_THRESHOLD = 18;
 const SAMPLE_SIZE = 32;
+const DENSE_INTERVAL_S = 0.75; // extract a dense frame every 0.75s
 
 /* ─── TargetDot ─── */
-// Blue = seeking alignment, Green = aligned + filling, Full green = captured
 function TargetDot({ progress, active, zoneCaptured }: { progress: number; active: boolean; zoneCaptured: boolean }) {
   const r = 28;
   const circ = 2 * Math.PI * r;
@@ -44,10 +44,7 @@ function TargetDot({ progress, active, zoneCaptured }: { progress: number; activ
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: 72, height: 72 }}>
-      <div
-        className="absolute inset-0 rounded-full transition-all duration-300"
-        style={{ background: bgColor }}
-      />
+      <div className="absolute inset-0 rounded-full transition-all duration-300" style={{ background: bgColor }} />
       <svg className="-rotate-90 absolute inset-0" width="72" height="72" viewBox="0 0 72 72">
         <circle cx="36" cy="36" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2.5" />
         <circle
@@ -78,6 +75,33 @@ function QualityDot({ label, pass }: { label: string; pass: boolean }) {
   );
 }
 
+/* ─── Helpers ─── */
+function pickMimeType(): string {
+  for (const m of ["video/webm;codecs=vp8", "video/mp4", "video/webm"]) {
+    if (MediaRecorder.isTypeSupported(m)) return m;
+  }
+  return "video/webm";
+}
+
+function seekAndDraw(
+  videoEl: HTMLVideoElement,
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  timeSec: number
+): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    videoEl.currentTime = timeSec;
+    videoEl.addEventListener(
+      "seeked",
+      () => {
+        ctx.drawImage(videoEl, 0, 0);
+        canvas.toBlob((b) => resolve(b), "image/jpeg", 0.82);
+      },
+      { once: true }
+    );
+  });
+}
+
 /* ─── Main component ─── */
 type Phase = "intro" | "capture" | "processing";
 
@@ -96,7 +120,7 @@ export default function ScanCapture3DPlus() {
   const [brightnessOk, setBrightnessOk] = useState(false);
   const [motionOk, setMotionOk] = useState(false);
   const [capturedFlash, setCapturedFlash] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [processingStep, setProcessingStep] = useState(0); // 0=idle,1=extractZone,2=extractDense,3=upload,4=analyze
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -105,6 +129,13 @@ export default function ScanCapture3DPlus() {
   const stableAccRef = useRef(0);
   const capturedRef = useRef(captured);
   const currentZoneRef = useRef(currentZone);
+
+  // Video recording refs
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const videoChunksRef = useRef<Blob[]>([]);
+  const captureTimestampsRef = useRef<number[]>([]); // ms offset into video at each zone capture
+  const recordingStartRef = useRef<number>(0);
+  const mimeTypeRef = useRef<string>("video/webm");
 
   useEffect(() => { capturedRef.current = captured; }, [captured]);
   useEffect(() => { currentZoneRef.current = currentZone; }, [currentZone]);
@@ -116,6 +147,12 @@ export default function ScanCapture3DPlus() {
     setCameraReady(false);
     setCameraError(false);
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    // Stop any previous recording
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    videoChunksRef.current = [];
+    captureTimestampsRef.current = [];
 
     (async () => {
       try {
@@ -139,6 +176,27 @@ export default function ScanCapture3DPlus() {
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, [phase, facingMode]);
+
+  /* ── Start MediaRecorder once camera is ready ── */
+  useEffect(() => {
+    if (!cameraReady || phase !== "capture" || !streamRef.current) return;
+
+    const mimeType = pickMimeType();
+    mimeTypeRef.current = mimeType;
+
+    try {
+      const recorder = new MediaRecorder(streamRef.current, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) videoChunksRef.current.push(e.data);
+      };
+      recorder.start(200); // 200ms timeslices
+      recordingStartRef.current = Date.now();
+      mediaRecorderRef.current = recorder;
+    } catch {
+      // MediaRecorder unavailable — capture still works, dense frames won't be extracted
+      mediaRecorderRef.current = null;
+    }
+  }, [cameraReady, phase]);
 
   /* ── Quality loop ── */
   const sampleCanvas = useRef<HTMLCanvasElement | null>(null);
@@ -174,7 +232,6 @@ export default function ScanCapture3DPlus() {
     setMotionOk(mOk);
 
     const qualityPass = bOk && mOk;
-
     if (qualityPass) {
       stableAccRef.current += QUALITY_INTERVAL_MS;
       setStableMs(stableAccRef.current);
@@ -195,7 +252,7 @@ export default function ScanCapture3DPlus() {
     return () => { if (qualityTimerRef.current) clearInterval(qualityTimerRef.current); };
   }, [cameraReady, phase, runQualityCheck]);
 
-  /* ── Capture frame ── */
+  /* ── Capture frame (live video snapshot for thumbnail) ── */
   const captureFrame = useCallback((): Promise<Blob | null> => {
     return new Promise((resolve) => {
       const video = videoRef.current;
@@ -212,10 +269,18 @@ export default function ScanCapture3DPlus() {
 
   const triggerCapture = useCallback(async () => {
     const zone = currentZoneRef.current;
+
+    // Record timestamp offset into recording
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state === "recording") {
+      captureTimestampsRef.current.push(Date.now() - recordingStartRef.current);
+    } else {
+      captureTimestampsRef.current.push(0);
+    }
+
     const blob = await captureFrame();
     const blobToStore = blob ?? new Blob();
 
-    // Flash effect
     setCapturedFlash(true);
     setTimeout(() => setCapturedFlash(false), 350);
 
@@ -241,6 +306,10 @@ export default function ScanCapture3DPlus() {
       prevFrameRef.current = null;
     } else {
       if (qualityTimerRef.current) clearInterval(qualityTimerRef.current);
+      // Stop recorder — triggers data flush
+      if (recorder && recorder.state !== "inactive") {
+        recorder.stop();
+      }
       setPhase("processing");
     }
   }, [captureFrame]);
@@ -251,16 +320,15 @@ export default function ScanCapture3DPlus() {
     triggerCapture();
   }, [triggerCapture]);
 
-  /* ── Submit ── */
+  /* ── Submit (runs when phase becomes "processing") ── */
   useEffect(() => {
     if (phase !== "processing") return;
-    const timer = setTimeout(() => handleSubmit(), 300);
+    const timer = setTimeout(() => handleSubmit(), 400);
     return () => clearTimeout(timer);
   }, [phase]); // eslint-disable-line
 
   const handleSubmit = async () => {
     if (!user) return;
-    setSubmitting(true);
     try {
       const { data: patient } = await supabase
         .from("patients")
@@ -270,16 +338,148 @@ export default function ScanCapture3DPlus() {
       if (!patient) throw new Error("Patient record not found");
 
       const timestamp = Date.now();
-      const zonesMeta: Array<{ zone: string; path: string | null }> = [];
+      const base = `${patient.id}/${timestamp}/3dplus`;
+      const mimeType = mimeTypeRef.current;
+      const videoExt = mimeType.includes("mp4") ? "mp4" : "webm";
 
+      // ── Build video blob from chunks ──
+      const videoBlob = videoChunksRef.current.length > 0
+        ? new Blob(videoChunksRef.current, { type: mimeType })
+        : null;
+
+      // ── Step 1: Extract zone frames from video ──
+      setProcessingStep(1);
+      let zoneFrameBlobs: (Blob | null)[] = capturedRef.current.slice(); // fallback = live snapshots
+
+      if (videoBlob && videoBlob.size > 0) {
+        try {
+          const videoEl = document.createElement("video");
+          videoEl.src = URL.createObjectURL(videoBlob);
+          await new Promise<void>((res) => {
+            videoEl.onloadedmetadata = () => res();
+            videoEl.onerror = () => res();
+          });
+
+          const canvas = document.createElement("canvas");
+          canvas.width = videoEl.videoWidth || 1280;
+          canvas.height = videoEl.videoHeight || 960;
+          const ctx = canvas.getContext("2d")!;
+
+          const videoDurationMs = (videoEl.duration || 10) * 1000;
+          const frames: (Blob | null)[] = [];
+          for (let i = 0; i < ZONES.length; i++) {
+            const tsMs = captureTimestampsRef.current[i] ?? 0;
+            // Clamp timestamp to video duration with 200ms buffer
+            const clampedSec = Math.min(Math.max(tsMs / 1000, 0.05), (videoDurationMs / 1000) - 0.05);
+            const b = await seekAndDraw(videoEl, canvas, ctx, clampedSec);
+            frames.push(b);
+          }
+          // Only replace if we got valid blobs
+          if (frames.some((b) => b !== null)) zoneFrameBlobs = frames;
+
+          // ── Step 2: Extract dense frames ──
+          setProcessingStep(2);
+          const denseTimestamps: number[] = [];
+          for (let t = DENSE_INTERVAL_S / 2; t < videoEl.duration - DENSE_INTERVAL_S / 2; t += DENSE_INTERVAL_S) {
+            denseTimestamps.push(t);
+          }
+
+          const denseBlobs: Blob[] = [];
+          for (const t of denseTimestamps) {
+            const b = await seekAndDraw(videoEl, canvas, ctx, t);
+            if (b) denseBlobs.push(b);
+          }
+
+          URL.revokeObjectURL(videoEl.src);
+
+          // ── Step 3: Upload video + frames ──
+          setProcessingStep(3);
+
+          // Upload raw video
+          let videoPath: string | null = null;
+          if (videoBlob.size > 0) {
+            videoPath = `${base}/mouth_video.${videoExt}`;
+            const { error: vidErr } = await supabase.storage
+              .from("scan-videos")
+              .upload(videoPath, videoBlob, { contentType: mimeType });
+            if (vidErr) throw vidErr;
+          }
+
+          // Upload zone frames
+          const zonesMeta: Array<{ zone: string; path: string | null; quality?: number }> = [];
+          for (let i = 0; i < ZONES.length; i++) {
+            const blob = zoneFrameBlobs[i];
+            if (!blob || blob.size === 0) {
+              zonesMeta.push({ zone: ZONES[i].id, path: null });
+              continue;
+            }
+            const path = `${base}/zone-${i}.jpg`;
+            const { error } = await supabase.storage
+              .from("scan-videos")
+              .upload(path, blob, { contentType: "image/jpeg" });
+            if (error) throw error;
+            zonesMeta.push({ zone: ZONES[i].id, path });
+          }
+
+          // Upload dense frames
+          for (let i = 0; i < denseBlobs.length; i++) {
+            const path = `${base}/dense-${i}.jpg`;
+            const { error } = await supabase.storage
+              .from("scan-videos")
+              .upload(path, denseBlobs[i], { contentType: "image/jpeg" });
+            if (error) throw error;
+            // quality field stores fraction × 1000 (0–1000) for sphere interpolation
+            const fraction = videoEl.duration > 0 ? denseTimestamps[i] / videoEl.duration : i / denseBlobs.length;
+            zonesMeta.push({ zone: `DENSE_${i}`, path, quality: Math.round(fraction * 1000) });
+          }
+
+          // ── Step 4: Insert scan + analyze ──
+          setProcessingStep(4);
+          const { data: scanRow, error: insertError } = await supabase
+            .from("scans")
+            .insert({
+              patient_id: patient.id,
+              status: "pending",
+              source: "3d_plus",
+              video_url: videoPath ?? zonesMeta[0]?.path ?? null,
+              zones_captured: zonesMeta,
+            })
+            .select("id")
+            .single();
+          if (insertError) throw insertError;
+
+          await supabase
+            .from("patients")
+            .update({ total_scans: ((patient as any).total_scans ?? 0) + 1 })
+            .eq("id", patient.id);
+
+          if (scanRow?.id) {
+            try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
+            try { await supabase.functions.invoke("analyze-scan-teeth", { body: { scan_id: scanRow.id, treatment_plan: (patient as any).treatment_category || "Standard" } }); } catch { /* non-blocking */ }
+          }
+
+          toast({ title: "3D+ Scan complete!", description: "AI is personalizing your 3D map." });
+          navigate(`/patient/scans/${scanRow?.id}/results`);
+          return;
+        } catch (videoErr) {
+          // Video processing failed — fall through to legacy path
+          logError(videoErr, { operation: "ScanCapture3DPlus/videoProcessing" });
+        }
+      }
+
+      // ── Legacy path (no video or video failed): upload live snapshots only ──
+      setProcessingStep(3);
+      const zonesMeta: Array<{ zone: string; path: string | null }> = [];
       for (let i = 0; i < ZONES.length; i++) {
         const blob = capturedRef.current[i];
         if (!blob || blob.size === 0) {
           zonesMeta.push({ zone: ZONES[i].id, path: null });
           continue;
         }
-        const path = `${patient.id}/${timestamp}/3dplus/zone-${i}.jpg`;
-        const { error } = await supabase.storage.from("scan-videos").upload(path, blob, { contentType: "image/jpeg" });
+        const path = `${base}/zone-${i}.jpg`;
+        const { error } = await supabase.storage
+          .from("scan-videos")
+          .upload(path, blob, { contentType: "image/jpeg" });
         if (error) throw error;
         zonesMeta.push({ zone: ZONES[i].id, path });
       }
@@ -313,8 +513,7 @@ export default function ScanCapture3DPlus() {
       logError(e, { operation: "ScanCapture3DPlus/submit", userId: user?.id });
       toast({ title: "Submission failed", description: e.message, variant: "destructive" });
       setPhase("capture");
-    } finally {
-      setSubmitting(false);
+      setProcessingStep(0);
     }
   };
 
@@ -330,10 +529,9 @@ export default function ScanCapture3DPlus() {
         </div>
         <h1 className="font-mono text-2xl font-bold text-foreground mb-3">3D+ Scan</h1>
         <p className="text-muted-foreground text-sm text-center mb-8 leading-relaxed max-w-xs">
-          Follow the on-screen targets to capture {ZONES.length} guided angles. Hold steady — the camera captures automatically.
+          Follow the on-screen targets to capture {ZONES.length} guided angles. The camera records your full sweep for a rich 3D mouth reconstruction.
         </p>
 
-        {/* 3-step guide */}
         <div className="flex items-start justify-center gap-6 mb-8 w-full">
           {[
             { Icon: Crosshair, label: "Point at target" },
@@ -349,7 +547,6 @@ export default function ScanCapture3DPlus() {
           ))}
         </div>
 
-        {/* Zone dots preview */}
         <div className="flex items-center gap-2 mb-8">
           {ZONES.map((_, i) => (
             <div key={i} className="flex flex-col items-center gap-1">
@@ -378,9 +575,14 @@ export default function ScanCapture3DPlus() {
 
   /* Processing */
   if (phase === "processing") {
+    const STEPS = [
+      "Extracting zone frames",
+      "Extracting dense frames",
+      "Uploading video & photos",
+      "Running AI analysis",
+    ];
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-8 px-8">
-        {/* Animated orb */}
         <div className="relative w-28 h-28">
           <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" style={{ animationDuration: "1.5s" }} />
           <div className="absolute inset-3 rounded-full bg-primary/25 animate-pulse" />
@@ -390,18 +592,30 @@ export default function ScanCapture3DPlus() {
         </div>
 
         <div className="text-center space-y-2">
-          <span className="font-mono text-white text-base tracking-widest block">GENERATING 3D+ MAP</span>
-          <p className="text-white/40 text-xs tracking-wide">AI is analyzing {ZONES.length} scan zones</p>
+          <span className="font-mono text-white text-base tracking-widest block">BUILDING YOUR MOUTH MAP</span>
+          <p className="text-white/40 text-xs tracking-wide">Reconstructing from video + {ZONES.length} scan zones</p>
         </div>
 
-        {/* Step labels */}
-        <div className="space-y-3 w-full max-w-[240px]">
-          {["Uploading scan photos", "Running AI analysis", "Building 3D dental model"].map((step, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <Loader2 className="w-3 h-3 text-primary/50 animate-spin flex-shrink-0" style={{ animationDelay: `${i * 0.3}s` }} />
-              <span className="font-mono text-white/25 text-[10px] tracking-wide">{step.toUpperCase()}</span>
-            </div>
-          ))}
+        <div className="space-y-3 w-full max-w-[260px]">
+          {STEPS.map((step, i) => {
+            const stepNum = i + 1;
+            const done = processingStep > stepNum;
+            const active = processingStep === stepNum;
+            return (
+              <div key={i} className="flex items-center gap-3">
+                {done ? (
+                  <div className="w-3 h-3 rounded-full bg-green-400 flex-shrink-0" />
+                ) : active ? (
+                  <Loader2 className="w-3 h-3 text-primary animate-spin flex-shrink-0" />
+                ) : (
+                  <div className="w-3 h-3 rounded-full bg-white/15 flex-shrink-0" />
+                )}
+                <span className={`font-mono text-[10px] tracking-wide ${active ? "text-white/80" : done ? "text-green-400/70" : "text-white/20"}`}>
+                  {step.toUpperCase()}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         <span className="font-mono text-white/15 text-[9px] tracking-widest text-center">
@@ -450,6 +664,14 @@ export default function ScanCapture3DPlus() {
         </div>
       )}
 
+      {/* REC indicator */}
+      {cameraReady && mediaRecorderRef.current && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1.5 pointer-events-none">
+          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+          <span className="font-mono text-white/50 text-[9px] tracking-widest">REC</span>
+        </div>
+      )}
+
       {/* Framing rectangle */}
       <div className="absolute inset-[14%] rounded-2xl border border-white/20 pointer-events-none" />
 
@@ -482,14 +704,10 @@ export default function ScanCapture3DPlus() {
         <QualityDot label="STILL" pass={motionOk} />
       </div>
 
-      {/* Target dot — moves to zone-specific position */}
+      {/* Target dot */}
       <div
         className="absolute pointer-events-none transition-all duration-500"
-        style={{
-          left: `${target.x}%`,
-          top: `${target.y}%`,
-          transform: "translate(-50%, -50%)",
-        }}
+        style={{ left: `${target.x}%`, top: `${target.y}%`, transform: "translate(-50%, -50%)" }}
       >
         <TargetDot progress={progress} active={qualityPass} zoneCaptured={zoneCaptured} />
       </div>

@@ -13,8 +13,16 @@ export interface ZoneAnnotations {
   status: "attention" | "deviation" | "on_track";
 }
 
+export interface DenseFrame {
+  azDeg: number;
+  elDeg: number;
+  url: string;
+}
+
 export interface MouthPanoramaProps {
   zoneSignedUrls: Record<string, string>;
+  /** Dense frames extracted from video sweep — fill gaps between zone photos */
+  denseFrames?: DenseFrame[];
   /** Optional per-zone AI detections — enables floating annotation markers */
   annotationsByZone?: Record<string, ZoneAnnotations>;
   className?: string;
@@ -72,6 +80,29 @@ function ZonePlane({ cfg, url }: { cfg: ZoneConfig; url: string | undefined }) {
     <Suspense fallback={placeholder}>
       <TexturedZone url={url} position={position} rotation={rotation} w={cfg.w} h={cfg.h} />
     </Suspense>
+  );
+}
+
+/* ── Dense frame from video sweep — fills gaps between zone photos ── */
+function DenseFramePlane({ azDeg, elDeg, url }: DenseFrame) {
+  const { position, rotation } = useMemo(
+    () => zoneTransform(azDeg, elDeg, SPHERE_R),
+    [azDeg, elDeg]
+  );
+  const texture = useTexture(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return (
+    <mesh position={position} rotation={rotation}>
+      <planeGeometry args={[3.2, 2.4]} />
+      <meshBasicMaterial
+        map={texture}
+        side={THREE.FrontSide}
+        toneMapped={false}
+        transparent
+        opacity={0.72}
+        depthWrite={false}
+      />
+    </mesh>
   );
 }
 
@@ -154,7 +185,7 @@ function PanoramaLoader() {
   );
 }
 
-export function MouthPanorama({ zoneSignedUrls, annotationsByZone, className, height = 320 }: MouthPanoramaProps) {
+export function MouthPanorama({ zoneSignedUrls, denseFrames, annotationsByZone, className, height = 320 }: MouthPanoramaProps) {
   const hasAnnotations = !!annotationsByZone && Object.keys(annotationsByZone).length > 0;
 
   return (
@@ -180,6 +211,11 @@ export function MouthPanorama({ zoneSignedUrls, annotationsByZone, className, he
             maxPolarAngle={Math.PI / 2 + (70 * Math.PI) / 180}
             makeDefault
           />
+          {denseFrames?.map((df, i) => (
+            <Suspense key={`dense-${i}`} fallback={null}>
+              <DenseFramePlane {...df} />
+            </Suspense>
+          ))}
           {ZONE_CONFIGS.map((cfg) => (
             <ZonePlane
               key={cfg.id}
