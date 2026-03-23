@@ -13,7 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePatientData } from "@/hooks/use-patient-data";
 import { format, differenceInWeeks, differenceInDays } from "date-fns";
 import { toast } from "@/hooks/use-toast";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Sparkles } from "lucide-react";
 import { logError } from "@/lib/logger";
 
 interface Milestone {
