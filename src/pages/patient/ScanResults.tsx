@@ -87,6 +87,7 @@ export default function ScanResults() {
   const [deleting, setDeleting] = useState(false);
   const [showPhotoContext, setShowPhotoContext] = useState(true);
   const [panoramaOpen, setPanoramaOpen] = useState(false);
+  const [activeZone, setActiveZone] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
 
@@ -562,7 +563,9 @@ export default function ScanResults() {
               <span className="mono-label text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">AI-PERSONALIZED</span>
             </div>
             <span className="mono-label text-muted-foreground text-[9px]">
-              {zones.length > 0 ? `${zones.length} ZONES` : ""}{scan.quality_score != null ? ` · ${scan.quality_score}% QUALITY` : ""}
+              {zones.length > 0 ? `${zones.length} ZONES` : ""}
+              {teethData.length > 0 ? ` · ${teethData.length} TEETH` : ""}
+              {scan.quality_score != null ? ` · ${scan.quality_score}% QUALITY` : ""}
             </span>
           </div>
 
@@ -595,6 +598,7 @@ export default function ScanResults() {
               onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
               zonePhotoUrls={zoneSignedUrls}
               showPhotoBackdrops={showPhotoContext}
+              targetZone={activeZone ?? undefined}
             />
           </div>
 
@@ -615,17 +619,22 @@ export default function ScanResults() {
                 {ZONE_LABEL_ORDER.map((zoneId) => {
                   const url = zoneSignedUrls[zoneId];
                   if (!url) return null;
+                  const isActive = activeZone === zoneId;
                   return (
-                    <div key={zoneId} className="flex-shrink-0 w-16">
+                    <button
+                      key={zoneId}
+                      onClick={() => setActiveZone(isActive ? null : zoneId)}
+                      className={`flex-shrink-0 w-16 text-left transition-opacity ${isActive ? "opacity-100" : "opacity-60 hover:opacity-100"}`}
+                    >
                       <img
                         src={url}
                         alt={zoneId}
-                        className="w-16 h-12 object-cover rounded-md border border-border"
+                        className={`w-16 h-12 object-cover rounded-md border transition-colors ${isActive ? "border-primary" : "border-border"}`}
                       />
-                      <span className="mono-label text-[8px] text-muted-foreground block text-center mt-0.5 truncate">
+                      <span className={`mono-label text-[8px] block text-center mt-0.5 truncate ${isActive ? "text-primary" : "text-muted-foreground"}`}>
                         {zoneId.replace(/_/g, " ")}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
               </div>

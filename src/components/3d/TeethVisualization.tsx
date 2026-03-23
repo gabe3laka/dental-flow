@@ -163,6 +163,7 @@ export interface TeethVisualizationProps {
   defaultRenderMode?: RenderMode;
   zonePhotoUrls?: Record<string, string>;
   showPhotoBackdrops?: boolean;
+  targetZone?: string;
 }
 
 /* ─── Status emissive colors ─── */
@@ -191,14 +192,26 @@ const CAMERA_PRESETS: Record<ViewMode, { pos: [number, number, number]; target: 
   lower: { pos: [0, -1.0, 3.5], target: [0, -0.5, 0] },
 };
 
+/* ─── Zone photo → camera angle mapping (for thumbnail-click navigation) ─── */
+const ZONE_CAMERA_PRESETS: Record<string, [number, number, number]> = {
+  FRONT_SMILE: [0,  0.6,  4.5],
+  UPPER_ARCH:  [0,  3.5,  2.5],
+  LOWER_ARCH:  [0, -2.8,  2.5],
+  LEFT_BITE:   [3.8, 0.5, 2.5],
+  RIGHT_BITE:  [-3.8, 0.5, 2.5],
+  UPPER_CLOSE: [0,  2.0,  3.8],
+  LOWER_CLOSE: [0, -1.2,  3.8],
+};
+
 /* ─── Camera animator ─── */
-function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
+function CameraAnimator({ viewMode, targetZone }: { viewMode: ViewMode; targetZone?: string }) {
   const { camera } = useThree();
   const targetVec = useRef(new THREE.Vector3());
   const isAnimating = useRef(false);
   const prevViewMode = useRef(viewMode);
+  const prevTargetZone = useRef<string | undefined>(undefined);
 
-  // Trigger animation only when viewMode changes
+  // Trigger animation when viewMode changes
   useEffect(() => {
     if (prevViewMode.current !== viewMode) {
       isAnimating.current = true;
@@ -206,11 +219,21 @@ function CameraAnimator({ viewMode }: { viewMode: ViewMode }) {
     }
   }, [viewMode]);
 
+  // Trigger animation when targetZone changes (thumbnail click)
+  useEffect(() => {
+    if (targetZone && targetZone !== prevTargetZone.current) {
+      isAnimating.current = true;
+      prevTargetZone.current = targetZone;
+    }
+  }, [targetZone]);
+
   useFrame(() => {
     if (!isAnimating.current) return;
 
+    // Zone thumbnail click takes priority over viewMode preset
+    const zonePos = targetZone ? ZONE_CAMERA_PRESETS[targetZone] : undefined;
     const preset = CAMERA_PRESETS[viewMode];
-    const targetPos = new THREE.Vector3(...preset.pos);
+    const targetPos = zonePos ? new THREE.Vector3(...zonePos) : new THREE.Vector3(...preset.pos);
     const targetLook = new THREE.Vector3(...preset.target);
 
     camera.position.lerp(targetPos, 0.06);
@@ -756,12 +779,12 @@ function ZoneBackdropPlane({
   const texture = useTexture(url);
   texture.colorSpace = THREE.SRGBColorSpace;
   return (
-    <mesh position={position} rotation={rotation}>
+    <mesh position={position} rotation={rotation} renderOrder={-1}>
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial
         map={texture}
         transparent
-        opacity={0.22}
+        opacity={0.45}
         toneMapped={false}
         depthWrite={false}
         side={THREE.FrontSide}
@@ -805,6 +828,7 @@ function Scene({
   resetTrigger,
   zonePhotoUrls,
   showPhotoBackdrops,
+  targetZone,
 }: {
   viewMode: ViewMode;
   toothData: Record<string, ToothStatus>;
@@ -817,6 +841,7 @@ function Scene({
   resetTrigger: number;
   zonePhotoUrls?: Record<string, string>;
   showPhotoBackdrops?: boolean;
+  targetZone?: string;
 }) {
   return (
     <>
@@ -829,7 +854,7 @@ function Scene({
         <PhotoBackdrops zonePhotoUrls={zonePhotoUrls} />
       )}
       <DentalModel toothData={toothData} detectionData={detectionData} toothGeometry={toothGeometry} selectedTooth={selectedTooth} onHover={onHover} onClick={onClick} />
-      <CameraAnimator viewMode={viewMode} />
+      <CameraAnimator viewMode={viewMode} targetZone={targetZone} />
       <ResetHandler resetTrigger={resetTrigger} controlsRef={controlsRef} />
       <OrbitControls
         ref={controlsRef}
@@ -1125,6 +1150,7 @@ export function TeethVisualization({
   defaultRenderMode = "3d",
   zonePhotoUrls,
   showPhotoBackdrops = false,
+  targetZone,
 }: TeethVisualizationProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("both");
   const [hoveredTooth, setHoveredTooth] = useState<string | null>(null);
@@ -1239,6 +1265,7 @@ export function TeethVisualization({
                   resetTrigger={resetTrigger}
                   zonePhotoUrls={zonePhotoUrls}
                   showPhotoBackdrops={showPhotoBackdrops}
+                  targetZone={targetZone}
                 />
               </Canvas>
             </Suspense>
