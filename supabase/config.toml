@@ -28,4 +28,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.reconstruct-scan]
+verify_jwt = true
+
+[functions.reconstruct-scan-callback]
 verify_jwt = false

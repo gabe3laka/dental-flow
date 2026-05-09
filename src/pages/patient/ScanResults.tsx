@@ -251,9 +251,16 @@ export default function ScanResults() {
     setDeleting(true);
     try {
       const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
-      const paths = zones.map((z) => z.path).filter(Boolean) as string[];
-      if (paths.length > 0) {
-        await supabase.storage.from("scan-videos").remove(paths);
+      const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
+      // Include the raw video itself (not just keyframes) when present.
+      const rawPath = (scan as unknown as { raw_video_url?: string | null }).raw_video_url ?? null;
+      if (rawPath && !videoPaths.includes(rawPath)) videoPaths.push(rawPath);
+      if (videoPaths.length > 0) {
+        await supabase.storage.from("scan-videos").remove(videoPaths);
+      }
+      // Reclaim the LingBot point-cloud `.ply`.
+      if (scan.pointcloud_url) {
+        await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
       }
       await supabase.from("scans").delete().eq("id", scan.id);
       const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();

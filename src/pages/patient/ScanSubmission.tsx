@@ -57,6 +57,7 @@ export default function ScanSubmission() {
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [elapsed, setElapsed] = useState(0);
+  const [recording, setRecording] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [uploadPercent, setUploadPercent] = useState(0);
@@ -151,6 +152,7 @@ export default function ScanSubmission() {
     };
     recorder.start(250);
     recorderRef.current = recorder;
+    setRecording(true);
 
     timerRef.current = setInterval(() => {
       setElapsed((e) => {
@@ -171,6 +173,7 @@ export default function ScanSubmission() {
 
   /* ── Stop recording ── */
   const stopRecording = useCallback(() => {
+    setRecording(false);
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     if (keyframeTimerRef.current) { clearInterval(keyframeTimerRef.current); keyframeTimerRef.current = null; }
     try { recorderRef.current?.stop(); } catch { /* ignore */ }
@@ -267,7 +270,10 @@ export default function ScanSubmission() {
             body: { scan_id: scanRow.id, scan_type: scanType },
           });
         } catch (e) {
-          logError(e, { operation: "ScanSubmission/dispatchReconstruct", scanId: scanRow.id });
+          logError(e, {
+            operation: "ScanSubmission/dispatchReconstruct",
+            extra: { scanId: scanRow.id },
+          });
         }
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
@@ -403,7 +409,6 @@ export default function ScanSubmission() {
   }
 
   /* ────────────────────────────── RECORDING ────────────────────────── */
-  const recording = !!recorderRef.current && recorderRef.current.state === "recording";
   const progress = Math.min(elapsed / TARGET_DURATION_SEC, 1);
   const guidance = pickGuidance(elapsed);
 

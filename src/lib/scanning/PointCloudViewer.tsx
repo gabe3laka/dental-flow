@@ -1,9 +1,8 @@
-import { Suspense, useMemo, useState, useEffect } from "react";
+import { Suspense, useEffect, useMemo } from "react";
 import type { CSSProperties } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useLoader, useThree } from "@react-three/fiber";
 import { OrbitControls, useProgress, Html } from "@react-three/drei";
-import { useLoader } from "@react-three/fiber";
-import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader";
+import { PLYLoader } from "three-stdlib";
 import * as THREE from "three";
 
 export interface PointCloudViewerProps {
@@ -26,10 +25,9 @@ export interface PointCloudViewerProps {
 /**
  * Renders a `.ply` point cloud (from LingBot-Map) using react-three-fiber.
  *
- * - Resolves URL via Three.js `PLYLoader`.
- * - Auto-frames the camera based on the geometry's bounding sphere.
- * - Falls back to vertex-color rendering when the PLY carries colors,
- *   otherwise tints points by depth for visual structure.
+ * - Resolves URL via `three-stdlib`'s `PLYLoader` (typed; no examples/jsm import).
+ * - Recenters to bounding-sphere origin and dollies the camera to fit.
+ * - Falls back to a neutral tint when the PLY lacks vertex colors.
  */
 export function PointCloudViewer({
   plyUrl,
@@ -75,7 +73,14 @@ export function PointCloudViewer({
   return (
     <div
       className={className}
-      style={{ position: "relative", width: "100%", height, borderRadius: 12, overflow: "hidden", ...style }}
+      style={{
+        position: "relative",
+        width: "100%",
+        height,
+        borderRadius: 12,
+        overflow: "hidden",
+        ...style,
+      }}
     >
       <Canvas
         camera={{ position: [0, 0, 1.6], fov: 45, near: 0.001, far: 1000 }}
@@ -96,7 +101,9 @@ export function PointCloudViewer({
         />
       </Canvas>
       {overlay && (
-        <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>{overlay}</div>
+        <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+          {overlay}
+        </div>
       )}
     </div>
   );
@@ -122,9 +129,11 @@ function LoadingHud() {
 
 function PointCloud({ url, pointSize }: { url: string; pointSize?: number }) {
   const geometry = useLoader(PLYLoader, url) as THREE.BufferGeometry;
+  const { camera } = useThree();
 
-  // Compute bounding sphere once so we can auto-frame and pick a default point size.
-  const { recenteredGeometry, autoSize } = useMemo(() => {
+  // Recenter once on the bounding sphere so the cloud is at the origin and
+  // pick a sensible point size from the point count.
+  const { recenteredGeometry, autoSize, radius } = useMemo(() => {
     const g = geometry.clone();
     g.computeBoundingSphere();
     g.computeBoundingBox();
@@ -134,47 +143,37 @@ function PointCloud({ url, pointSize }: { url: string; pointSize?: number }) {
       g.computeBoundingSphere();
     }
     const count = g.getAttribute("position")?.count ?? 100_000;
-    // Roughly: more points → smaller points. Targets ~1px on a 720p canvas.
+    // Targets ~1px on a 720p canvas; biased larger for sparse clouds.
     const auto = Math.max(0.0008, Math.min(0.006, 1.2 / Math.sqrt(count)));
-    return { recenteredGeometry: g, autoSize: auto };
+    const r = g.boundingSphere?.radius ?? 1;
+    return { recenteredGeometry: g, autoSize: auto, radius: r };
   }, [geometry]);
+
+  // Auto-frame: dolly the active camera so the cloud's bounding sphere fits
+  // the viewport. Runs whenever a new PLY is loaded.
+  useEffect(() => {
+    if (!radius || !Number.isFinite(radius)) return;
+    const r = Math.max(radius, 0.05);
+    camera.position.set(r * 0.9, r * 0.3, r * 1.4);
+    camera.near = Math.max(0.001, r * 0.01);
+    camera.far = r * 100;
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+  }, [radius, camera]);
 
   const hasVertexColors = !!recenteredGeometry.getAttribute("color");
 
-  // Frame the camera so the cloud roughly fills the viewport.
-  const sphere = recenteredGeometry.boundingSphere;
-  const frame = sphere ? Math.max(sphere.radius * 2.2, 0.2) : 1.2;
-
   return (
-    <group>
-      <CameraFrame radius={frame} />
-      <points>
-        <primitive object={recenteredGeometry} attach="geometry" />
-        <pointsMaterial
-          size={pointSize ?? autoSize}
-          sizeAttenuation
-          vertexColors={hasVertexColors}
-          color={hasVertexColors ? undefined : "#dbe3ef"}
-          transparent
-          opacity={0.95}
-        />
-      </points>
-    </group>
-  );
-}
-
-function CameraFrame({ radius }: { radius: number }) {
-  const [framed, setFramed] = useState(false);
-  useEffect(() => {
-    if (framed) return;
-    setFramed(true);
-  }, [framed]);
-  // OrbitControls picks up camera position from <Canvas camera> at mount; we
-  // emit a one-shot dolly here so the auto-framing follows the actual cloud.
-  return (
-    <perspectiveCamera
-      makeDefault={false}
-      position={[radius * 0.9, radius * 0.3, radius * 1.1]}
-    />
+    <points>
+      <primitive object={recenteredGeometry} attach="geometry" />
+      <pointsMaterial
+        size={pointSize ?? autoSize}
+        sizeAttenuation
+        vertexColors={hasVertexColors}
+        color={hasVertexColors ? undefined : "#dbe3ef"}
+        transparent
+        opacity={0.95}
+      />
+    </points>
   );
 }

@@ -164,10 +164,10 @@ The browser does **not** call LingBot-Map directly. Flow:
 
 1. Patient records video → upload to `scan-videos/{patient_id}/{ts}/raw_video.webm`.
 2. Insert row into `scans` with `processing_status='queued'`, `raw_video_url`, `scan_type`.
-3. Client calls Edge Function `reconstruct-scan` ([`supabase/functions/reconstruct-scan/index.ts`](../../supabase/functions/reconstruct-scan/index.ts)) with `{ scan_id }`.
+3. Client calls Edge Function `reconstruct-scan` ([`supabase/functions/reconstruct-scan/index.ts`](../../supabase/functions/reconstruct-scan/index.ts)) with `{ scan_id }`. `verify_jwt = true` — the function additionally re-checks `scans.select` under the caller's JWT so users can't trigger reconstruction on scans they don't own.
 4. Edge Function signs a 1-hour read URL for the video and POSTs `/v1/reconstruct` on the GPU host.
-5. GPU host runs LingBot-Map, uploads `pointcloud.ply` to `scan-pointclouds` via signed PUT, then POSTs the callback URL.
-6. Callback handler updates `scans.pointcloud_url`, `processing_status='complete'`, `reconstructed_at`, `lingbot_metrics`.
+5. GPU host runs LingBot-Map, uploads `pointcloud.ply` to `scan-pointclouds` via signed PUT, then POSTs the callback URL with `Authorization: Bearer ${LINGBOT_API_TOKEN}`.
+6. Callback handler ([`supabase/functions/reconstruct-scan-callback/index.ts`](../../supabase/functions/reconstruct-scan-callback/index.ts)) validates the token, then updates `scans.pointcloud_url`, `processing_status='complete'`, `reconstructed_at`, `lingbot_metrics`. On failure it sets `processing_status='failed'` with `processing_error`.
 7. The browser viewer (`PointCloudViewer`) loads the `.ply` via a fresh signed URL when the user opens the scan.
 
 The TypeScript dispatch contract lives at [`src/lib/scanning/lingbot-client.ts`](../../src/lib/scanning/lingbot-client.ts).
@@ -177,8 +177,9 @@ The TypeScript dispatch contract lives at [`src/lib/scanning/lingbot-client.ts`]
 | Var | Purpose |
 | --- | --- |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Standard Supabase service-role access |
+| `SUPABASE_ANON_KEY` | Used by `reconstruct-scan` to construct a JWT-bound client and verify the caller can see the scan via RLS. Without it, dispatch refuses with 503. |
 | `LINGBOT_API_URL` | e.g. `https://lingbot.arcline.app` |
-| `LINGBOT_API_TOKEN` | Bearer token shared with the GPU host |
+| `LINGBOT_API_TOKEN` | Bearer token shared with the GPU host. **Also used by the callback** (`reconstruct-scan-callback`) to authenticate inbound completion webhooks — required there. |
 | `ARCLINE_BASE_URL` | Public base URL where the callback function lives (defaults to `SUPABASE_URL`) |
 
 If `LINGBOT_API_URL` / `LINGBOT_API_TOKEN` are absent the Edge Function still marks the scan `processing` and returns 200 — a worker can pick it up later by polling for queued scans. This keeps local dev unblocked.

@@ -195,7 +195,19 @@ export default function Progress() {
 
   // Latest scan's point cloud URL (signed)
   const { url: latestPointcloudUrl } = usePointCloudUrl(latestScan?.pointcloud_url ?? null);
-  const isReconstructing = latestScan && !latestScan.pointcloud_url && latestScan.processing_status !== "failed";
+  const isReconstructing =
+    !!latestScan &&
+    !latestScan.pointcloud_url &&
+    (latestScan.processing_status === "queued" ||
+      latestScan.processing_status === "processing");
+  const isLegacyNoPointcloud =
+    !!latestScan &&
+    !latestScan.pointcloud_url &&
+    !latestScan.processing_status;
+  const isReconstructionFailed =
+    !!latestScan &&
+    !latestScan.pointcloud_url &&
+    latestScan.processing_status === "failed";
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
@@ -275,12 +287,35 @@ export default function Progress() {
               <span className="mono-label text-primary text-[10px] animate-pulse">BUILDING YOUR 3D MAP</span>
               <p className="text-white/40 text-xs">Usually under 2 minutes after upload.</p>
             </div>
-          ) : (
+          ) : isLegacyNoPointcloud ? (
+            <div className="h-[320px] bg-black flex flex-col items-center justify-center gap-3 text-center px-6">
+              <Camera className="w-7 h-7 text-primary opacity-70" />
+              <span className="mono-label text-white/60 text-[10px]">3D MAP NOT AVAILABLE</span>
+              <p className="text-white/40 text-xs max-w-[260px]">
+                Your previous scan was created before 3D mapping was enabled. Take a new scan to generate your personal 3D map.
+              </p>
+              <Button
+                onClick={() => navigate("/patient/scan")}
+                className="rounded-pill mono-label bg-primary text-primary-foreground mt-1"
+              >
+                <Camera className="w-3.5 h-3.5 mr-1" />
+                Take New Scan
+              </Button>
+            </div>
+          ) : isReconstructionFailed ? (
             <div className="h-[320px] bg-black flex flex-col items-center justify-center gap-3 text-center px-6">
               <span className="mono-label text-destructive text-[10px]">RECONSTRUCTION FAILED</span>
               <p className="text-white/40 text-xs">We couldn't build a 3D map from your last scan. Try recording again.</p>
+              <Button
+                onClick={() => navigate("/patient/scan")}
+                variant="outline"
+                className="rounded-pill mono-label mt-1"
+              >
+                <Camera className="w-3.5 h-3.5 mr-1" />
+                Re-scan
+              </Button>
             </div>
-          )}
+          ) : null}
 
           {latestScan && (
             <div className="px-5 pb-4 pt-3" style={{ background: "hsl(var(--card))" }}>
