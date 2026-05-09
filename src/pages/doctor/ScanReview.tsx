@@ -6,6 +6,8 @@ import { VerticalLabel } from "@/components/ui/vertical-label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization } from "@/components/3d/TeethVisualization";
+import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
+import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
@@ -30,6 +32,9 @@ interface ScanData {
   video_url: string | null;
   patient_id: string;
   detection_tags: any;
+  pointcloud_url: string | null;
+  processing_status: string | null;
+  scan_type: string | null;
 }
 
 export default function ScanReview() {
@@ -62,7 +67,20 @@ export default function ScanReview() {
           setLoading(false);
           return;
         }
-        setScan(scanData as ScanData);
+        const sd = scanData as Record<string, unknown>;
+        setScan({
+          id: sd.id as string,
+          status: sd.status as string,
+          submitted_at: sd.submitted_at as string,
+          quality_score: (sd.quality_score as number | null) ?? null,
+          zones_captured: sd.zones_captured,
+          video_url: (sd.video_url as string | null) ?? null,
+          patient_id: sd.patient_id as string,
+          detection_tags: sd.detection_tags,
+          pointcloud_url: (sd.pointcloud_url as string | null) ?? null,
+          processing_status: (sd.processing_status as string | null) ?? null,
+          scan_type: (sd.scan_type as string | null) ?? (sd.source as string | null) ?? null,
+        });
 
         const [patientResult, reviewsResult] = await Promise.allSettled([
           supabase.from("patients").select("user_id, treatment_category").eq("id", scanData.patient_id).maybeSingle(),
@@ -218,6 +236,7 @@ export default function ScanReview() {
 
   const detectedTags: string[] = (scan?.detection_tags as string[]) || [];
   const qualityScore = scan?.quality_score || 0;
+  const { url: pointcloudUrl } = usePointCloudUrl(scan?.pointcloud_url ?? null);
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-background">
@@ -267,8 +286,24 @@ export default function ScanReview() {
             </span>
           </div>
 
-          {/* 3D Teeth Visualization */}
-          <TeethVisualization toothData={toothData} showToggle showLegend />
+          {/* 3D Map — patient's actual point cloud */}
+          {scan?.pointcloud_url ? (
+            <PointCloudViewer plyUrl={pointcloudUrl} height={300} />
+          ) : (
+            <div className="h-[300px] rounded-lg bg-black flex flex-col items-center justify-center gap-2 text-center px-6">
+              <span className="mono-label text-white/55 text-[10px]">
+                {scan?.processing_status === "failed" ? "RECONSTRUCTION FAILED" : "BUILDING 3D MAP…"}
+              </span>
+              <p className="text-white/30 text-xs">
+                {scan?.processing_status === "failed"
+                  ? "The patient's video could not be reconstructed."
+                  : "The point cloud will appear once LingBot finishes processing."}
+              </p>
+            </div>
+          )}
+
+          {/* AI per-tooth status overlay */}
+          <TeethVisualization toothData={toothData} showToggle={false} showLegend compact />
 
           {/* Quality Progress Bar */}
           <div className="space-y-2">

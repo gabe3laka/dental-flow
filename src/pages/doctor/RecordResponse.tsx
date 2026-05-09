@@ -5,13 +5,34 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, MessageSquarePlus, Trash2 } from "lucide-react";
 import { logError } from "@/lib/logger";
+import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
+import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
+
+interface PendingComment {
+  id: string;
+  tMs: number;
+  text: string;
+  createdAt: string;
+}
+
+function formatDuration(s: number): string {
+  const min = Math.floor(s / 60).toString().padStart(2, "0");
+  const sec = (s % 60).toString().padStart(2, "0");
+  return `${min}:${sec}`;
+}
+
+function formatTimecode(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  return formatDuration(totalSec);
+}
 
 export default function RecordResponse() {
   const { scanId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+
   const [recording, setRecording] = useState(false);
   const [recorded, setRecorded] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -22,27 +43,44 @@ export default function RecordResponse() {
   const [cameraReady, setCameraReady] = useState(false);
   const [patientName, setPatientName] = useState("Patient");
   const [aiSummary, setAiSummary] = useState<string[]>([]);
+  const [comments, setComments] = useState<PendingComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [scanPointcloudPath, setScanPointcloudPath] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const intervalRef = useRef<number | null>(null);
+  const recordingStartedAtRef = useRef<number>(0);
 
-  // Fetch scan data
+  const { url: pointcloudUrl } = usePointCloudUrl(scanPointcloudPath);
+
+  /* ── Fetch scan + patient + prior review ── */
   useEffect(() => {
     if (!scanId) return;
     (async () => {
       try {
-        const { data: scan } = await supabase.from("scans").select("patient_id").eq("id", scanId).maybeSingle();
+        const { data: scan } = await supabase
+          .from("scans")
+          .select("*")
+          .eq("id", scanId)
+          .maybeSingle();
         if (!scan) {
           logError("Scan not found", { operation: "RecordResponse/loadData", userId: user?.id });
           return;
         }
+        const sd = scan as Record<string, unknown>;
+        setScanPointcloudPath((sd.pointcloud_url as string | null) ?? null);
 
         const [patientResult, reviewResult] = await Promise.allSettled([
           supabase.from("patients").select("user_id").eq("id", scan.patient_id).maybeSingle(),
-          supabase.from("scan_reviews").select("review_notes, ai_analysis").eq("scan_id", scanId).order("reviewed_at", { ascending: false }).limit(1),
+          supabase
+            .from("scan_reviews")
+            .select("review_notes, ai_analysis")
+            .eq("scan_id", scanId)
+            .order("reviewed_at", { ascending: false })
+            .limit(1),
         ]);
 
         if (patientResult.status === "rejected") {
@@ -56,47 +94,62 @@ export default function RecordResponse() {
         const reviewData = reviewResult.status === "fulfilled" ? reviewResult.value.data : null;
 
         if (patientData?.user_id) {
-          const { data: profile } = await supabase.from("profiles").select("full_name").eq("user_id", patientData.user_id).maybeSingle();
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("full_name")
+            .eq("user_id", patientData.user_id)
+            .maybeSingle();
           setPatientName(profile?.full_name || "Patient");
         }
 
         const review = reviewData?.[0];
         if (review?.ai_analysis && Array.isArray(review.ai_analysis)) {
-          setAiSummary(review.ai_analysis.map((a: any) => `${a.id}: ${a.status || a.deviation || "OK"}`));
+          setAiSummary(review.ai_analysis.map((a: { id?: string; status?: string; deviation?: string }) =>
+            `${a.id}: ${a.status || a.deviation || "OK"}`
+          ));
         } else {
-          setAiSummary(["Teeth alignment progressing well", "Minor crowding in lower arch", "No signs of decay detected"]);
+          setAiSummary(["Awaiting AI analysis on this scan"]);
         }
-      } catch (e) { logError(e, { operation: "RecordResponse/loadData", userId: user?.id }); }
+      } catch (e) {
+        logError(e, { operation: "RecordResponse/loadData", userId: user?.id });
+      }
     })();
-  }, [scanId]);
+  }, [scanId, user?.id]);
 
-  // Start camera
+  /* ── Camera ── */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
           setCameraReady(true);
         }
-      } catch { /* camera not available, mock mode */ }
+      } catch {
+        /* mock mode */
+      }
     })();
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
-      clearInterval(intervalRef.current ?? undefined);
-      recorderRef.current?.stop();
+      if (intervalRef.current) window.clearInterval(intervalRef.current);
+      try { recorderRef.current?.stop(); } catch { /* ignore */ }
     };
   }, []);
 
   const handleStartRecording = useCallback(() => {
     setRecording(true);
     setDuration(0);
+    setComments([]);
     chunksRef.current = [];
+    recordingStartedAtRef.current = performance.now();
 
     if (streamRef.current) {
       const recorder = new MediaRecorder(streamRef.current, { mimeType: "video/webm" });
@@ -113,8 +166,8 @@ export default function RecordResponse() {
   const handleStopRecording = useCallback(() => {
     setRecording(false);
     setRecorded(true);
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    recorderRef.current?.stop();
+    if (intervalRef.current) window.clearInterval(intervalRef.current);
+    try { recorderRef.current?.stop(); } catch { /* ignore */ }
   }, []);
 
   const handleAddTag = () => {
@@ -124,43 +177,72 @@ export default function RecordResponse() {
     }
   };
 
+  /* ── Drop a timestamped comment at the current playhead. ── */
+  const handleDropComment = useCallback(() => {
+    if (!recording || !commentDraft.trim()) return;
+    const tMs = Math.max(0, performance.now() - recordingStartedAtRef.current);
+    const id = (crypto && "randomUUID" in crypto)
+      ? crypto.randomUUID()
+      : `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setComments((prev) => [
+      ...prev,
+      { id, tMs, text: commentDraft.trim(), createdAt: new Date().toISOString() },
+    ]);
+    setCommentDraft("");
+  }, [recording, commentDraft]);
+
+  const handleRemoveComment = (id: string) => {
+    setComments((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  /* ── Send: upload video, write scan_reviews row with comments JSONB. ── */
   const handleSend = async () => {
     if (!user || !scanId) return;
     setSending(true);
     try {
       let videoUrl: string | null = null;
 
-      // Upload video if we have recorded chunks
       if (chunksRef.current.length > 0) {
         const blob = new Blob(chunksRef.current, { type: "video/webm" });
         const path = `${user.id}/${scanId}/${Date.now()}.webm`;
-        const { error: uploadError } = await supabase.storage.from("response-videos").upload(path, blob, { contentType: "video/webm" });
+        const { error: uploadError } = await supabase.storage
+          .from("response-videos")
+          .upload(path, blob, { contentType: "video/webm" });
         if (uploadError) throw uploadError;
         videoUrl = path;
       }
 
-      // Update or insert scan_review with response_video_url
+      const commentsForDb = comments.map((c) => ({
+        id: c.id,
+        t_ms: Math.round(c.tMs),
+        text: c.text,
+        author_id: user.id,
+        created_at: c.createdAt,
+      }));
+
+      // `comments` and `video_duration_ms` are added by the 20260509 migration.
+      // Cast around the older generated supabase types until they're regenerated.
       await supabase.from("scan_reviews").insert({
         scan_id: scanId,
         doctor_id: user.id,
         response_video_url: videoUrl,
         review_notes: actionTags.length > 0 ? `Action items: ${actionTags.join(", ")}` : null,
         action_type: "none",
-      });
+        comments: commentsForDb,
+        video_duration_ms: duration * 1000,
+      } as never);
 
-      toast({ title: "Response sent", description: "Video response has been sent to the patient." });
+      toast({
+        title: "Response sent",
+        description: `${comments.length} timestamped comment${comments.length === 1 ? "" : "s"} attached.`,
+      });
       navigate(`/doctor/scans/${scanId}`);
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Send failed";
+      toast({ title: "Error", description: msg, variant: "destructive" });
     } finally {
       setSending(false);
     }
-  };
-
-  const formatDuration = (s: number) => {
-    const min = Math.floor(s / 60).toString().padStart(2, "0");
-    const sec = (s % 60).toString().padStart(2, "0");
-    return `${min}:${sec}`;
   };
 
   const sidebarContent = (
@@ -173,12 +255,80 @@ export default function RecordResponse() {
         <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>SCAN ID</span>
         <p className="font-mono text-xs mt-1 truncate" style={{ color: "hsl(38 23% 90%)" }}>{scanId}</p>
       </div>
+
+      {/* Live thumbnail of the patient's actual 3D map */}
+      <div>
+        <span className="mono-label mb-2 block" style={{ color: "hsl(38 23% 90% / 0.3)" }}>PATIENT 3D MAP</span>
+        {scanPointcloudPath ? (
+          <PointCloudViewer plyUrl={pointcloudUrl} height={180} />
+        ) : (
+          <div className="aspect-square rounded-card flex items-center justify-center" style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
+            <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.2)" }}>NO 3D MAP YET</span>
+          </div>
+        )}
+      </div>
+
       <div>
         <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>AI SUMMARY</span>
         <ul className="mt-2 space-y-2 text-sm font-body" style={{ color: "hsl(38 23% 90% / 0.7)" }}>
           {aiSummary.map((item, i) => <li key={i}>• {item}</li>)}
         </ul>
       </div>
+
+      {/* Live timestamped comments — addable while recording */}
+      {(recording || comments.length > 0) && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>TIMESTAMPED COMMENTS</span>
+            <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{comments.length}</span>
+          </div>
+          {recording && (
+            <div className="flex gap-2 mb-2">
+              <Input
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleDropComment()}
+                placeholder="Comment at current timecode…"
+                className="bg-card border-border text-foreground text-xs"
+              />
+              <Button
+                onClick={handleDropComment}
+                disabled={!commentDraft.trim()}
+                size="sm"
+                className="rounded-pill bg-primary text-primary-foreground"
+                aria-label="Drop timestamped comment"
+              >
+                <MessageSquarePlus className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          )}
+          <div className="space-y-1.5 max-h-44 overflow-y-auto">
+            {comments.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-start gap-2 rounded-tag p-2"
+                style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.06)" }}
+              >
+                <span
+                  className="mono-label flex-shrink-0"
+                  style={{ color: "hsl(228 100% 62%)" }}
+                >
+                  {formatTimecode(c.tMs)}
+                </span>
+                <p className="flex-1 text-xs" style={{ color: "hsl(38 23% 90%)" }}>{c.text}</p>
+                <button
+                  onClick={() => handleRemoveComment(c.id)}
+                  className="flex-shrink-0 text-muted-foreground hover:text-destructive transition"
+                  aria-label="Remove comment"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {recorded && (
         <div>
           <span className="mono-label mb-2 block" style={{ color: "hsl(38 23% 90% / 0.3)" }}>ACTION ITEMS</span>
@@ -193,7 +343,11 @@ export default function RecordResponse() {
           </div>
           <div className="flex flex-wrap gap-1">
             {actionTags.map((tag, i) => (
-              <span key={i} className="mono-label px-2 py-1 rounded-pill" style={{ background: "hsl(228 100% 62% / 0.15)", color: "hsl(228 100% 62%)" }}>
+              <span
+                key={i}
+                className="mono-label px-2 py-1 rounded-pill"
+                style={{ background: "hsl(228 100% 62% / 0.15)", color: "hsl(228 100% 62%)" }}
+              >
                 {tag}
               </span>
             ))}
@@ -204,10 +358,11 @@ export default function RecordResponse() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row" style={{ background: "hsl(216 32% 7%)", color: "hsl(38 23% 90%)" }}>
-      {/* Main — Camera viewfinder (DOM-first for keyboard/test accessibility; sidebar uses lg:order-first) */}
+    <div
+      className="min-h-screen flex flex-col lg:flex-row"
+      style={{ background: "hsl(216 32% 7%)", color: "hsl(38 23% 90%)" }}
+    >
       <main className="flex-1 flex flex-col items-center justify-center relative p-4 md:p-8 lg:order-2">
-        {/* REC indicator */}
         {recording && (
           <div className="absolute top-4 left-4 md:top-6 md:left-6 flex items-center gap-2">
             <div className="w-3 h-3 rounded-full animate-status-pulse" style={{ background: "hsl(0 84% 60%)" }} />
@@ -215,7 +370,6 @@ export default function RecordResponse() {
           </div>
         )}
 
-        {/* Camera preview */}
         <div
           className="w-full max-w-2xl aspect-video rounded-card flex items-center justify-center mb-8 relative overflow-hidden"
           style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}
@@ -243,7 +397,6 @@ export default function RecordResponse() {
             )
           )}
 
-          {/* Brand overlay */}
           <div className="absolute bottom-4 left-4 z-10">
             <span className="mono-label" style={{ color: "hsl(0 0% 100% / 0.3)" }}>ARCLINE</span>
           </div>
@@ -252,15 +405,22 @@ export default function RecordResponse() {
           </div>
         </div>
 
-        {/* Controls */}
         <div className="flex flex-wrap justify-center gap-3">
           {!recording && !recorded && (
-            <Button onClick={handleStartRecording} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8" style={{ background: "hsl(0 84% 60%)", color: "white" }}>
+            <Button
+              onClick={handleStartRecording}
+              className="rounded-pill font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8"
+              style={{ background: "hsl(0 84% 60%)", color: "white" }}
+            >
               Start Recording
             </Button>
           )}
           {recording && (
-            <Button onClick={handleStopRecording} className="rounded-pill font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8" style={{ background: "hsl(0 84% 60%)", color: "white" }}>
+            <Button
+              onClick={handleStopRecording}
+              className="rounded-pill font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8"
+              style={{ background: "hsl(0 84% 60%)", color: "white" }}
+            >
               Stop Recording
             </Button>
           )}
@@ -268,13 +428,17 @@ export default function RecordResponse() {
             <>
               <Button
                 variant="outline"
-                onClick={() => { setRecorded(false); setDuration(0); chunksRef.current = []; }}
+                onClick={() => { setRecorded(false); setDuration(0); setComments([]); chunksRef.current = []; }}
                 className="rounded-pill font-mono text-xs uppercase tracking-[0.15em] border-foreground/20 text-foreground"
               >
                 Re-Record
               </Button>
-              <Button onClick={handleSend} disabled={sending} className="rounded-pill bg-primary text-primary-foreground font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8">
-                {sending ? "Sending..." : "Send Response"}
+              <Button
+                onClick={handleSend}
+                disabled={sending}
+                className="rounded-pill bg-primary text-primary-foreground font-mono text-xs uppercase tracking-[0.15em] px-6 md:px-8"
+              >
+                {sending ? "Sending..." : `Send Response${comments.length > 0 ? ` (${comments.length})` : ""}`}
               </Button>
             </>
           )}
@@ -288,25 +452,27 @@ export default function RecordResponse() {
         </div>
       </main>
 
-      {/* Desktop sidebar (lg:order-1 places it before main visually on large screens) */}
-      <aside className="w-72 p-6 flex-col gap-6 border-r hidden lg:flex lg:order-1" style={{ background: "hsl(218 26% 11%)", borderColor: "hsl(0 0% 100% / 0.07)" }}>
+      {/* Desktop sidebar */}
+      <aside
+        className="w-72 p-6 flex-col gap-6 border-r hidden lg:flex lg:order-1"
+        style={{ background: "hsl(218 26% 11%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
+      >
         {sidebarContent}
-        <div>
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>SCAN THUMBNAIL</span>
-          <div className="mt-2 aspect-square rounded-card flex items-center justify-center" style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-            <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.15)" }}>PREVIEW</span>
-          </div>
-        </div>
       </aside>
 
-      {/* Mobile collapsible info (lg:order-1 keeps it before main on small screens) */}
-      <div className="lg:hidden border-b lg:order-1" style={{ background: "hsl(218 26% 11%)", borderColor: "hsl(0 0% 100% / 0.07)" }}>
+      {/* Mobile collapsible info */}
+      <div
+        className="lg:hidden border-b lg:order-1"
+        style={{ background: "hsl(218 26% 11%)", borderColor: "hsl(0 0% 100% / 0.07)" }}
+      >
         <button
           onClick={() => setInfoOpen(!infoOpen)}
           className="w-full flex items-center justify-between p-4"
         >
-          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SCAN INFO & AI SUMMARY</span>
-          {infoOpen ? <ChevronUp className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.45)" }} /> : <ChevronDown className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.45)" }} />}
+          <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.45)" }}>SCAN INFO · 3D MAP · COMMENTS</span>
+          {infoOpen
+            ? <ChevronUp className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.45)" }} />
+            : <ChevronDown className="w-4 h-4" style={{ color: "hsl(38 23% 90% / 0.45)" }} />}
         </button>
         {infoOpen && (
           <div className="px-4 pb-4 space-y-4">

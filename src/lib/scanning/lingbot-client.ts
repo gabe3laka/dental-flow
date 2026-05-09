@@ -1,9 +1,10 @@
-import type { ScanSession } from './types';
+import type { ScanSession, ScanType } from './types';
 
 export interface LingbotJobRequest {
   scanId: string;
   videoUrl: string;
   callbackUrl: string;
+  scanType: ScanType;
   mode?: 'stream' | 'windowed';
   fps?: number;
   keyframeInterval?: number;
@@ -32,7 +33,7 @@ export interface LingbotCallbackPayload {
   status: 'complete' | 'failed';
   outputs?: {
     pointCloudPath: string;
-    posesPath: string;
+    posesPath?: string;
     framesPath?: string;
   };
   metrics?: {
@@ -76,7 +77,7 @@ export class LingbotClient {
 
   async dispatch(req: LingbotJobRequest): Promise<LingbotDispatchResult> {
     const body: LingbotJobRequest = {
-      mode: 'stream',
+      mode: chooseDispatchMode({ scanType: req.scanType }),
       fps: DENTAL_DEFAULTS.fps,
       keyframeInterval: DENTAL_DEFAULTS.keyframeInterval,
       cameraNumIterations: DENTAL_DEFAULTS.cameraNumIterations,
@@ -123,8 +124,10 @@ export class LingbotClient {
   }
 }
 
-export function chooseDispatchMode(session: Pick<ScanSession, 'device' | 'durationSec'>): 'stream' | 'windowed' {
-  if (session.device === 'wand') return 'windowed';
+export function chooseDispatchMode(
+  session: Pick<ScanSession, 'scanType' | 'durationSec'> | { scanType: ScanType; durationSec?: number }
+): 'stream' | 'windowed' {
+  if (session.scanType === 'wand') return 'windowed';
   if ((session.durationSec ?? 0) > 90) return 'windowed';
   return 'stream';
 }

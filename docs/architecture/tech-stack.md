@@ -1,19 +1,18 @@
 # Arcline Tech Stack
 
-Authoritative reference for what runs where, and why. Reflects the **actual** repo state as of this commit, not aspirational state.
+Authoritative reference for what runs where. Reflects the **actual** repo state as of this commit, not aspirational state.
 
 ## Frontend
 
 | Layer | Choice | Notes |
 | --- | --- | --- |
-| Build | **Vite 5 + SWC React plugin** | This repo is **not** Next.js. Vite-only SPA. Some upstream Arcline docs reference Next.js — that's planned migration territory, not current state. If we need server components / RSC for the doctor portal, see "Future" below. |
+| Build | **Vite 5 + SWC React plugin** | This repo is **not** Next.js. Vite-only SPA. |
 | Language | **TypeScript** (`strict: false`, `strictNullChecks: false`) | Loose by design, see `tsconfig.json`. Don't tighten without a coordinated migration. |
 | UI | **React 18 + shadcn/ui (Radix primitives) + Tailwind** | Component primitives in `src/components/ui/`. |
 | Routing | React Router v6 | App-level routing only; no SSR. |
 | State / data | **TanStack Query** for server state; React Context for auth/session | No global store (Zustand/Redux/etc.) — keep it that way. |
 | Forms | `react-hook-form` + `@hookform/resolvers` | Zod schemas in feature folders. |
-| 3D — point clouds & overlays | **`@react-three/fiber` + `@react-three/drei` + `three`** | Already used in `src/components/3d/MouthPanorama.tsx` and `TeethVisualization.tsx`. |
-| 3D — Gaussian Splat viewer | **`playcanvas` + `@playcanvas/react`** (to be added) | First-party splat support; r3f has none. See [supersplat-integration.md](./supersplat-integration.md). |
+| 3D — point clouds & per-tooth overlays | **`@react-three/fiber` + `@react-three/drei` + `three`** | Used in `src/components/3d/`, `src/components/landing/TeethScene.tsx`, and `src/lib/scanning/PointCloudViewer.tsx`. |
 | Package manager | **bun** (primary) — npm lockfile also tracked for compatibility | `bun.lock` + `bun.lockb` in repo. |
 
 ## Backend
@@ -21,42 +20,58 @@ Authoritative reference for what runs where, and why. Reflects the **actual** re
 | Layer | Choice | Notes |
 | --- | --- | --- |
 | Database | **Supabase Postgres** (v14.1) | Schema in `supabase/migrations/`; generated types in `src/integrations/supabase/types.ts`. |
-| Auth | **Supabase Auth** | Email + OTP. Doctor and patient roles via Postgres RLS, not separate auth providers. |
-| Storage | **Supabase Storage** | Per-scan layout: `scans/{patient_id}/{scan_id}/raw.mp4`, `points.ply`, `scan.splat`, `annotations.json`. |
-| Realtime | **Supabase Realtime** | Postgres CDC for `scan_sessions` status changes (drives the GPU dispatcher). |
-| Server logic | **Supabase Edge Functions** (Deno) | Thin orchestration only — `reconstruct-dispatch`, `splat-train-dispatch`, `gpu-callback`. |
+| Auth | **Supabase Auth** | Email + OTP. Doctor and patient roles via Postgres RLS. |
+| Storage | **Supabase Storage** | Buckets: `scan-videos` (raw video + keyframes), `scan-pointclouds` (LingBot output), `response-videos` (doctor walkthroughs), `profile-photos` (public). |
+| Realtime | **Supabase Realtime** | Postgres CDC + the `lingbot_queue` `pg_notify` channel (set up by the 20260509 migration) drive the GPU dispatcher. |
+| Server logic | **Supabase Edge Functions** (Deno) | Orchestration only — `reconstruct-scan`, `analyze-scan-quality`, `analyze-scan-teeth`, `generate-copilot-note`, `generate-patient-summary`, `run-automations`, `accept-team-invite`, `create-billing-portal`, `seed-users`, `annotate-scan-image`. |
 | GPU compute | **External GPU host** running LingBot-Map FastAPI service | Not Supabase. See [lingbot-map-integration.md](./lingbot-map-integration.md). |
-| 3DGS training | **gsplat** (or Brush) on the same GPU host | Bridges LingBot-Map → SuperSplat. |
 
 ## 3D processing pipeline
 
 | Stage | Tool | Where it runs |
 | --- | --- | --- |
 | Reconstruction | **LingBot-Map** (PyTorch 2.8.0 + CUDA 12.8 + FlashInfer) | GPU host (H100/A100/4090) |
-| 3DGS training | **gsplat** | Same GPU host |
-| Editor / authoring viewer | **SuperSplat** (PlayCanvas, WebGL/WebGPU) | Self-hosted fork at `editor.arcline.app`, embedded via iframe in doctor portal |
-| Read-only viewer | Custom viewer using **PlayCanvas Engine** | In-app component at `src/lib/scanning/supersplat-embed.tsx` |
+| Display / annotation | **`@react-three/fiber` + `PointCloudViewer`** | Browser, in-app |
+| Per-tooth status overlay | **`TeethVisualization`** (procedural arch tinted by `analyze-scan-teeth` output) | Browser, in-app |
+
+Notably absent: SuperSplat, PlayCanvas, gsplat. The pipeline goes straight from LingBot's point cloud to R3F.
 
 ## Asset formats
 
 | Asset | Format | Where stored |
 | --- | --- | --- |
-| Raw capture | `.mp4` (H.264, 1080p, 30 fps) | Supabase Storage |
-| Camera poses | `.npz` (per-frame 4×4 + intrinsics) | Supabase Storage |
-| Point cloud | `.ply` | Supabase Storage |
-| Gaussian Splat | `.compressed.ply` (SuperSplat's quantized format) | Supabase Storage |
-| Annotations | `.json` (sidecar) + Postgres mirror in `scan_annotations` | Both |
-| Doctor walkthrough | `.mp4` + `walkthrough.json` (camera path) | Supabase Storage |
+| Raw capture | `.webm` (H.264 / VP8/VP9, ~720p) | Supabase Storage `scan-videos` |
+| Per-frame keyframes (for AI analysis) | `.jpg` | Supabase Storage `scan-videos`, alongside the video |
+| Camera poses + per-frame predictions | `.npz` | GPU host scratch / optionally archived to `scan-videos` |
+| Point cloud | `.ply` (binary, optionally with vertex colors) | Supabase Storage `scan-pointclouds` |
+| Doctor walkthrough video | `.webm` | Supabase Storage `response-videos` |
+| Doctor timestamped comments | JSONB array on `scan_reviews.comments` | Postgres |
+
+## Database additions in `20260509_lingbot_pipeline.sql`
+
+- `scans.scan_type` (`'scope' | 'wand'`)
+- `scans.raw_video_url`
+- `scans.pointcloud_url`
+- `scans.processing_status` (`queued` / `uploading` / `processing` / `complete` / `failed`)
+- `scans.processing_error`
+- `scans.reconstructed_at`
+- `scans.lingbot_metrics` (JSONB — confidence, pose stability, frame count)
+- `scans.doctor_review_id` (UUID — current/active review)
+- `scan_reviews.comments` (JSONB array of `{id, t_ms, text, author_id, created_at, position?}`)
+- `scan_reviews.video_duration_ms`
+- `progress_snapshots` (longitudinal per-tooth deltas)
+- `scan-pointclouds` storage bucket + RLS policies
+- `notify_lingbot_queue` trigger fires `pg_notify('lingbot_queue', …)` on queued inserts
 
 ## Observability
 
 | Layer | Choice |
 | --- | --- |
 | Frontend errors | (none yet — add Sentry) |
-| Frontend logs | `src/lib/logger.ts` (existing) |
+| Frontend logs | `src/lib/logger.ts` |
 | Backend logs | Supabase Functions log stream |
 | GPU host metrics | Prometheus exporter on the FastAPI service (request counts, queue depth, GPU memory, job duration) — to be added |
-| Pipeline status UI | Doctor admin page (TBD) |
+| Pipeline status UI | Per-scan `processing_status` shown in `/patient/scans/:id/results` and the doctor's `/doctor/scans/:id` |
 
 ## Deployment
 
@@ -65,14 +80,12 @@ Authoritative reference for what runs where, and why. Reflects the **actual** re
 | Web app | Cloudflare Pages or Vercel (static SPA build) |
 | Edge Functions | Supabase-managed |
 | GPU host | Lambda Cloud / Modal / Fly.io GPU. Single H100 to start; queue-based autoscale |
-| SuperSplat fork | Same web host as the SPA, served from `editor.arcline.app` subdomain |
 
 ## Compliance posture
 
-- Patient scans are **PHI**. Storage bucket is private, signed URLs only, 1-hour TTL.
-- BAA in place with Supabase (their HIPAA tier) and the GPU provider.
+- Patient scans are **PHI**. Both buckets (`scan-videos`, `scan-pointclouds`) are private; signed URLs only, 1-hour TTL.
+- BAA in place with Supabase (HIPAA tier) and the GPU provider.
 - No telemetry / analytics on scan content. App-level analytics scrubbed of any scan blob URLs.
-- See [supersplat-integration.md](./supersplat-integration.md) for the SuperSplat fork hardening checklist.
 
 ## Versions (current — keep this section current)
 
@@ -83,14 +96,15 @@ Authoritative reference for what runs where, and why. Reflects the **actual** re
 | `@react-three/fiber` | ^8.18.0 |
 | `@react-three/drei` | ^9.122.0 |
 | `three` | (transitive via drei) |
+| `@types/three` | ^0.160.0 |
 | `@supabase/supabase-js` | ^2.97.0 |
 | `@tanstack/react-query` | ^5.83.0 |
 | LingBot-Map model | `lingbot-map-long.pt` (HuggingFace `robbyant/lingbot-map`) |
 | LingBot-Map server CUDA | 12.8 |
 | LingBot-Map server PyTorch | 2.8.0 |
 
-## Future / planned migrations
+## Future / planned
 
-- **Next.js**: only if we need RSC for the doctor's high-data dashboards. Pure SPA + Supabase Realtime is fine for v1.
-- **Mobile native (React Native / Expo)**: required for IMU access in capture. PWA gets us ~80% but not 100%.
-- **Local point-cloud preview before upload**: lightweight on-device structure-from-motion (e.g. ARKit/ARCore) to give the patient instant feedback before LingBot-Map runs server-side.
+- **Mobile native (Expo)**: required for IMU-based motion validation pre-upload. PWA gets us ~80% but not 100%.
+- **On-device preview**: lightweight ARKit/ARCore SfM to give the patient instant feedback before LingBot finishes.
+- **Annotation hotspots**: project `ToothAnnotation.position` to screen-space and render shadcn buttons on top of the R3F canvas (`PointCloudViewer.overlay` is the seam).

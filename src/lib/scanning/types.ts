@@ -1,16 +1,19 @@
 export type ScanDevice = 'scope' | 'wand' | 'phone-bare';
 
 export type ScanStatus =
-  | 'capturing'
+  | 'pending'
+  | 'reviewed'
+  | 'flagged'
+  | 'action_required';
+
+export type ProcessingStatus =
+  | 'queued'
   | 'uploading'
-  | 'uploaded'
-  | 'reconstructing'
-  | 'reconstructed'
-  | 'training_splat'
+  | 'processing'
   | 'complete'
   | 'failed';
 
-export type ScanTier = 'monitoring' | 'visualization';
+export type ScanType = 'scope' | 'wand';
 
 export type ToothNumberingSystem = 'fdi' | 'universal';
 
@@ -34,34 +37,23 @@ export type ToothSurface =
 export interface ScanSession {
   id: string;
   patientId: string;
-  device: ScanDevice;
+  scanType: ScanType;
   startedAt: string;
   endedAt?: string;
   status: ScanStatus;
-  tier: ScanTier;
-  rawVideoPath: string;
+  processingStatus: ProcessingStatus;
+  rawVideoUrl: string | null;
+  pointcloudUrl: string | null;
   durationSec?: number;
   framesCaptured?: number;
   failureReason?: string;
-  failureStage?: 'capture' | 'upload' | 'reconstruct' | 'train' | 'unknown';
-}
-
-export interface CameraPose {
-  frameIndex: number;
-  timestampMs: number;
-  position: [number, number, number];
-  rotationQuat: [number, number, number, number];
-  fovDeg: number;
 }
 
 export interface ScanResult {
   scanId: string;
-  tier: ScanTier;
-  pointCloudPath?: string;
-  splatPath?: string;
-  posesPath: string;
-  framesCount: number;
+  pointcloudUrl: string;
   reconstructedAt: string;
+  framesCount: number;
   qualityMetrics: {
     confidenceMean: number;
     confidenceP10: number;
@@ -70,7 +62,6 @@ export interface ScanResult {
   };
   modelVersion: {
     lingbotMap: string;
-    splatTrainer?: string;
   };
 }
 
@@ -89,27 +80,23 @@ export interface ToothAnnotation {
   updatedAt?: string;
 }
 
-export interface AnnotationTimelineEvent {
+export interface ReviewComment {
+  id: string;
   tMs: number;
-  annotationId: string;
-  kind: 'add' | 'edit' | 'focus';
+  text: string;
+  authorId: string;
+  createdAt: string;
+  position?: [number, number, number];
 }
 
 export interface DoctorReview {
   id: string;
   scanId: string;
   doctorId: string;
-  videoPath: string;
-  durationMs: number;
-  cameraPath: Array<{
-    tMs: number;
-    position: [number, number, number];
-    target: [number, number, number];
-    fovDeg: number;
-  }>;
-  annotationEvents: AnnotationTimelineEvent[];
-  recordedAt: string;
-  publishedAt?: string;
+  videoUrl: string | null;
+  reviewNotes: string | null;
+  comments: ReviewComment[];
+  reviewedAt: string;
 }
 
 export interface ScanProgressDelta {

@@ -226,12 +226,12 @@ export default function ScanHistory() {
           </div>
           <h2 className="font-display text-base font-medium mb-2">No scans yet</h2>
           <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[280px]">
-            Your first scan takes about 60 seconds and is reviewed within 24 hours.
+            A scan takes about 25 seconds — we turn it into a 3D map of your teeth.
           </p>
           <div className="flex items-center gap-6 mb-6">
             {[
-              { icon: Camera, label: "Position phone" },
-              { icon: RotateCw, label: "Capture 5 angles" },
+              { icon: Camera, label: "Record a sweep" },
+              { icon: RotateCw, label: "Build 3D map" },
               { icon: Sparkles, label: "Get AI analysis" },
             ].map((step) => (
               <div key={step.label} className="flex flex-col items-center gap-2">

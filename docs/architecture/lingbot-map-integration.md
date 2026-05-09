@@ -1,15 +1,18 @@
 # LingBot-Map Integration
 
-GPU-server inference for the Arcline 3D reconstruction stage. LingBot-Map is a feed-forward Geometric Context Transformer that turns a phone-camera video into camera poses + a fused point cloud, without requiring camera calibration.
+GPU-server inference for the Arcline 3D reconstruction stage. LingBot-Map is a feed-forward Geometric Context Transformer that turns a phone-camera video into camera poses + a fused point cloud, **without requiring camera calibration**.
 
 Upstream: <https://github.com/robbyant/lingbot-map> · Apache-2.0.
 
+A snapshot of the upstream README lives at [`/.planning/research/lingbot-map-README.md`](../../.planning/research/lingbot-map-README.md).
+
 ## Why LingBot-Map for Arcline
 
-- **No calibration needed.** Patients use an unknown phone camera; LingBot-Map handles arbitrary intrinsics. This is the single biggest unlock for a consumer scanning product.
-- **Streaming inference.** ~20 FPS on 518×378, paged KV cache via FlashInfer. A 30 s scan reconstructs in ~30 s.
-- **Long-sequence support.** 10 000+ frames via windowed mode — enables "scan your whole mouth in one continuous sweep" rather than zone-by-zone.
+- **No calibration needed.** Patients use unknown phone cameras; LingBot-Map handles arbitrary intrinsics. Single biggest unlock for a consumer scanning product.
+- **Streaming inference.** ~20 FPS on 518×378 with paged KV cache via FlashInfer. A 25 s scan reconstructs in ~30 s.
+- **Long-sequence support.** 10 000+ frames in `--mode windowed` — enables a single continuous mouth sweep instead of per-zone snapshots.
 - **Apache 2.0.** Commercial use is unrestricted.
+- **Outputs a `.ply` point cloud directly** — which is exactly what `@react-three/fiber` (already in this repo) consumes via Three.js `PLYLoader`. No bridge step.
 
 ## Hardware spec (single-GPU server)
 
@@ -18,35 +21,33 @@ Upstream: <https://github.com/robbyant/lingbot-map> · Apache-2.0.
 | GPU | NVIDIA H100 80 GB or A100 80 GB | RTX 4090 24 GB |
 | CPU | 16 vCPU | 8 vCPU |
 | RAM | 64 GB | 32 GB |
-| Disk | 500 GB NVMe (model + scratch) | 200 GB |
+| Disk | 500 GB NVMe | 200 GB |
 | CUDA | 12.8 | 12.x |
 | OS | Ubuntu 22.04 / 24.04 | — |
 
-For Arcline production, run on a managed GPU host (Lambda, Modal, RunPod serverless, or Fly.io GPU). A single H100 supports ~5 concurrent dental scans (each ~30–60 s). Auto-scaling is straightforward — each job is independent.
+For Arcline production: a managed GPU host (Lambda, Modal, RunPod serverless, Fly.io GPU). One H100 supports ~5 concurrent ~30 s dental scans. Auto-scale by queue depth.
 
 ## Server install
 
 ```bash
-# 1. Conda env
 conda create -n lingbot-map python=3.10 -y
 conda activate lingbot-map
 
-# 2. PyTorch (CUDA 12.8 — required for Kaolin wheels)
+# PyTorch (CUDA 12.8 — required for Kaolin wheels)
 pip install torch==2.8.0 torchvision==0.23.0 \
   --index-url https://download.pytorch.org/whl/cu128
 
-# 3. LingBot-Map
+# LingBot-Map
 git clone https://github.com/robbyant/lingbot-map.git
 cd lingbot-map
 pip install -e .
 
-# 4. FlashInfer (paged KV cache attention — strongly recommended)
+# FlashInfer (paged KV cache attention — strongly recommended)
 pip install --index-url https://pypi.org/simple flashinfer-python
-# Optional: prebuilt JIT cache for faster first-use
 pip install flashinfer-jit-cache \
   -f https://flashinfer.ai/whl/cu128/flashinfer-jit-cache/
 
-# 5. Render pipeline (only needed if we ship point-cloud previews)
+# Optional: render pipeline (only needed for offline preview rendering)
 pip install -e ".[vis,render]"
 pip install onnxruntime-gpu
 pip install --index-url https://pypi.org/simple kaolin \
@@ -55,122 +56,147 @@ sudo apt install ffmpeg
 cd demo_render/render_cuda_ext && python setup.py build_ext --inplace && cd ../..
 ```
 
-Download the `lingbot-map-long.pt` checkpoint from <https://huggingface.co/robbyant/lingbot-map> on first boot and cache it on the GPU host's NVMe.
+Cache the `lingbot-map-long.pt` checkpoint (HuggingFace `robbyant/lingbot-map`) on the GPU host's NVMe.
 
 ## Inference command for dental scans
 
-For a typical Arcline scan (10–60 s phone video):
+For a typical Arcline Scope sweep (10–30 s phone video):
 
 ```bash
 python demo.py \
   --model_path /models/lingbot-map-long.pt \
-  --video_path /scratch/{scan_id}/raw.mp4 \
+  --video_path /scratch/{scan_id}/raw.webm \
   --fps 15 \
   --keyframe_interval 2 \
   --camera_num_iterations 2 \
   --conf_threshold 1.5 \
-  --save_predictions
+  --save_predictions \
+  --output_folder /scratch/{scan_id}
 ```
-
-Flag rationale:
 
 | Flag | Reason |
 | --- | --- |
 | `--keyframe_interval 2` | Halves KV cache size; mouth scans are slow-moving so cache pressure is the limit, not motion. |
-| `--camera_num_iterations 2` | Trade one pose-refinement pass for ~25% wall-clock speedup. Dental scenes are texture-rich (enamel, gingiva), so two iterations give clinically usable poses. |
-| `--save_predictions` | Persist per-frame NPZs for the 3DGS bridge step. |
+| `--camera_num_iterations 2` | Trades one pose-refinement pass for ~25% wall-clock speedup. Two iterations give clinically-usable poses on texture-rich enamel/gingiva. |
+| `--save_predictions` | Persist per-frame NPZs for later re-rendering / progress diffs. |
+| (no `--mask_sky`) | Sky masking is *off* — there is no sky inside a mouth. |
 
-For continuous sweeps that loop multiple times around the arch (typical Wand workflow), switch to windowed:
+For Wand sweeps that loop the arch multiple times (typical interior workflow):
 
 ```bash
 python demo.py \
   --model_path /models/lingbot-map-long.pt \
-  --video_path /scratch/{scan_id}/raw.mp4 \
+  --video_path /scratch/{scan_id}/raw.webm \
   --fps 15 \
   --mode windowed --window_size 128 --overlap_keyframes 16 \
   --keyframe_interval 2 \
   --save_predictions
 ```
 
-**Sky masking** (`--mask_sky`) is intentionally *off* for dental scans — there is no sky and the segmentation model would mis-classify oral mucosa.
+The output of interest is `<output_folder>/pointcloud.ply` (or whatever `demo_render/batch_demo.py` names it for a given run).
 
-## Wrapping LingBot-Map as an HTTP service
+## HTTP wrapper around the CLI
 
-LingBot-Map ships a CLI, not an HTTP server. Wrap it in a thin FastAPI process so the Arcline backend (Supabase Edge Function) can dispatch jobs:
+LingBot-Map ships a CLI, not an HTTP server. Wrap it so the Arcline Edge Function can dispatch jobs:
 
 ```python
 # server.py — runs on the GPU host
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel
-import subprocess, uuid, pathlib, requests
+import subprocess, pathlib, requests
 
 app = FastAPI()
 MODEL = "/models/lingbot-map-long.pt"
 SCRATCH = pathlib.Path("/scratch")
 
 class Job(BaseModel):
-    scan_id: str
-    video_url: str       # signed Supabase URL
-    callback_url: str    # signed callback URL on Arcline backend
-    mode: str = "stream" # or "windowed"
+    scanId: str
+    videoUrl: str
+    callbackUrl: str
+    scanType: str = "scope"        # "scope" | "wand"
+    mode: str = "stream"
+    fps: int = 15
+    keyframeInterval: int = 2
+    cameraNumIterations: int = 2
 
 @app.post("/v1/reconstruct")
 def reconstruct(job: Job, bg: BackgroundTasks):
     bg.add_task(run_job, job)
-    return {"status": "accepted", "scan_id": job.scan_id}
+    return {"status": "accepted", "scanId": job.scanId}
 
 def run_job(job: Job):
-    work = SCRATCH / job.scan_id
+    work = SCRATCH / job.scanId
     work.mkdir(parents=True, exist_ok=True)
-    raw = work / "raw.mp4"
-    raw.write_bytes(requests.get(job.video_url, timeout=120).content)
+    raw = work / "raw.webm"
+    raw.write_bytes(requests.get(job.videoUrl, timeout=120).content)
 
-    args = ["python", "demo.py",
-            "--model_path", MODEL,
-            "--video_path", str(raw),
-            "--fps", "15",
-            "--keyframe_interval", "2",
-            "--camera_num_iterations", "2",
-            "--save_predictions",
-            "--output_folder", str(work)]
-    if job.mode == "windowed":
-        args += ["--mode", "windowed",
-                 "--window_size", "128",
-                 "--overlap_keyframes", "16"]
+    args = [
+        "python", "demo.py",
+        "--model_path", MODEL,
+        "--video_path", str(raw),
+        "--fps", str(job.fps),
+        "--keyframe_interval", str(job.keyframeInterval),
+        "--camera_num_iterations", str(job.cameraNumIterations),
+        "--save_predictions",
+        "--output_folder", str(work),
+    ]
+    if job.mode == "windowed" or job.scanType == "wand":
+        args += ["--mode", "windowed", "--window_size", "128", "--overlap_keyframes", "16"]
+
     subprocess.run(args, check=True)
 
-    # Upload poses.npz + points.ply + frames/ back to Supabase via signed PUTs
-    # (omitted — see lingbot-client.ts for the URL contract)
-    requests.post(job.callback_url, json={"scan_id": job.scan_id, "status": "complete"})
+    ply_path = next(work.glob("*pointcloud*.ply"))
+    # PUT to Supabase scan-pointclouds bucket via signed URL embedded in callbackUrl
+    # ... (signed PUT URL provisioning omitted)
+
+    requests.post(job.callbackUrl, json={
+        "scanId": job.scanId,
+        "status": "complete",
+        "outputs": {"pointCloudPath": f"{job.scanId}/pointcloud.ply"},
+    })
 ```
 
-Run with `uvicorn server:app --host 0.0.0.0 --port 8000` behind nginx + an internal API token. Concurrency is bound by GPU memory; serialize with a queue if you exceed ~5 in-flight jobs per GPU.
+Run with `uvicorn server:app --host 0.0.0.0 --port 8000` behind nginx + an internal API token (`LINGBOT_API_TOKEN`).
 
 ## Calling from Arcline (Vite + Supabase)
 
 The browser does **not** call LingBot-Map directly. Flow:
 
-1. Phone uploads `raw.mp4` to Supabase Storage (`scans/{patient}/{scan}/raw.mp4`).
-2. Insert row into `scan_sessions` with `status='uploaded'`.
-3. A Supabase Edge Function (`reconstruct-dispatch`) listens for the row, signs a 1-hour read URL for the video and a write URL for the outputs, then POSTs to the GPU host's `/v1/reconstruct`.
-4. GPU host runs LingBot-Map, uploads outputs to Supabase Storage via the signed PUT URLs, and POSTs the callback.
-5. Edge Function callback handler updates `scan_sessions.status='reconstructed'` and triggers the 3DGS bridge job (or marks as monitoring-tier complete).
+1. Patient records video → upload to `scan-videos/{patient_id}/{ts}/raw_video.webm`.
+2. Insert row into `scans` with `processing_status='queued'`, `raw_video_url`, `scan_type`.
+3. Client calls Edge Function `reconstruct-scan` ([`supabase/functions/reconstruct-scan/index.ts`](../../supabase/functions/reconstruct-scan/index.ts)) with `{ scan_id }`.
+4. Edge Function signs a 1-hour read URL for the video and POSTs `/v1/reconstruct` on the GPU host.
+5. GPU host runs LingBot-Map, uploads `pointcloud.ply` to `scan-pointclouds` via signed PUT, then POSTs the callback URL.
+6. Callback handler updates `scans.pointcloud_url`, `processing_status='complete'`, `reconstructed_at`, `lingbot_metrics`.
+7. The browser viewer (`PointCloudViewer`) loads the `.ply` via a fresh signed URL when the user opens the scan.
 
-The TypeScript client used by the Edge Function lives at [`src/lib/scanning/lingbot-client.ts`](../../src/lib/scanning/lingbot-client.ts).
+The TypeScript dispatch contract lives at [`src/lib/scanning/lingbot-client.ts`](../../src/lib/scanning/lingbot-client.ts).
+
+## Required env vars (Edge Function)
+
+| Var | Purpose |
+| --- | --- |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | Standard Supabase service-role access |
+| `LINGBOT_API_URL` | e.g. `https://lingbot.arcline.app` |
+| `LINGBOT_API_TOKEN` | Bearer token shared with the GPU host |
+| `ARCLINE_BASE_URL` | Public base URL where the callback function lives (defaults to `SUPABASE_URL`) |
+
+If `LINGBOT_API_URL` / `LINGBOT_API_TOKEN` are absent the Edge Function still marks the scan `processing` and returns 200 — a worker can pick it up later by polling for queued scans. This keeps local dev unblocked.
 
 ## Failure modes
 
 | Symptom | Likely cause | Mitigation |
 | --- | --- | --- |
-| "Pose collapse" partway through | Sequence longer than RoPE training range (~320 frames) without windowing | Switch job to `mode='windowed'` and re-run. |
-| OOM mid-job | Too many in-flight jobs | Lower `--keyframe_interval`-based caching, add `--offload_to_cpu`, drop concurrency. |
-| Black/blurry first 50 frames | Dental video starts with the device against the cheek before the patient opens | Mobile capture flow already trims the first 1.5 s; raise this if needed. |
-| Reconstruction works but 3DGS step fails | Insufficient parallax (patient barely moved) | Reject scan client-side via IMU motion check before upload. |
+| Pose collapse partway through | Sequence longer than RoPE training range (~320 frames) without windowing | Re-run with `mode='windowed'`. |
+| OOM mid-job | Too many in-flight jobs | Lower concurrency, add `--offload_to_cpu`. |
+| First few seconds black/blurry | Patient starts with phone against cheek | Mobile capture trims first ~1.5 s; raise this if needed. |
+| Patient barely moved → no parallax | Insufficient motion | Reject client-side via IMU motion check before upload (future). |
+| LingBot writes succeeded but row never updates | Callback URL unreachable | Add a daily reconciliation job that polls the GPU host's status endpoint and back-fills. |
 
 ## Cost envelope
 
-A 30-second scan on H100 ≈ 30 GPU-seconds for LingBot-Map alone. At Lambda H100 on-demand pricing (~$2.49/hr at time of writing), that's ~$0.02/scan inference cost. 3DGS training adds ~$0.20–0.40/scan. Storage is negligible (~50 MB per scan).
+A 25 s scan on H100 ≈ ~30 GPU-seconds. At Lambda H100 on-demand pricing (~$2.49/hr at time of writing), that's ~$0.02/scan in inference cost. Storage is negligible (~10–30 MB per `.ply`). No 3DGS training step → no extra GPU minutes per scan.
 
 ## Local development
 
-The Arcline frontend treats the GPU host as a black-box HTTP service. For local dev, point `VITE_LINGBOT_API_URL` at a stub returning a fixed sample splat — no GPU required to develop the doctor portal or annotation UX.
+The Arcline frontend treats the GPU host as a black-box HTTP service. For local dev, leave `LINGBOT_API_URL` unset and pre-populate `pointcloud_url` on a few seed scans pointing at sample `.ply` files in the `scan-pointclouds` bucket — that's enough to develop against the real R3F viewer without a GPU.
