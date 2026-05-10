@@ -118,8 +118,17 @@ export default function ScanResults() {
             scan_type: (row.scan_type as string | null) ?? (row.source as string | null) ?? null,
           };
           setScan(scanData);
-          // Start polling if ai_analysis is empty
-          if (!scanData.ai_analysis || !scanData.ai_analysis.teeth || scanData.ai_analysis.teeth.length === 0) {
+          // Start polling if AI analysis is missing OR 3D reconstruction
+          // is still in flight (queued/processing).
+          const aiPending =
+            !scanData.ai_analysis ||
+            !scanData.ai_analysis.teeth ||
+            scanData.ai_analysis.teeth.length === 0;
+          const reconPending =
+            !!scanData.processing_status &&
+            scanData.processing_status !== "complete" &&
+            scanData.processing_status !== "failed";
+          if (aiPending || reconPending) {
             setAnalysisPolling(true);
           }
         }
@@ -138,7 +147,8 @@ export default function ScanResults() {
 
     pollRef.current = setInterval(async () => {
       pollCountRef.current++;
-      if (pollCountRef.current > 10) {
+      // ~4 minutes at 3s interval — covers RunPod reconstruction window.
+      if (pollCountRef.current > 80) {
         setAnalysisPolling(false);
         if (pollRef.current) clearInterval(pollRef.current);
         return;
@@ -146,16 +156,47 @@ export default function ScanResults() {
       try {
         const { data } = await supabase
           .from("scans")
-          .select("ai_analysis, detection_tags, quality_score")
+          .select("ai_analysis, detection_tags, quality_score, processing_status, pointcloud_url")
           .eq("id", scanId)
           .single();
-        if (data?.ai_analysis && (data.ai_analysis as any).teeth?.length > 0) {
-          setScan((prev) => prev ? {
+        if (!data) return;
+        const aiReady =
+          !!data.ai_analysis && ((data.ai_analysis as any).teeth?.length ?? 0) > 0;
+        const status = (data as any).processing_status as string | null;
+        const pointcloudUrl = (data as any).pointcloud_url as string | null;
+        const reconDone = status === "complete" && !!pointcloudUrl;
+        const reconFailed = status === "failed";
+
+        // Merge whatever has progressed into local state.
+        setScan((prev) => {
+          if (!prev) return prev;
+          return {
             ...prev,
-            ai_analysis: data.ai_analysis,
-            detection_tags: Array.isArray(data.detection_tags) ? (data.detection_tags as string[]) : prev.detection_tags,
+            ai_analysis: aiReady ? data.ai_analysis : prev.ai_analysis,
+            detection_tags: Array.isArray(data.detection_tags)
+              ? (data.detection_tags as string[])
+              : prev.detection_tags,
             quality_score: data.quality_score ?? prev.quality_score,
-          } : prev);
+            processing_status: status ?? prev.processing_status,
+            pointcloud_url: pointcloudUrl ?? prev.pointcloud_url,
+          };
+        });
+
+        if (reconFailed) {
+          toast({
+            title: "Reconstruction failed",
+            description: "We couldn't build a 3D map from this scan.",
+            variant: "destructive",
+          });
+          setAnalysisPolling(false);
+          if (pollRef.current) clearInterval(pollRef.current);
+          return;
+        }
+
+        // Stop only when both AI analysis is in AND reconstruction is
+        // resolved (or there was no reconstruction in flight to begin with).
+        const reconResolved = !status || reconDone || status === "complete";
+        if (aiReady && reconResolved) {
           setAnalysisPolling(false);
           if (pollRef.current) clearInterval(pollRef.current);
         }
