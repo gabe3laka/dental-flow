@@ -21,6 +21,7 @@ export function useScanCompletionWatcher() {
   const navigate = useNavigate();
   const channelsRef = useRef<Map<string, RealtimeChannel>>(new Map());
   const patientIdRef = useRef<string | null>(null);
+  const lastRefetchRef = useRef<number>(0);
 
   useEffect(() => {
     if (!user) return;
@@ -74,6 +75,12 @@ export function useScanCompletionWatcher() {
     };
 
     const refetchInProgressScans = async () => {
+      // Dedup: tab-focus events can fire multiple times in quick succession,
+      // and JWT auto-refresh on focus may also wake other listeners. 30s
+      // coverage is plenty for "did a scan finish while I was away".
+      const now = Date.now();
+      if (now - lastRefetchRef.current < 30_000) return;
+      lastRefetchRef.current = now;
       try {
         let pid = patientIdRef.current;
         if (!pid) {
@@ -113,6 +120,7 @@ export function useScanCompletionWatcher() {
       for (const ch of channels.values()) supabase.removeChannel(ch);
       channels.clear();
       patientIdRef.current = null;
+      lastRefetchRef.current = 0;
     };
   }, [user, navigate]);
 }

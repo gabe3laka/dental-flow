@@ -31,13 +31,22 @@ export function useAuth() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (session?.user) {
-          setState((s) => ({
-            ...s,
-            user: session.user,
-            session,
-            loading: false,
-            roleLoading: true,
-          }));
+          setState((s) => {
+            // Token refresh fires onAuthStateChange with a fresh `session.user`
+            // object. If the user id hasn't changed, keep the previous user
+            // reference stable so consumers with `useEffect(..., [user])`
+            // dependency arrays don't re-fire spuriously every ~50 minutes
+            // (or on tab focus). Same goes for `roleLoading` — only flip back
+            // to true on a real sign-in, not on a refresh of the same user.
+            const sameUser = s.user?.id === session.user.id;
+            return {
+              ...s,
+              user: sameUser ? s.user : session.user,
+              session,
+              loading: false,
+              roleLoading: sameUser ? s.roleLoading : true,
+            };
+          });
         } else {
           setState({
             user: null,

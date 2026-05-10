@@ -52,7 +52,21 @@ import SharedProgress from "@/pages/public/SharedProgress";
 import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
 
-const queryClient = new QueryClient();
+// Tab-focus refetch is intentionally off because:
+//   1. We have Supabase Realtime subscriptions on the rows that matter
+//      (see Progress.tsx and useScanCompletionWatcher).
+//   2. usePatientData / route-scoped fetches re-run on user-id change.
+//   3. Each react-query hook still sets its own `staleTime` so stale data
+//      naturally expires when actually consulted, just not on focus.
+// Individual queries can still opt-in with refetchOnWindowFocus: true.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
