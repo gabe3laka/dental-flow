@@ -1,4 +1,3 @@
-import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -6,7 +5,7 @@ import { toast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { logError } from "@/lib/logger";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { createElement } from "react";
+import { useEffect, useRef } from "react";
 
 /**
  * Global watcher that listens for the patient's in-progress scans to finish
@@ -42,13 +41,13 @@ export function useScanCompletionWatcher() {
               toast({
                 title: "Scan ready",
                 description: "Your 3D reconstruction is complete.",
-                action: createElement(
-                  ToastAction,
-                  {
-                    altText: "View",
-                    onClick: () => navigate(`/patient/scans/${next.id}/results`),
-                  },
-                  "View"
+                action: (
+                  <ToastAction
+                    altText="View"
+                    onClick={() => navigate(`/patient/scans/${next.id}/results`)}
+                  >
+                    View
+                  </ToastAction>
                 ),
               });
               const ch = channels.get(scanId);
