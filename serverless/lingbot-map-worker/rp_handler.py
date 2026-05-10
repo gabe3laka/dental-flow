@@ -16,10 +16,12 @@ Return value (becomes `output` in RunPod's webhook payload, which the
 
     {
       "pointcloud_url": "<patient_id>/<scan_id>/pointcloud.ply",
-      "metrics":       { "frames_processed": int, "wall_clock_sec": float, ... }
+      "metrics":       { "wall_clock_sec": float, "ply_bytes": int, ... }
     }
 
 On failure, raises so RunPod posts `status: FAILED` with the error message.
+The `callback_url` field is intentionally unused — RunPod's native webhook
+(set by the dispatcher's `webhook` field) delivers the result.
 
 Env vars (set on the RunPod endpoint, NOT baked into the image):
   SUPABASE_URL                  project URL
@@ -47,8 +49,30 @@ MODEL_PATH = Path(os.environ.get("LINGBOT_MODEL_PATH", "/models/lingbot-map-long
 SCRATCH = Path(os.environ.get("SCRATCH_DIR", "/scratch"))
 POINTCLOUD_BUCKET = "scan-pointclouds"
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+# ─── Tiny helpers for clearer errors + RunPod log visibility ─────────────────
+def _require_input(inp: dict, key: str) -> str:
+    v = inp.get(key)
+    if not isinstance(v, str) or not v:
+        raise ValueError(f"input.{key} is required (got {type(v).__name__})")
+    return v
+
+
+def _require_env(name: str) -> str:
+    v = os.environ.get(name)
+    if not v:
+        raise RuntimeError(f"env var {name} is required")
+    return v
+
+
+def _progress(job: dict, msg: str) -> None:
+    """Stream a stage update into the RunPod job log."""
+    print(msg, flush=True)
+    try:
+        runpod.serverless.progress_update(job, msg)
+    except Exception:
+        # Never let log-plumbing failures take down a job.
+        pass
 
 
 # ─── Supabase client (lazy) ──────────────────────────────────────────────────
@@ -58,15 +82,13 @@ _supabase: Client | None = None
 def supabase() -> Client:
     global _supabase
     if _supabase is None:
-        if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
-            raise RuntimeError(
-                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required env vars"
-            )
-        _supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        url = _require_env("SUPABASE_URL")
+        key = _require_env("SUPABASE_SERVICE_ROLE_KEY")
+        _supabase = create_client(url, key)
     return _supabase
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
+# ─── Pipeline steps ──────────────────────────────────────────────────────────
 def lookup_patient_id(scan_id: str) -> str:
     """Patient_id is needed for the scan-pointclouds storage path (RLS)."""
     res = (
@@ -82,14 +104,17 @@ def lookup_patient_id(scan_id: str) -> str:
     return res.data["patient_id"]
 
 
-def download_video(video_url: str, dest: Path) -> None:
+def download_video(video_url: str, dest: Path) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
     with requests.get(video_url, stream=True, timeout=180) as r:
         r.raise_for_status()
         with dest.open("wb") as f:
             for chunk in r.iter_content(chunk_size=1 << 20):  # 1 MiB
                 if chunk:
                     f.write(chunk)
+                    written += len(chunk)
+    return written
 
 
 def find_pointcloud(output_dir: Path) -> Path:
@@ -101,10 +126,17 @@ def find_pointcloud(output_dir: Path) -> Path:
         raise RuntimeError(
             f"no .ply file produced under {output_dir} — check LingBot logs"
         )
+    # Prefer the largest file when several .ply siblings exist (e.g. partials).
+    candidates.sort(key=lambda p: p.stat().st_size, reverse=True)
     return candidates[0]
 
 
-def run_lingbot(video_path: Path, output_dir: Path, scan_type: str) -> dict[str, Any]:
+def run_lingbot(
+    job: dict,
+    video_path: Path,
+    output_dir: Path,
+    scan_type: str,
+) -> dict[str, Any]:
     """Invoke LingBot-Map's demo.py. Returns rough timing metrics."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -122,6 +154,8 @@ def run_lingbot(video_path: Path, output_dir: Path, scan_type: str) -> dict[str,
         "2",
         "--camera_num_iterations",
         "2",
+        "--conf_threshold",
+        "1.5",
         "--save_predictions",
         "--output_folder",
         str(output_dir),
@@ -136,13 +170,23 @@ def run_lingbot(video_path: Path, output_dir: Path, scan_type: str) -> dict[str,
             "--overlap_keyframes",
             "16",
         ]
+    # Streaming mode is the LingBot default — pass no `--mode` flag for it.
 
+    _progress(job, f"Running LingBot-Map (scan_type={scan_type})…")
     t0 = time.monotonic()
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
     wall = time.monotonic() - t0
+    # Echo stdout so RunPod's job log captures the LingBot output for debugging.
+    if proc.stdout:
+        print(proc.stdout, flush=True)
     if proc.returncode != 0:
-        # Surface the tail of stderr so the failure shows up in RunPod logs.
-        tail = proc.stderr[-2000:] if proc.stderr else ""
+        # Surface the tail so the failure shows up in the API response too.
+        tail = (proc.stdout or "")[-2000:]
         raise RuntimeError(f"lingbot exited {proc.returncode}: {tail}")
 
     return {
@@ -155,7 +199,7 @@ def upload_pointcloud(local_path: Path, storage_path: str) -> None:
     """Upload .ply to scan-pointclouds bucket via service role."""
     with local_path.open("rb") as f:
         body = f.read()
-    # `upsert=True` so a re-run of the same scan overwrites the prior result
+    # `x-upsert: true` so a re-run of the same scan overwrites the prior result
     # rather than 409-ing.
     supabase().storage.from_(POINTCLOUD_BUCKET).upload(
         path=storage_path,
@@ -170,40 +214,46 @@ def upload_pointcloud(local_path: Path, storage_path: str) -> None:
 # ─── RunPod handler ──────────────────────────────────────────────────────────
 def handler(job: dict[str, Any]) -> dict[str, Any]:
     job_input = job.get("input") or {}
-
-    scan_id = job_input.get("scan_id")
-    video_url = job_input.get("video_url")
-    scan_type = (job_input.get("scan_type") or "scope").lower()
-
-    if not scan_id:
-        raise RuntimeError("input.scan_id required")
-    if not video_url:
-        raise RuntimeError("input.video_url required")
-    if scan_type not in {"scope", "wand"}:
-        raise RuntimeError(f"invalid scan_type {scan_type!r}; expected scope|wand")
-
-    work = SCRATCH / scan_id
-    work.mkdir(parents=True, exist_ok=True)
-    raw_video = work / "raw_video"  # extension irrelevant to ffmpeg/decoder
-    output_dir = work / "out"
+    work: Path | None = None
 
     try:
+        scan_id = _require_input(job_input, "scan_id")
+        video_url = _require_input(job_input, "video_url")
+        scan_type = (job_input.get("scan_type") or "scope").lower()
+        if scan_type not in {"scope", "wand"}:
+            raise ValueError(f"invalid scan_type {scan_type!r}; expected scope|wand")
+
+        work = SCRATCH / scan_id
+        raw_video = work / "raw_video"  # extension irrelevant to ffmpeg/decoder
+        output_dir = work / "out"
+
+        _progress(job, f"Creating scratch workspace at {work}…")
+        work.mkdir(parents=True, exist_ok=True)
+
+        _progress(job, "Looking up patient_id for storage path…")
         patient_id = lookup_patient_id(scan_id)
-        download_video(video_url, raw_video)
 
-        timing = run_lingbot(raw_video, output_dir, scan_type)
+        _progress(job, "Downloading input video…")
+        bytes_downloaded = download_video(video_url, raw_video)
+        _progress(job, f"Downloaded {bytes_downloaded:,} bytes")
 
+        timing = run_lingbot(job, raw_video, output_dir, scan_type)
+
+        _progress(job, "Locating .ply output…")
         ply = find_pointcloud(output_dir)
         ply_size = ply.stat().st_size
 
         storage_path = f"{patient_id}/{scan_id}/pointcloud.ply"
+        _progress(job, f"Uploading {ply_size:,}-byte .ply to {POINTCLOUD_BUCKET}/{storage_path}…")
         upload_pointcloud(ply, storage_path)
 
+        _progress(job, "Done.")
         return {
             "pointcloud_url": storage_path,
             "metrics": {
                 "wall_clock_sec": timing["wall_clock_sec"],
                 "ply_bytes": ply_size,
+                "video_bytes": bytes_downloaded,
                 "model": MODEL_PATH.name,
                 "scan_type": scan_type,
             },
@@ -215,10 +265,12 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError(f"reconstruction failed: {e}") from e
     finally:
         # Best-effort scratch cleanup so workers don't fill up between jobs.
-        try:
-            shutil.rmtree(work, ignore_errors=True)
-        except Exception:
-            pass
+        if work and work.exists():
+            try:
+                _progress(job, f"Cleaning up {work}…")
+                shutil.rmtree(work, ignore_errors=True)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
