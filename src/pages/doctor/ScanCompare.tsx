@@ -4,6 +4,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { logError } from "@/lib/logger";
+import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
+import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
 
 export default function ScanCompare() {
   const [searchParams] = useSearchParams();
@@ -67,34 +69,56 @@ export default function ScanCompare() {
     );
   }
 
-  const renderScanPanel = (scan: any, label: string) => (
-    <div className="flex-1 rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
-      <span className="mono-label mb-3 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{label}</span>
-      {scan ? (
-        <>
-          <div className="aspect-[4/3] rounded-card flex items-center justify-center mb-4" style={{ background: "hsl(220 24% 16%)" }}>
-            <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.2)" }}>SCAN IMAGE</span>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>DATE</span>
-              <span className="mono-label" style={{ color: "hsl(38 23% 90%)" }}>{format(new Date(scan.submitted_at), "dd MMM yyyy").toUpperCase()}</span>
+  const ScanPanel = ({ scan, label }: { scan: Record<string, unknown> | null; label: string }) => {
+    const pcPath = (scan?.pointcloud_url as string | null) ?? null;
+    const { url: pcUrl } = usePointCloudUrl(pcPath);
+    return (
+      <div className="flex-1 rounded-card p-6" style={{ background: "hsl(218 26% 11%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
+        <span className="mono-label mb-3 block" style={{ color: "hsl(38 23% 90% / 0.45)" }}>{label}</span>
+        {scan ? (
+          <>
+            <div className="rounded-card overflow-hidden mb-4" style={{ background: "hsl(220 24% 16%)" }}>
+              {pcPath ? (
+                <PointCloudViewer plyUrl={pcUrl} height={260} />
+              ) : (
+                <div className="aspect-[4/3] flex items-center justify-center">
+                  <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>3D MAP UNAVAILABLE</span>
+                </div>
+              )}
             </div>
-            <div className="flex justify-between">
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>QUALITY</span>
-              <span className="mono-label" style={{ color: "hsl(38 23% 90%)" }}>Q{scan.quality_score || "—"}</span>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>DATE</span>
+                <span className="mono-label" style={{ color: "hsl(38 23% 90%)" }}>
+                  {format(new Date(scan.submitted_at as string), "dd MMM yyyy").toUpperCase()}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>QUALITY</span>
+                <span className="mono-label" style={{ color: "hsl(38 23% 90%)" }}>Q{(scan.quality_score as number | null) || "—"}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>STATUS</span>
+                <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>
+                  {(scan.status as string)?.toUpperCase()}
+                </span>
+              </div>
+              {scan.scan_type ? (
+                <div className="flex justify-between">
+                  <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>DEVICE</span>
+                  <span className="mono-label" style={{ color: "hsl(38 23% 90%)" }}>
+                    {(scan.scan_type as string).toUpperCase()}
+                  </span>
+                </div>
+              ) : null}
             </div>
-            <div className="flex justify-between">
-              <span className="mono-label" style={{ color: "hsl(38 23% 90% / 0.3)" }}>STATUS</span>
-              <span className="mono-label" style={{ color: "hsl(228 100% 62%)" }}>{scan.status?.toUpperCase()}</span>
-            </div>
-          </div>
-        </>
-      ) : (
-        <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.3)" }}>Scan not found.</p>
-      )}
-    </div>
-  );
+          </>
+        ) : (
+          <p className="text-sm" style={{ color: "hsl(38 23% 90% / 0.3)" }}>Scan not found.</p>
+        )}
+      </div>
+    );
+  };
 
   const getQualityDelta = () => {
     if (!dataA?.quality_score || !dataB?.quality_score) return null;
@@ -112,7 +136,7 @@ export default function ScanCompare() {
       <h1 className="font-display text-2xl font-semibold mt-1 mb-8">Side by Side</h1>
 
       <div className="flex flex-col lg:flex-row gap-6">
-        {renderScanPanel(dataA, "SCAN A (EARLIER)")}
+        <ScanPanel scan={dataA} label="SCAN A (EARLIER)" />
 
         {/* Delta column */}
         <div className="w-full lg:w-48 rounded-card p-4 flex flex-col items-center justify-center gap-4" style={{ background: "hsl(220 24% 16%)", border: "1px solid hsl(0 0% 100% / 0.07)" }}>
@@ -135,7 +159,7 @@ export default function ScanCompare() {
           )}
         </div>
 
-        {renderScanPanel(dataB, "SCAN B (LATER)")}
+        <ScanPanel scan={dataB} label="SCAN B (LATER)" />
       </div>
     </div>
   );

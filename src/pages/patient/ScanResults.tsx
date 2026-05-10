@@ -3,17 +3,16 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TeethVisualization, type ToothStatus, type ToothDetection, type ToothGeometry, DETECTION_MATERIALS } from "@/components/3d/TeethVisualization";
-import { MouthPanorama } from "@/components/3d/MouthPanorama";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
+import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
+import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Scan, Trash2, Camera } from "lucide-react";
-
-const ZONE_LABEL_ORDER = ["FRONT_SMILE", "UPPER_ARCH", "LOWER_ARCH", "LEFT_BITE", "RIGHT_BITE", "UPPER_CLOSE", "LOWER_CLOSE"];
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -25,6 +24,9 @@ interface ScanData {
   status: string;
   zones_captured: any;
   patient_id: string;
+  pointcloud_url: string | null;
+  processing_status: string | null;
+  scan_type: string | null;
 }
 
 /** Map AI analysis teeth array to toothData for 3D visualization */
@@ -77,7 +79,7 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3dplus">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
@@ -85,10 +87,10 @@ export default function ScanResults() {
   const [reanalyzing, setReanalyzing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [showPhotoContext, setShowPhotoContext] = useState(true);
-  const [panoramaOpen, setPanoramaOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
+
+  const { url: pointcloudSignedUrl } = usePointCloudUrl(scan?.pointcloud_url ?? null);
 
   // Initial load
   useEffect(() => {
@@ -97,15 +99,23 @@ export default function ScanResults() {
       try {
         const { data } = await supabase
           .from("scans")
-          .select("id, quality_score, ai_analysis, detection_tags, sent_to_doctor, status, zones_captured, patient_id")
+          .select("*")
           .eq("id", scanId)
           .single();
         if (data) {
+          const row = data as Record<string, unknown>;
           const scanData: ScanData = {
-            ...data,
-            detection_tags: Array.isArray(data.detection_tags) ? (data.detection_tags as string[]) : null,
-            sent_to_doctor: (data as any).sent_to_doctor ?? false,
-            ai_analysis: (data as any).ai_analysis,
+            id: (row.id as string),
+            quality_score: (row.quality_score as number | null) ?? null,
+            ai_analysis: row.ai_analysis,
+            detection_tags: Array.isArray(row.detection_tags) ? (row.detection_tags as string[]) : null,
+            sent_to_doctor: (row.sent_to_doctor as boolean | null) ?? false,
+            status: (row.status as string),
+            zones_captured: row.zones_captured,
+            patient_id: (row.patient_id as string),
+            pointcloud_url: (row.pointcloud_url as string | null) ?? null,
+            processing_status: (row.processing_status as string | null) ?? null,
+            scan_type: (row.scan_type as string | null) ?? (row.source as string | null) ?? null,
           };
           setScan(scanData);
           // Start polling if ai_analysis is empty
@@ -241,9 +251,16 @@ export default function ScanResults() {
     setDeleting(true);
     try {
       const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
-      const paths = zones.map((z) => z.path).filter(Boolean) as string[];
-      if (paths.length > 0) {
-        await supabase.storage.from("scan-videos").remove(paths);
+      const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
+      // Include the raw video itself (not just keyframes) when present.
+      const rawPath = (scan as unknown as { raw_video_url?: string | null }).raw_video_url ?? null;
+      if (rawPath && !videoPaths.includes(rawPath)) videoPaths.push(rawPath);
+      if (videoPaths.length > 0) {
+        await supabase.storage.from("scan-videos").remove(videoPaths);
+      }
+      // Reclaim the LingBot point-cloud `.ply`.
+      if (scan.pointcloud_url) {
+        await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
       }
       await supabase.from("scans").delete().eq("id", scan.id);
       const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
@@ -315,13 +332,12 @@ export default function ScanResults() {
   }
 
   // Helper: determine most relevant zone image for a tooth.
-  // Handles both standard zone names (UPPER/LOWER/FRONT/LEFT/RIGHT)
-  // and 3D+ zone names (UPPER_ARCH/LOWER_ARCH/FRONT_SMILE/etc.) — single source of truth.
+  // Handles both legacy zone names (UPPER/LOWER/FRONT/LEFT/RIGHT) and the
+  // newer arch-style aliases (UPPER_ARCH/LOWER_ARCH/FRONT_SMILE/etc.).
   function getZoneForTooth(toothId: string): string | null {
     const frontIds = new Set(["T11", "T21", "T12", "T22", "T41", "T31", "T42", "T32"]);
     const isUpper = toothId.startsWith("T1") || toothId.startsWith("T2");
     const num = parseInt(toothId.slice(1));
-    // Ordered preference: standard names first, then 3D+ equivalents
     const candidates: string[] = [
       isUpper ? "UPPER" : "LOWER",
       isUpper ? "UPPER_ARCH" : "LOWER_ARCH",
@@ -451,7 +467,7 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d", "3dplus"] as const).map((mode) => (
+        {(["analysis", "photos", "3d"] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
@@ -461,8 +477,7 @@ export default function ScanResults() {
           >
             {mode === "analysis" ? "ANALYSIS"
               : mode === "photos" ? "PHOTOS"
-              : mode === "3d" ? "3D MAP"
-              : "3D+"}
+              : "3D MAP"}
           </button>
         ))}
       </div>
@@ -479,7 +494,46 @@ export default function ScanResults() {
 
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
+          {/* Header — point-cloud header */}
+          <div className="px-4 py-2.5 flex items-center justify-between border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="mono-label text-primary text-[10px]">3D MAP</span>
+              {scan.scan_type && (
+                <span className="mono-label text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">
+                  {scan.scan_type.toUpperCase()}
+                </span>
+              )}
+            </div>
+            <span className="mono-label text-muted-foreground text-[9px]">
+              {scan.processing_status === "complete" ? "READY" : (scan.processing_status ?? "QUEUED").toUpperCase()}
+            </span>
+          </div>
+
+          {/* Point cloud */}
+          <div className="bg-black">
+            {scan.pointcloud_url ? (
+              <PointCloudViewer plyUrl={pointcloudSignedUrl} height={360} />
+            ) : (
+              <div className="h-[360px] flex flex-col items-center justify-center gap-3 text-center px-6">
+                {scan.processing_status === "failed" ? (
+                  <>
+                    <span className="mono-label text-destructive text-[10px]">RECONSTRUCTION FAILED</span>
+                    <p className="text-white/40 text-xs">We couldn't build a 3D map from this scan. Try recording again.</p>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="w-5 h-5 text-primary animate-spin" />
+                    <span className="mono-label text-white/55 text-[10px]">BUILDING YOUR 3D MAP…</span>
+                    <p className="text-white/30 text-xs">Usually under 2 minutes after upload.</p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* AI tooth-status overlay (procedural arch tinted by AI analysis) */}
           <div className="px-3 pt-3 pb-3 bg-card">
+            <span className="mono-label text-muted-foreground text-[10px] block mb-2">AI TOOTH STATUS</span>
             <TeethVisualization
               compact
               showLegend
@@ -549,135 +603,6 @@ export default function ScanResults() {
               <p className="text-xs text-muted-foreground">Affected teeth are highlighted on the 3D map above. Tap the tag again or another tag to change.</p>
             </div>
           )}
-        </div>
-      )}
-
-      {/* 3D+ Polycam-style view */}
-      {viewMode === "3dplus" && (
-        <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
-          {/* Header — scan stats like Polycam's model info bar */}
-          <div className="px-4 py-2.5 flex items-center justify-between border-b border-border">
-            <div className="flex items-center gap-2">
-              <span className="mono-label text-primary text-[10px]">3D DENTAL SCAN</span>
-              <span className="mono-label text-[9px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">AI-PERSONALIZED</span>
-            </div>
-            <span className="mono-label text-muted-foreground text-[9px]">
-              {zones.length > 0 ? `${zones.length} ZONES` : ""}{scan.quality_score != null ? ` · ${scan.quality_score}% QUALITY` : ""}
-            </span>
-          </div>
-
-          {/* Mode toggle: SCAN CONTEXT / AI ANALYSIS */}
-          <div className="flex border-b border-border">
-            {([true, false] as const).map((isPhoto) => (
-              <button
-                key={String(isPhoto)}
-                onClick={() => setShowPhotoContext(isPhoto)}
-                className={`flex-1 py-2 mono-label text-[10px] transition border-b-2 -mb-px ${
-                  showPhotoContext === isPhoto
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground"
-                }`}
-              >
-                {isPhoto ? "SCAN CONTEXT" : "AI ANALYSIS"}
-              </button>
-            ))}
-          </div>
-
-          {/* 3D model — with photo backdrops in SCAN CONTEXT mode */}
-          <div className="px-3 pt-3 pb-3 bg-card dark">
-            <TeethVisualization
-              compact
-              showLegend
-              showToggle={false}
-              toothData={activeToothData}
-              detectionData={detectionDataMap}
-              toothGeometry={Object.keys(toothGeometryMap).length > 0 ? toothGeometryMap : undefined}
-              onToothSelect={(id) => setSelectedTooth3D((prev) => (prev === id ? null : id))}
-              zonePhotoUrls={zoneSignedUrls}
-              showPhotoBackdrops={showPhotoContext}
-            />
-          </div>
-
-          {/* Source photo evidence strip — like Polycam's reference photos */}
-          {Object.keys(zoneSignedUrls).length > 0 && (
-            <div className="px-3 py-2.5 border-t border-border">
-              <div className="flex items-center justify-between mb-2">
-                <span className="mono-label text-muted-foreground text-[9px]">SOURCE PHOTOS</span>
-                <button
-                  onClick={() => setPanoramaOpen(true)}
-                  className="mono-label text-[9px] text-primary flex items-center gap-1 hover:opacity-80 transition"
-                >
-                  <Camera className="w-2.5 h-2.5" />
-                  360 VIEW
-                </button>
-              </div>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {ZONE_LABEL_ORDER.map((zoneId) => {
-                  const url = zoneSignedUrls[zoneId];
-                  if (!url) return null;
-                  return (
-                    <div key={zoneId} className="flex-shrink-0 w-16">
-                      <img
-                        src={url}
-                        alt={zoneId}
-                        className="w-16 h-12 object-cover rounded-md border border-border"
-                      />
-                      <span className="mono-label text-[8px] text-muted-foreground block text-center mt-0.5 truncate">
-                        {zoneId.replace(/_/g, " ")}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Zone count + refresh */}
-          {zones.length > 0 && (
-            <div className="px-4 pb-3 flex items-center justify-between border-t border-border pt-2">
-              <span className="mono-label text-muted-foreground text-[10px]">
-                {zones.length} ZONE{zones.length > 1 ? "S" : ""} ANALYZED
-              </span>
-              {!analysisPolling && (
-                <button
-                  onClick={handleReanalyze}
-                  disabled={reanalyzing}
-                  className="mono-label text-[10px] text-muted-foreground hover:text-primary transition flex items-center gap-1 disabled:opacity-50"
-                >
-                  {reanalyzing ? <><Loader2 className="w-3 h-3 animate-spin" /> RE-ANALYZING...</> : "↻ REFRESH"}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* New 3D+ scan CTA */}
-          <div className="px-4 pb-4 border-t border-border pt-3">
-            <button
-              onClick={() => navigate("/patient/scan/3d-plus")}
-              className="w-full py-3 rounded-pill bg-primary text-primary-foreground mono-label text-xs flex items-center justify-center gap-2"
-            >
-              <Scan className="w-3.5 h-3.5" />
-              START NEW 3D+ SCAN
-            </button>
-            <p className="text-center text-[10px] text-muted-foreground mt-2">
-              Guided 7-zone capture · AI-personalized 3D map
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* 360 panorama fullscreen modal */}
-      {panoramaOpen && (
-        <div className="fixed inset-0 z-50 bg-black flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-            <span className="font-mono text-white text-xs tracking-widest">360 MOUTH VIEW</span>
-            <button onClick={() => setPanoramaOpen(false)} className="text-white/60 hover:text-white transition">
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <div className="flex-1">
-            <MouthPanorama zoneSignedUrls={zoneSignedUrls} height="100%" />
-          </div>
         </div>
       )}
 

@@ -25,6 +25,8 @@ type ScanRow = {
   patient_id: string;
   ai_analysis: any;
   zones_captured: any;
+  pointcloud_url?: string | null;
+  raw_video_url?: string | null;
 };
 
 type ReviewRow = {
@@ -62,7 +64,7 @@ export default function ScanHistory() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const SCAN_COLUMNS = "id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id, ai_analysis, zones_captured" as const;
+  const SCAN_COLUMNS = "id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id, ai_analysis, zones_captured, pointcloud_url, raw_video_url" as const;
 
   useEffect(() => {
     if (!user) return;
@@ -135,13 +137,20 @@ export default function ScanHistory() {
   const handleDelete = async (scan: ScanRow) => {
     setDeleting(scan.id);
     try {
-      // Delete storage files first
+      // Delete storage files first.
       const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
-      const paths = zones.map((z) => z.path).filter(Boolean) as string[];
-      if (paths.length > 0) {
-        await supabase.storage.from("scan-videos").remove(paths);
+      const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
+      if (scan.raw_video_url && !videoPaths.includes(scan.raw_video_url)) {
+        videoPaths.push(scan.raw_video_url);
       }
-      // Delete scan record
+      if (videoPaths.length > 0) {
+        await supabase.storage.from("scan-videos").remove(videoPaths);
+      }
+      // Reclaim the LingBot point-cloud `.ply`.
+      if (scan.pointcloud_url) {
+        await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
+      }
+      // Delete scan record.
       await supabase.from("scans").delete().eq("id", scan.id);
       // Decrement patient total_scans
       const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
@@ -226,12 +235,12 @@ export default function ScanHistory() {
           </div>
           <h2 className="font-display text-base font-medium mb-2">No scans yet</h2>
           <p className="font-body text-muted-foreground text-sm mb-6 text-center max-w-[280px]">
-            Your first scan takes about 60 seconds and is reviewed within 24 hours.
+            A scan takes about 25 seconds — we turn it into a 3D map of your teeth.
           </p>
           <div className="flex items-center gap-6 mb-6">
             {[
-              { icon: Camera, label: "Position phone" },
-              { icon: RotateCw, label: "Capture 5 angles" },
+              { icon: Camera, label: "Record a sweep" },
+              { icon: RotateCw, label: "Build 3D map" },
               { icon: Sparkles, label: "Get AI analysis" },
             ].map((step) => (
               <div key={step.label} className="flex flex-col items-center gap-2">

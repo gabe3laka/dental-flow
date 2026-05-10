@@ -23,12 +23,14 @@ interface ScanPhotoGridProps {
   className?: string;
 }
 
-// Canonical zone label map — covers both standard scan names and 3D+ names (single source of truth)
+// Canonical zone label map. Covers legacy 5-zone scan names plus the
+// arch-style aliases used by older guided captures. Newer scans store
+// per-frame keyframes pulled from the LingBot video pipeline (FRAME_*).
 const ZONE_LABELS: Record<string, string> = {
-  // Standard scan zones
+  // Legacy 5-zone scan names
   upper: "UPPER", lower: "LOWER", left: "LEFT", right: "RIGHT", front: "FRONT",
   UPPER: "UPPER", LOWER: "LOWER", LEFT: "LEFT", RIGHT: "RIGHT", FRONT: "FRONT",
-  // 3D+ scan zones
+  // Older guided-capture aliases (kept for backwards compat with existing scan rows)
   front_smile: "FRONT SMILE", FRONT_SMILE: "FRONT SMILE",
   upper_arch: "UPPER ARCH",   UPPER_ARCH: "UPPER ARCH",
   lower_arch: "LOWER ARCH",   LOWER_ARCH: "LOWER ARCH",

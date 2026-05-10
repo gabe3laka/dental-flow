@@ -26,3 +26,9 @@ verify_jwt = false
 
 [functions.annotate-scan-image]
 verify_jwt = false
+
+[functions.reconstruct-scan]
+verify_jwt = true
+
+[functions.reconstruct-scan-callback]
+verify_jwt = false
