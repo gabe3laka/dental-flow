@@ -38,9 +38,12 @@ function pickPointCloudPath(body: Record<string, unknown>): string | null {
   const candidates: Array<unknown> = [
     output.pointcloud_url, output.pointcloudUrl, output.point_cloud_url,
     output.pointCloudPath, output.pointcloud_path, output.path,
+    output.ply_path, output.plyPath,
     outputs.pointCloudPath, outputs.pointcloudPath, outputs.point_cloud_path,
     outputs.pointcloud_url, outputs.point_cloud_url, outputs.path,
+    outputs.ply_path, outputs.plyPath,
     body.pointcloud_url, body.pointcloud_path, body.point_cloud_url, body.pointCloudPath,
+    body.ply_path, body.plyPath,
   ];
   for (const c of candidates) if (typeof c === "string" && c.length > 0) return c;
   return null;
