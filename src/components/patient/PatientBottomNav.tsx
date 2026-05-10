@@ -1,6 +1,7 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { Home, ScanLine, TrendingUp, MessageCircle, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useScanCompletionWatcher } from "@/hooks/use-scan-completion-watcher";
 
 const navItems = [
   { label: "HOME", path: "/patient", icon: Home },
@@ -13,6 +14,7 @@ const navItems = [
 export function PatientBottomNav() {
   const navigate = useNavigate();
   const location = useLocation();
+  useScanCompletionWatcher();
 
   return (
     <nav
