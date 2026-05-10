@@ -454,6 +454,58 @@ export type Database = {
           },
         ]
       }
+      progress_snapshots: {
+        Row: {
+          computed_at: string
+          from_scan_id: string
+          id: string
+          patient_id: string
+          per_tooth: Json
+          summary: Json | null
+          to_scan_id: string
+        }
+        Insert: {
+          computed_at?: string
+          from_scan_id: string
+          id?: string
+          patient_id: string
+          per_tooth?: Json
+          summary?: Json | null
+          to_scan_id: string
+        }
+        Update: {
+          computed_at?: string
+          from_scan_id?: string
+          id?: string
+          patient_id?: string
+          per_tooth?: Json
+          summary?: Json | null
+          to_scan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "progress_snapshots_from_scan_id_fkey"
+            columns: ["from_scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "progress_snapshots_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "progress_snapshots_to_scan_id_fkey"
+            columns: ["to_scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       referrals: {
         Row: {
           created_at: string
@@ -499,6 +551,7 @@ export type Database = {
         Row: {
           action_type: Database["public"]["Enums"]["action_type"] | null
           ai_analysis: Json | null
+          comments: Json
           created_at: string
           doctor_id: string
           id: string
@@ -506,10 +559,12 @@ export type Database = {
           review_notes: string | null
           reviewed_at: string
           scan_id: string
+          video_duration_ms: number | null
         }
         Insert: {
           action_type?: Database["public"]["Enums"]["action_type"] | null
           ai_analysis?: Json | null
+          comments?: Json
           created_at?: string
           doctor_id: string
           id?: string
@@ -517,10 +572,12 @@ export type Database = {
           review_notes?: string | null
           reviewed_at?: string
           scan_id: string
+          video_duration_ms?: number | null
         }
         Update: {
           action_type?: Database["public"]["Enums"]["action_type"] | null
           ai_analysis?: Json | null
+          comments?: Json
           created_at?: string
           doctor_id?: string
           id?: string
@@ -528,6 +585,7 @@ export type Database = {
           review_notes?: string | null
           reviewed_at?: string
           scan_id?: string
+          video_duration_ms?: number | null
         }
         Relationships: [
           {
@@ -582,10 +640,19 @@ export type Database = {
           ai_analysis: Json | null
           created_at: string
           detection_tags: Json | null
+          doctor_review_id: string | null
           id: string
+          lingbot_metrics: Json | null
           patient_id: string
           patient_note: string | null
+          pointcloud_url: string | null
+          processing_error: string | null
+          processing_status: string | null
           quality_score: number | null
+          raw_video_url: string | null
+          reconstructed_at: string | null
+          runpod_job_id: string | null
+          scan_type: string | null
           sent_to_doctor: boolean | null
           sent_to_doctor_at: string | null
           source: string | null
@@ -599,10 +666,19 @@ export type Database = {
           ai_analysis?: Json | null
           created_at?: string
           detection_tags?: Json | null
+          doctor_review_id?: string | null
           id?: string
+          lingbot_metrics?: Json | null
           patient_id: string
           patient_note?: string | null
+          pointcloud_url?: string | null
+          processing_error?: string | null
+          processing_status?: string | null
           quality_score?: number | null
+          raw_video_url?: string | null
+          reconstructed_at?: string | null
+          runpod_job_id?: string | null
+          scan_type?: string | null
           sent_to_doctor?: boolean | null
           sent_to_doctor_at?: string | null
           source?: string | null
@@ -616,10 +692,19 @@ export type Database = {
           ai_analysis?: Json | null
           created_at?: string
           detection_tags?: Json | null
+          doctor_review_id?: string | null
           id?: string
+          lingbot_metrics?: Json | null
           patient_id?: string
           patient_note?: string | null
+          pointcloud_url?: string | null
+          processing_error?: string | null
+          processing_status?: string | null
           quality_score?: number | null
+          raw_video_url?: string | null
+          reconstructed_at?: string | null
+          runpod_job_id?: string | null
+          scan_type?: string | null
           sent_to_doctor?: boolean | null
           sent_to_doctor_at?: string | null
           source?: string | null

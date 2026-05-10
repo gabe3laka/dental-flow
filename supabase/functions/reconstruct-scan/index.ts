@@ -1,31 +1,24 @@
-// Dispatches a scans row to the LingBot-Map GPU server for 3D reconstruction.
+// Dispatches a scans row to a RunPod Serverless endpoint running LingBot-Map.
 //
 // Auth model:
-//   - `verify_jwt = true` in supabase/config.toml → Supabase rejects un-authed
-//     calls at the gateway. Inside the function we additionally use the
-//     caller's JWT against an anon-key client so RLS gates `scans.select`
-//     to scans the user is allowed to see. This blocks a logged-in user
-//     from triggering reconstruction on someone else's scan.
-//   - The service-role client is used only for the post-validation update +
-//     storage signing. It is never exposed to the caller.
+//   - Caller's JWT verified via anon-key client (RLS gates `scans.select`)
+//     so a user cannot dispatch reconstruction on someone else's scan.
+//   - Service-role client used only for signing the video URL and updating
+//     scans.processing_status / scans.runpod_job_id.
 //
 // Contract:
 //   POST { scan_id: string, scan_type?: 'scope' | 'wand' }
 //
-// Behavior:
-//   1. Verify caller can see the scan (RLS via JWT).
-//   2. Sign a 1-hour read URL for raw_video_url (service role).
-//   3. POST to the LingBot host's /v1/reconstruct endpoint.
-//   4. Mark scans.processing_status = 'processing'.
+// RunPod call:
+//   POST {LINGBOT_API_URL}/run
+//   Authorization: Bearer {LINGBOT_API_TOKEN}
+//   Body: { input: { video_url, scan_id, scan_type, callback_url }, webhook }
 //
-// LingBot calls back to /functions/v1/reconstruct-scan-callback (separate
-// function, verify_jwt=false, validates LINGBOT_API_TOKEN).
-//
-// Required env vars:
+// Required env:
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
-//   LINGBOT_API_URL    — e.g. https://lingbot.arcline.app
-//   LINGBOT_API_TOKEN  — bearer token shared with the GPU host
-//   ARCLINE_BASE_URL   — public base URL where the callback function lives
+//   LINGBOT_API_URL    — full RunPod endpoint, e.g. https://api.runpod.ai/v2/<endpoint_id>
+//   LINGBOT_API_TOKEN  — RunPod API key (also acts as callback shared secret)
+//   ARCLINE_BASE_URL   — public Supabase functions base (defaults to SUPABASE_URL)
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -50,14 +43,10 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return jsonResponse({ error: "unauthorized" }, { status: 401 });
-    }
+    if (!authHeader) return jsonResponse({ error: "unauthorized" }, { status: 401 });
 
     const { scan_id, scan_type } = await req.json();
-    if (!scan_id) {
-      return jsonResponse({ error: "scan_id required" }, { status: 400 });
-    }
+    if (!scan_id) return jsonResponse({ error: "scan_id required" }, { status: 400 });
 
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -67,13 +56,11 @@ serve(async (req) => {
     const ARCLINE_BASE = Deno.env.get("ARCLINE_BASE_URL") ?? SUPABASE_URL;
 
     if (!ANON_KEY) {
-      // Refuse rather than silently fall through to service-role: we *must*
-      // verify the caller can see the scan before triggering GPU work.
       console.error("SUPABASE_ANON_KEY missing — cannot enforce per-user auth");
       return jsonResponse({ error: "server misconfigured" }, { status: 503 });
     }
 
-    // 1. RLS-checked lookup using the caller's JWT.
+    // RLS-checked lookup
     const userClient = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { authorization: authHeader } },
       auth: { persistSession: false, autoRefreshToken: false },
@@ -85,19 +72,15 @@ serve(async (req) => {
       .eq("id", scan_id)
       .maybeSingle();
     if (fetchErr) {
-      // RLS denial typically returns no row, but if a real error surfaces,
-      // log and present as forbidden to avoid leaking internals.
       console.error("scans select error:", fetchErr);
       return jsonResponse({ error: "forbidden" }, { status: 403 });
     }
-    if (!scan) {
-      return jsonResponse({ error: "forbidden" }, { status: 403 });
-    }
+    if (!scan) return jsonResponse({ error: "forbidden" }, { status: 403 });
     if (!scan.raw_video_url) {
       return jsonResponse({ error: "scan has no raw_video_url" }, { status: 400 });
     }
 
-    // 2. Service-role client for trusted ops (sign URL, mark processing).
+    // Service-role for trusted ops
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE);
 
     const { data: signed, error: signErr } = await adminClient.storage
@@ -115,8 +98,6 @@ serve(async (req) => {
 
     const effectiveType: ScanType = (scan.scan_type as ScanType) ?? scan_type ?? "scope";
 
-    // 3. If the GPU host isn't configured yet, leave the scan in 'processing'
-    //    so a worker can pick it up later. Don't fail the user-facing request.
     if (!LINGBOT_URL || !LINGBOT_TOKEN) {
       console.warn("LINGBOT_API_URL / LINGBOT_API_TOKEN not set — skipping dispatch");
       return jsonResponse({
@@ -131,21 +112,20 @@ serve(async (req) => {
       `${ARCLINE_BASE.replace(/\/$/, "")}/functions/v1/reconstruct-scan-callback` +
       `?scan_id=${encodeURIComponent(scan_id)}`;
 
-    const dispatch = await fetch(`${LINGBOT_URL.replace(/\/$/, "")}/v1/reconstruct`, {
+    const dispatch = await fetch(`${LINGBOT_URL.replace(/\/$/, "")}/run`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${LINGBOT_TOKEN}`,
       },
       body: JSON.stringify({
-        scanId: scan_id,
-        videoUrl: signed.signedUrl,
-        callbackUrl,
-        scanType: effectiveType,
-        mode: effectiveType === "wand" ? "windowed" : "stream",
-        fps: 15,
-        keyframeInterval: 2,
-        cameraNumIterations: 2,
+        input: {
+          video_url: signed.signedUrl,
+          scan_id,
+          scan_type: effectiveType,
+          callback_url: callbackUrl,
+        },
+        webhook: callbackUrl,
       }),
     });
 
@@ -155,16 +135,31 @@ serve(async (req) => {
         .from("scans")
         .update({
           processing_status: "failed",
-          processing_error: `LingBot dispatch HTTP ${dispatch.status}: ${text.slice(0, 500)}`,
+          processing_error: `RunPod dispatch HTTP ${dispatch.status}: ${text.slice(0, 500)}`,
         })
         .eq("id", scan_id);
       return jsonResponse(
-        { error: `LingBot dispatch failed: ${dispatch.status}` },
+        { error: `RunPod dispatch failed: ${dispatch.status}` },
         { status: 502 },
       );
     }
 
-    return jsonResponse({ scan_id, status: "processing", dispatched: true });
+    const result = await dispatch.json().catch(() => ({} as Record<string, unknown>));
+    const runpodJobId = typeof result?.id === "string" ? result.id : null;
+
+    if (runpodJobId) {
+      await adminClient
+        .from("scans")
+        .update({ runpod_job_id: runpodJobId })
+        .eq("id", scan_id);
+    }
+
+    return jsonResponse({
+      scan_id,
+      status: "processing",
+      dispatched: true,
+      runpod_job_id: runpodJobId,
+    });
   } catch (e) {
     console.error("reconstruct-scan error:", e);
     return jsonResponse(
