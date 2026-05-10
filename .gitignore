@@ -27,3 +27,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python bytecode (e.g. from serverless/lingbot-map-worker)
+__pycache__/
+*.py[cod]
+*$py.class
