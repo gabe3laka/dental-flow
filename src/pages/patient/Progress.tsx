@@ -165,6 +165,33 @@ export default function Progress() {
     })();
   }, [user]);
 
+  // Realtime: react when the latest scan's reconstruction status changes
+  // (e.g. RunPod webhook flips processing_status to 'complete' with a
+  // pointcloud_url). Avoids needing a manual refresh.
+  useEffect(() => {
+    if (!latestScan?.id) return;
+    if (latestScan.pointcloud_url && latestScan.processing_status === "complete") return;
+    const channel = supabase
+      .channel(`scan-status-${latestScan.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "scans", filter: `id=eq.${latestScan.id}` },
+        (payload) => {
+          const next = payload.new as Partial<ScanRecord> & { id: string };
+          setAllScans((prev) =>
+            prev.map((s) => (s.id === next.id ? { ...s, ...next } : s))
+          );
+          setLatestScan((prev) =>
+            prev && prev.id === next.id ? { ...prev, ...next } : prev
+          );
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [latestScan?.id, latestScan?.pointcloud_url, latestScan?.processing_status]);
+
   const handleShareProgress = async () => {
     if (!patientId || sharing) return;
     setSharing(true);
