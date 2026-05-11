@@ -147,6 +147,15 @@ serve(async (req) => {
       );
     }
 
+        // Interim statuses (job still running) — just acknowledge, don't fail.
+        const INTERIM_STATUSES = new Set(["in_progress", "in_queue", "queued", "retrying", "throttled"]);
+        if (INTERIM_STATUSES.has(rawStatus)) {
+          return new Response(
+            JSON.stringify({ ok: true, scan_id, status: "pending" }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
+        }
+
     // Failure / unknown — mark failed.
     const errMsg =
       (typeof body.error === "string" ? body.error : null) ??
