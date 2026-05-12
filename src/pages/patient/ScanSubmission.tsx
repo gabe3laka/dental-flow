@@ -13,6 +13,14 @@ const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 25;
 const MAX_DURATION_SEC = 45;
 
+// Build-time feature flag. When false (default) the LingBot GPU pipeline is
+// paused: ScanSubmission still uploads video + keyframes, still inserts the
+// scans row, still runs analyze-scan-quality / analyze-scan-teeth — it just
+// skips the `reconstruct-scan` Edge Function invocation and stores the row
+// with processing_status=null instead of "queued" so the UI doesn't sit on
+// "BUILDING…" forever. Flip to "true" in build env to re-enable.
+const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
+
 const STAGE_GUIDANCE = [
   { upTo: 5,  text: "Open wide — show your upper arch" },
   { upTo: 10, text: "Tilt down — show your lower arch" },
@@ -246,7 +254,10 @@ export default function ScanSubmission() {
           // against the older generated types.ts until it's regenerated.
           scan_type: scanType,
           raw_video_url: videoPath,
-          processing_status: "queued",
+          // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
+          // off no callback ever fires, so leave the status NULL — Progress.tsx
+          // treats that as the legacy-scan branch instead of "BUILDING…" forever.
+          processing_status: LINGBOT_ENABLED ? "queued" : null,
         } as never)
         .select("id")
         .single();
@@ -261,23 +272,28 @@ export default function ScanSubmission() {
       setUploadPercent(90);
 
       // 5. Dispatch LingBot reconstruction job (non-blocking; UI proceeds while
-      //    the GPU server processes). The Edge Function signs URLs and POSTs
-      //    to the LingBot host; if the function isn't deployed yet the scan
-      //    still lands in the DB and can be reprocessed manually.
+      //    the GPU server processes). Gated behind VITE_ENABLE_LINGBOT so we
+      //    can pause the GPU pipeline without removing the code path.
       if (scanRow?.id) {
-        try {
-          await supabase.functions.invoke("reconstruct-scan", {
-            body: { scan_id: scanRow.id, scan_type: scanType },
-          });
-        } catch (e) {
-          logError(e, {
-            operation: "ScanSubmission/dispatchReconstruct",
-            extra: { scanId: scanRow.id },
-          });
+        if (LINGBOT_ENABLED) {
+          try {
+            await supabase.functions.invoke("reconstruct-scan", {
+              body: { scan_id: scanRow.id, scan_type: scanType },
+            });
+          } catch (e) {
+            logError(e, {
+              operation: "ScanSubmission/dispatchReconstruct",
+              extra: { scanId: scanRow.id },
+            });
+          }
         }
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
+        //    These DO NOT depend on the point cloud — analyze-scan-quality
+        //    reads zones_captured + quality_score; analyze-scan-teeth reads
+        //    zones_captured + signs URLs from scan-videos. Safe to run with
+        //    LingBot disabled.
         try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
         try {
           await supabase.functions.invoke("analyze-scan-teeth", {
@@ -287,7 +303,10 @@ export default function ScanSubmission() {
       }
 
       setUploadPercent(100);
-      toast({ title: "Scan uploaded!", description: "Building your 3D map…" });
+      toast({
+        title: "Scan uploaded!",
+        description: LINGBOT_ENABLED ? "Building your 3D map…" : "Analyzing your scan…",
+      });
       navigate(`/patient/scans/${scanRow?.id}/results`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Submission failed";

@@ -12,7 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2 } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2, Sparkles } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ScanData {
@@ -681,6 +681,22 @@ export default function ScanResults() {
               <BookmarkPlus className="w-4 h-4 mr-2" />
               Save & Track Progress
             </Button>
+            {/* 3D Plus — alternative viewer (SuperSplat). De-emphasised until a
+                point cloud exists for this scan; we keep the button visible
+                either way so the surface is discoverable. */}
+            <Button
+              onClick={() => navigate(`/patient/scans/${scan.id}/view-3d-plus`)}
+              variant="outline"
+              className="w-full rounded-pill mono-label py-4 border-primary/40 text-primary hover:bg-primary/5"
+            >
+              <Sparkles className="w-4 h-4 mr-2" />
+              View 3D Plus
+            </Button>
+            {!scan.pointcloud_url && (
+              <p className="mono-label text-[10px] text-muted-foreground text-center -mt-1">
+                No 3D file yet — try after the next pipeline build
+              </p>
+            )}
             {/* Delete scan — only available before sending to doctor */}
             {confirmDelete ? (
               <div className="rounded-card border border-destructive/30 bg-destructive/5 p-4 flex items-center justify-between">
