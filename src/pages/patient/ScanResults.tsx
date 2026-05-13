@@ -7,6 +7,7 @@ import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
 import { ScanPhotoGrid } from "@/components/patient/ScanPhotoGrid";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
 import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
+import { SuperSplatEmbed } from "@/lib/scanning/SuperSplatEmbed";
 import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
@@ -79,7 +80,7 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3dplus">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
@@ -508,7 +509,7 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d"] as const).map((mode) => (
+        {(["analysis", "photos", "3d", "3dplus"] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
@@ -518,7 +519,8 @@ export default function ScanResults() {
           >
             {mode === "analysis" ? "ANALYSIS"
               : mode === "photos" ? "PHOTOS"
-              : "3D MAP"}
+              : mode === "3d" ? "3D MAP"
+              : "3D PLUS MAP"}
           </button>
         ))}
       </div>
@@ -647,6 +649,56 @@ export default function ScanResults() {
         </div>
       )}
 
+      {/* 3D PLUS MAP — alternative renderer. Uses SuperSplat (PlayCanvas,
+          MIT) to render the same `.ply` from scan-pointclouds that the
+          "3D MAP" tab renders via R3F. Same data, different renderer —
+          pure A/B test of the viewing experience. Does NOT touch LingBot. */}
+      {viewMode === "3dplus" && (
+        <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
+          <div className="px-4 py-2.5 flex items-center justify-between border-b border-border">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-primary" />
+              <span className="mono-label text-primary text-[10px]">3D PLUS MAP · BETA</span>
+            </div>
+            {scan.pointcloud_url && (
+              <button
+                onClick={() => navigate(`/patient/scans/${scan.id}/view-3d-plus`)}
+                className="mono-label text-[9px] text-muted-foreground hover:text-primary transition"
+              >
+                FULL SCREEN ↗
+              </button>
+            )}
+          </div>
+
+          {scan.pointcloud_url ? (
+            <SuperSplatEmbed
+              fileUrl={pointcloudSignedUrl ?? ""}
+              filename="pointcloud.ply"
+              height={400}
+              style={{ borderRadius: 0 }}
+            />
+          ) : (
+            <div className="h-[260px] bg-black flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <span className="mono-label text-white/55 text-[10px]">
+                {scan.processing_status === "failed"
+                  ? "RECONSTRUCTION FAILED"
+                  : scan.processing_status === "queued" || scan.processing_status === "processing"
+                  ? "BUILDING YOUR 3D MAP…"
+                  : "NO 3D FILE AVAILABLE YET"}
+              </span>
+              <p className="text-white/40 text-xs max-w-[260px]">
+                3D Plus Map renders the point cloud through SuperSplat. It needs a
+                completed reconstruction to display anything.
+              </p>
+            </div>
+          )}
+
+          <p className="px-4 py-2 mono-label text-[9px] text-muted-foreground text-center border-t border-border">
+            Rendering by SuperSplat © PlayCanvas Ltd. — MIT
+          </p>
+        </div>
+      )}
+
       {/* CTAs */}
       <div className="space-y-3 mt-6">
         {!scan.sent_to_doctor ? (
@@ -681,22 +733,6 @@ export default function ScanResults() {
               <BookmarkPlus className="w-4 h-4 mr-2" />
               Save & Track Progress
             </Button>
-            {/* 3D Plus — alternative viewer (SuperSplat). De-emphasised until a
-                point cloud exists for this scan; we keep the button visible
-                either way so the surface is discoverable. */}
-            <Button
-              onClick={() => navigate(`/patient/scans/${scan.id}/view-3d-plus`)}
-              variant="outline"
-              className="w-full rounded-pill mono-label py-4 border-primary/40 text-primary hover:bg-primary/5"
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              View 3D Plus
-            </Button>
-            {!scan.pointcloud_url && (
-              <p className="mono-label text-[10px] text-muted-foreground text-center -mt-1">
-                No 3D file yet — try after the next pipeline build
-              </p>
-            )}
             {/* Delete scan — only available before sending to doctor */}
             {confirmDelete ? (
               <div className="rounded-card border border-destructive/30 bg-destructive/5 p-4 flex items-center justify-between">
