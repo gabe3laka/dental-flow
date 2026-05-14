@@ -111,8 +111,8 @@ serve(async (req) => {
     }
 
     const callbackUrl =
-      `${ARCLINE_BASE.replace(/\/$/, "")}/functions/v1/reconstruct-splat-callback` +
-      `?scan_id=${encodeURIComponent(scan_id)}`;
+      `${ARCLINE_BASE.replace(/\/$/, "")}/functions/v1/reconstruct-scan-callback` +
+      `?scan_id=${encodeURIComponent(scan_id)}&pipeline=splat`;
 
     const dispatch = await fetch(`${SPLAT_URL.replace(/\/$/, "")}/run`, {
       method: "POST",
