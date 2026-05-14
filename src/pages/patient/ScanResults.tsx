@@ -12,8 +12,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2, Sparkles } from "lucide-react";
+import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
+import { SplatTabPanel } from "@/components/scanning/SplatTabPanel";
 
 interface ScanData {
   id: string;
@@ -79,7 +80,7 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3d-plus">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
@@ -508,7 +509,7 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d"] as const).map((mode) => (
+        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => setViewMode(mode)}
@@ -518,7 +519,8 @@ export default function ScanResults() {
           >
             {mode === "analysis" ? "ANALYSIS"
               : mode === "photos" ? "PHOTOS"
-              : "3D MAP"}
+              : mode === "3d" ? "3D MAP"
+              : "3D PLUS"}
           </button>
         ))}
       </div>
@@ -532,6 +534,8 @@ export default function ScanResults() {
           />
         </div>
       )}
+
+      {viewMode === "3d-plus" && <SplatTabPanel scanId={scan.id} />}
 
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
@@ -681,22 +685,6 @@ export default function ScanResults() {
               <BookmarkPlus className="w-4 h-4 mr-2" />
               Save & Track Progress
             </Button>
-            {/* 3D Plus — alternative viewer (SuperSplat). De-emphasised until a
-                point cloud exists for this scan; we keep the button visible
-                either way so the surface is discoverable. */}
-            <Button
-              onClick={() => navigate(`/patient/scans/${scan.id}/view-3d-plus`)}
-              variant="outline"
-              className="w-full rounded-pill mono-label py-4 border-primary/40 text-primary hover:bg-primary/5"
-            >
-              <Sparkles className="w-4 h-4 mr-2" />
-              View 3D Plus
-            </Button>
-            {!scan.pointcloud_url && (
-              <p className="mono-label text-[10px] text-muted-foreground text-center -mt-1">
-                No 3D file yet — try after the next pipeline build
-              </p>
-            )}
             {/* Delete scan — only available before sending to doctor */}
             {confirmDelete ? (
               <div className="rounded-card border border-destructive/30 bg-destructive/5 p-4 flex items-center justify-between">

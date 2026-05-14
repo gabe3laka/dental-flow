@@ -15,7 +15,6 @@ import Onboarding from "@/pages/patient/Onboarding";
 import ScanHistory from "@/pages/patient/ScanHistory";
 import ScanResults from "@/pages/patient/ScanResults";
 import ScanSubmission from "@/pages/patient/ScanSubmission";
-import Scan3DPlusView from "@/pages/patient/Scan3DPlusView";
 import Progress from "@/pages/patient/Progress";
 import PatientChat from "@/pages/patient/Chat";
 import PatientProfile from "@/pages/patient/Profile";
@@ -100,7 +99,6 @@ const App = () => (
             <Route path="/patient/onboarding" element={<Onboarding />} />
             <Route path="/patient/scans" element={<ScanHistory />} />
             <Route path="/patient/scans/:scanId/results" element={<ScanResults />} />
-            <Route path="/patient/scans/:scanId/view-3d-plus" element={<Scan3DPlusView />} />
             <Route path="/patient/scan" element={<ScanSubmission />} />
             <Route path="/patient/progress" element={<Progress />} />
             <Route path="/patient/chat" element={<PatientChat />} />
