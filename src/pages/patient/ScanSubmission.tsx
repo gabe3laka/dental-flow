@@ -21,6 +21,13 @@ const MAX_DURATION_SEC = 45;
 // "BUILDING…" forever. Flip to "true" in build env to re-enable.
 const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
 
+// Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
+// Independent of LINGBOT — both can be on, either alone, or neither.
+// When false (default): no dispatch to reconstruct-splat, no splat columns
+// touched on the scans insert. When true: dispatch is fired in parallel
+// with (and independent of) the lingbot dispatch.
+const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT === "true";
+
 const STAGE_GUIDANCE = [
   { upTo: 5,  text: "Open wide — show your upper arch" },
   { upTo: 10, text: "Tilt down — show your lower arch" },
@@ -258,6 +265,8 @@ export default function ScanSubmission() {
           // off no callback ever fires, so leave the status NULL — Progress.tsx
           // treats that as the legacy-scan branch instead of "BUILDING…" forever.
           processing_status: LINGBOT_ENABLED ? "queued" : null,
+          // Splat-aware: same pattern. Independent of LINGBOT.
+          splat_processing_status: SPLAT_ENABLED ? "queued" : null,
         } as never)
         .select("id")
         .single();
@@ -288,6 +297,22 @@ export default function ScanSubmission() {
           }
         }
 
+        // 5b. Dispatch splat (gsplat + COLMAP) reconstruction job. Non-blocking,
+        //     completely independent of lingbot — both can land terminal callbacks
+        //     on the same scan; the callback routes by ?pipeline=splat.
+        if (SPLAT_ENABLED) {
+          try {
+            await supabase.functions.invoke("reconstruct-splat", {
+              body: { scan_id: scanRow.id, scan_type: scanType },
+            });
+          } catch (e) {
+            logError(e, {
+              operation: "ScanSubmission/dispatchSplat",
+              extra: { scanId: scanRow.id },
+            });
+          }
+        }
+
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
         //    These DO NOT depend on the point cloud — analyze-scan-quality
@@ -305,7 +330,7 @@ export default function ScanSubmission() {
       setUploadPercent(100);
       toast({
         title: "Scan uploaded!",
-        description: LINGBOT_ENABLED ? "Building your 3D map…" : "Analyzing your scan…",
+        description: (LINGBOT_ENABLED || SPLAT_ENABLED) ? "Building your 3D map…" : "Analyzing your scan…",
       });
       navigate(`/patient/scans/${scanRow?.id}/results`);
     } catch (e) {
