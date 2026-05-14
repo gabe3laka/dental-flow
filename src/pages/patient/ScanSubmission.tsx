@@ -22,11 +22,11 @@ const MAX_DURATION_SEC = 45;
 const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
 
 // Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
+// Default: ON. To explicitly disable, set VITE_ENABLE_SPLAT="false" in the build env.
 // Independent of LINGBOT — both can be on, either alone, or neither.
-// When false (default): no dispatch to reconstruct-splat, no splat columns
-// touched on the scans insert. When true: dispatch is fired in parallel
+// When SPLAT_ENABLED is true: dispatch to reconstruct-splat is fired in parallel
 // with (and independent of) the lingbot dispatch.
-const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT === "true";
+const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT !== "false";
 
 const STAGE_GUIDANCE = [
   { upTo: 5,  text: "Open wide — show your upper arch" },

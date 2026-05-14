@@ -1,29 +1,30 @@
-## Fix splat dispatcher callback URL
+## Change
 
-In `supabase/functions/reconstruct-splat/index.ts` (lines 113–115), the callback URL points to a non-existent `reconstruct-splat-callback` function. The shared `reconstruct-scan-callback` already routes via the `pipeline=splat` query discriminator.
+Single-file edit to `src/pages/patient/ScanSubmission.tsx`: flip the `SPLAT_ENABLED` default to ON so the splat pipeline dispatches unless explicitly disabled, while leaving LingBot strictly opt-in.
 
-### Change
+## Edit
 
-Replace:
+Replace the comment block + `SPLAT_ENABLED` constant (currently lines ~24–29) with:
+
 ```ts
-const callbackUrl =
-  `${ARCLINE_BASE.replace(/\/$/, "")}/functions/v1/reconstruct-splat-callback` +
-  `?scan_id=${encodeURIComponent(scan_id)}`;
+// Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
+// Default: ON. To explicitly disable, set VITE_ENABLE_SPLAT="false" in the build env.
+// Independent of LINGBOT — both can be on, either alone, or neither.
+// When SPLAT_ENABLED is true: dispatch to reconstruct-splat is fired in parallel
+// with (and independent of) the lingbot dispatch.
+const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT !== "false";
 ```
 
-With:
-```ts
-const callbackUrl =
-  `${ARCLINE_BASE.replace(/\/$/, "")}/functions/v1/reconstruct-scan-callback` +
-  `?scan_id=${encodeURIComponent(scan_id)}&pipeline=splat`;
-```
+## Untouched
 
-### Out of scope (will not touch)
-- `reconstruct-scan/index.ts` (LingBot dispatcher)
-- `reconstruct-scan-callback/index.ts` (shared callback)
-- `SPLAT_API_URL` env / RunPod endpoint
-- Any other line in `reconstruct-splat/index.ts`
+- `LINGBOT_ENABLED` line and its comment block — byte-identical
+- All imports
+- The `if (SPLAT_ENABLED) { ... }` dispatch block and surrounding logic
+- Insert payload (`splat_processing_status: SPLAT_ENABLED ? "queued" : null`) — semantics shift naturally with the flag default
+- Toast description line
+- Every other file in the repo
 
-### Verify
-- Deploy `reconstruct-splat`
-- Confirm function still builds and only the two callback-URL lines changed
+## Verification
+
+- Re-read the file post-patch and diff the two flag lines + comment block
+- Rely on the harness build to confirm compilation
