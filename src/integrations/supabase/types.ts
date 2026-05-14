@@ -652,10 +652,16 @@ export type Database = {
           raw_video_url: string | null
           reconstructed_at: string | null
           runpod_job_id: string | null
+          runpod_splat_job_id: string | null
           scan_type: string | null
           sent_to_doctor: boolean | null
           sent_to_doctor_at: string | null
           source: string | null
+          splat_metrics: Json | null
+          splat_processing_error: string | null
+          splat_processing_status: string | null
+          splat_reconstructed_at: string | null
+          splat_url: string | null
           status: Database["public"]["Enums"]["scan_status"]
           submitted_at: string
           thumbnail_url: string | null
@@ -678,10 +684,16 @@ export type Database = {
           raw_video_url?: string | null
           reconstructed_at?: string | null
           runpod_job_id?: string | null
+          runpod_splat_job_id?: string | null
           scan_type?: string | null
           sent_to_doctor?: boolean | null
           sent_to_doctor_at?: string | null
           source?: string | null
+          splat_metrics?: Json | null
+          splat_processing_error?: string | null
+          splat_processing_status?: string | null
+          splat_reconstructed_at?: string | null
+          splat_url?: string | null
           status?: Database["public"]["Enums"]["scan_status"]
           submitted_at?: string
           thumbnail_url?: string | null
@@ -704,10 +716,16 @@ export type Database = {
           raw_video_url?: string | null
           reconstructed_at?: string | null
           runpod_job_id?: string | null
+          runpod_splat_job_id?: string | null
           scan_type?: string | null
           sent_to_doctor?: boolean | null
           sent_to_doctor_at?: string | null
           source?: string | null
+          splat_metrics?: Json | null
+          splat_processing_error?: string | null
+          splat_processing_status?: string | null
+          splat_reconstructed_at?: string | null
+          splat_url?: string | null
           status?: Database["public"]["Enums"]["scan_status"]
           submitted_at?: string
           thumbnail_url?: string | null
