@@ -32,3 +32,6 @@ verify_jwt = true
 
 [functions.reconstruct-scan-callback]
 verify_jwt = false
+
+[functions.reconstruct-splat]
+verify_jwt = true
