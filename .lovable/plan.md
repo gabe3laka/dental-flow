@@ -1,45 +1,48 @@
-# Step 5 — Parallel splat dispatch in ScanSubmission
+# Step 6 — Extend `Scan3DPlusView.tsx` for splat output
 
-Additive, fully gated behind a new `VITE_ENABLE_SPLAT` flag. LingBot path stays byte-for-byte identical when the new flag is unset. Two files change, nothing else.
+Single file changed: `src/pages/patient/Scan3DPlusView.tsx` (full replacement per spec). No new route, no Edge Function changes, no migrations, no other files.
 
-## Files touched
-- `src/pages/patient/ScanSubmission.tsx`
-- `.env.example`
+## What the new page does
 
-No Edge Functions, no migrations, no `supabase/config.toml`, no routes, no other `src/` files.
+- Selects from `scans`: `id, pointcloud_url, splat_url, splat_processing_status, splat_processing_error, scan_type`.
+- Signs LingBot URL via `usePointCloudUrl(pointcloud_url)` (default bucket `scan-pointclouds`).
+- Signs splat URL via `usePointCloudUrl(splat_url, 3600, "scan-splats")`.
+- 8s lightweight polling while `splat_processing_status` is `queued`/`processing`; stops on terminal state.
 
-## Edits in `ScanSubmission.tsx`
+## UI states
 
-1. **Add `SPLAT_ENABLED` flag** immediately after the existing `LINGBOT_ENABLED` declaration (line 22), with a comment explaining independence from LingBot.
+| Scan state | Render |
+|---|---|
+| Both `pointcloud_url` + `splat_url` | shadcn `Tabs` (Point cloud / Gaussian splat). Default tab = splat when `VITE_ENABLE_LINGBOT !== "true"`, else lingbot. |
+| Only `pointcloud_url` | Single LingBot `SuperSplatEmbed` panel (filename `pointcloud.ply`). Bit-for-bit unchanged from today. |
+| Only `splat_url` | Single splat `SuperSplatEmbed` panel (filename `scene.ply`). |
+| `splat_processing_status` in `queued`/`processing`, no URLs yet | "Reconstructing splat…" loader panel; auto-refresh on poll. |
+| `splat_processing_status = 'failed'` | Failure panel with `splat_processing_error` text + user-driven **Retry** button that re-invokes `reconstruct-splat`. |
+| Nothing at all and not in flight | Existing "No 3D file available yet" empty state. |
+| Not found / load error | Existing "Scan not found" empty state. |
 
-2. **Extend `scans` insert (~line 260)** — add `splat_processing_status: SPLAT_ENABLED ? "queued" : null` directly after the existing `processing_status` line. No other fields reordered.
+## Reuse (untouched)
 
-3. **Add parallel splat dispatch** immediately after the closing `}` of the `if (LINGBOT_ENABLED) { … }` block (after line ~290, before the `analyze-scan-quality` invoke). Mirrors the LingBot block exactly: `supabase.functions.invoke("reconstruct-splat", { body: { scan_id, scan_type } })` wrapped in try/catch with `logError({ operation: "ScanSubmission/dispatchSplat", … })`. Non-blocking.
+- `SuperSplatEmbed` — same iframe, only `fileUrl` + `filename` differ per pipeline.
+- `usePointCloudUrl` — already accepts a bucket arg; pass `"scan-splats"` for splat.
+- `Tabs` from `@/components/ui/tabs`, `toast`, `logError`, `PatientBottomNav`.
 
-4. **Broaden toast description (line 308)** to `(LINGBOT_ENABLED || SPLAT_ENABLED) ? "Building your 3D map…" : "Analyzing your scan…"`. Title and other fields unchanged.
+## Preserved
 
-## Edits in `.env.example`
+- Back button, page header, beta paragraph, MIT attribution footer — all kept in place and order.
+- Existing `/patient/scans/:scanId/view-3d-plus` route.
+- LingBot-only render path remains identical for legacy rows.
 
-Append a sibling block after the existing `VITE_ENABLE_LINGBOT` documentation, defining `VITE_ENABLE_SPLAT=false` with the same explanation pattern (default off; flip to `"true"` to enable; insert behavior described).
+## Flags
 
-## Behavior matrix after deploy
+- `SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT !== "false"` (matches Step 5 default-on semantics).
+- `LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true"`.
+- Used only to pick the default tab when both outputs exist.
 
-| LINGBOT | SPLAT | Dispatches | `processing_status` | `splat_processing_status` | Toast |
-|---|---|---|---|---|---|
-| off | off | none | null | null | "Analyzing your scan…" |
-| on  | off | reconstruct-scan | queued | null | "Building your 3D map…" |
-| off | on  | reconstruct-splat | null | queued | "Building your 3D map…" |
-| on  | on  | both, in parallel | queued | queued | "Building your 3D map…" |
+## Verification
 
-Both pipelines are independent; their callbacks already route by `?pipeline=splat` (validated in Step 4) and write disjoint column families.
-
-## Guarantees
-- Zero changes to the LingBot declaration, dispatch block, or any other insert field.
-- `analyze-scan-quality` and `analyze-scan-teeth` continue to fire unconditionally.
-- Splat dispatch failures swallowed + logged; never block the user flow.
-- No new route, no UI viewer changes (Step 6 will handle `Scan3DPlusView.tsx`).
-
-## Verification after implementation
 - `bunx tsc --noEmit -p tsconfig.app.json` and `bun run build` pass.
-- `git diff --name-only` shows exactly the two files above.
-- Greps for `VITE_ENABLE_LINGBOT|VITE_ENABLE_SPLAT`, both `invoke("reconstruct-…")` calls, and both `processing_status: …_ENABLED` lines all return the expected matches.
+- `git diff --name-only` shows only `src/pages/patient/Scan3DPlusView.tsx`.
+- Fresh Step-5 scan: page shows "Reconstructing splat…" then auto-flips to the SuperSplat iframe once the worker finishes.
+- Fixture `3a6e4c67…` (splat-only): single splat view, no Tabs.
+- Retry on a failed splat row re-invokes `reconstruct-splat` and flips status back to `processing`.
