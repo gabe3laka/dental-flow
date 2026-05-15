@@ -81,6 +81,9 @@ serve(async (req) => {
     if (!scan.raw_video_url) {
       return jsonResponse({ error: "scan has no raw_video_url" }, { status: 400 });
     }
+    if (!scan.patient_id) {
+      return jsonResponse({ error: "scan has no patient_id" }, { status: 400 });
+    }
 
     // Service-role for trusted ops
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -124,6 +127,7 @@ serve(async (req) => {
         input: {
           video_url: signed.signedUrl,
           scan_id,
+          patient_id: scan.patient_id,
           scan_type: effectiveType,
           callback_url: callbackUrl,
         },

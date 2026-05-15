@@ -1,26 +1,39 @@
-## Goal
-Add multi-select + bulk delete to `src/pages/patient/ScanHistory.tsx`. Same delete logic as today (storage cleanup + scan row + decrement `total_scans`), just batched.
+## Fix: Forward `patient_id` in reconstruct-splat dispatch
 
-## UX
-- Add a "SELECT" toggle button in the header row (next to the H1 / above the PillNav). Tapping it enters selection mode.
-- In selection mode:
-  - Each scan card shows a checkbox on the left (replacing the chevron interaction — tapping the row toggles selection instead of expanding).
-  - Header shows `N SELECTED` plus `SELECT ALL` / `CLEAR` actions and a `DELETE (N)` destructive button.
-  - Confirm step inline (mono-label "DELETE N SCANS?" → YES, DELETE / CANCEL), matching the existing single-delete confirm pattern.
-- Exiting selection mode clears selection and restores normal expand-on-tap behavior.
-- Only scans that are not `sent_to_doctor` are selectable (matches current single-delete rule which only shows for unsent scans). Sent scans render disabled checkboxes with a subtle "sent" hint.
+Single-file change to `supabase/functions/reconstruct-splat/index.ts`.
 
-## Implementation
-- New state: `selectMode: boolean`, `selectedIds: Set<string>`, `bulkConfirm: boolean`, `bulkDeleting: boolean`.
-- New handler `handleBulkDelete()`: iterates selected scans and reuses the same storage-cleanup + row-delete + `total_scans` decrement sequence as `handleDelete`. Run sequentially per scan to keep the per-patient counter math correct; show a single toast at the end (`Deleted N scans` or partial-failure message).
-- Refactor: extract the per-scan deletion body into a small `deleteScanRecord(scan)` helper inside the component so both `handleDelete` and `handleBulkDelete` call it.
-- Keep counts (`counts.all`, etc.) in sync by filtering `scans` and `allScans` by removed IDs after bulk delete.
-- Tab counts and PillNav untouched.
-- No schema, RLS, or Edge Function changes.
+### Changes
 
-## Files
-- `src/pages/patient/ScanHistory.tsx` — only file touched.
+1. **Add defensive guard** after the existing `raw_video_url` check (~line 82):
+   ```ts
+   if (!scan.patient_id) {
+     return jsonResponse({ error: "scan has no patient_id" }, { status: 400 });
+   }
+   ```
 
-## Out of scope
-- No changes to ScanResults, ScanSubmission, Edge Functions, or storage policies.
-- No new "delete sent scans" capability — sent scans remain non-deletable, same as today.
+2. **Add `patient_id` to the dispatch input** (~line 119-128), inserted between `scan_id` and `scan_type`:
+   ```ts
+   body: JSON.stringify({
+     input: {
+       video_url: signed.signedUrl,
+       scan_id,
+       patient_id: scan.patient_id,
+       scan_type: effectiveType,
+       callback_url: callbackUrl,
+     },
+     webhook: callbackUrl,
+   }),
+   ```
+
+3. **Redeploy** the `reconstruct-splat` Edge Function.
+
+### Out of scope (untouched)
+
+splat-worker, rp_handler.py, Dockerfile, reconstruct-scan, reconstruct-scan-callback, ScanSubmission.tsx, ScanResults.tsx, Scan3DPlusView.tsx, SuperSplatEmbed.tsx, migrations, RLS policies, bucket settings. No other dispatch fields renamed or reshaped. Logging/error handling unchanged.
+
+### Verification
+
+- `patient_id: scan.patient_id` appears inside `input` object.
+- Guard returns 400 with `"scan has no patient_id"` when missing.
+- No other files modified.
+- Edge Function deploys successfully.
