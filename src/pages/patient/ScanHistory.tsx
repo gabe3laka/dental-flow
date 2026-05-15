@@ -10,7 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
-import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send, Trash2, CheckSquare, Square, X } from "lucide-react";
 import { logError } from "@/lib/logger";
 import { toast } from "@/hooks/use-toast";
 
@@ -63,6 +63,10 @@ export default function ScanHistory() {
   const [highlightedTag, setHighlightedTag] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const SCAN_COLUMNS = "id, submitted_at, status, quality_score, thumbnail_url, detection_tags, sent_to_doctor, patient_id, ai_analysis, zones_captured, pointcloud_url, raw_video_url" as const;
 
@@ -134,29 +138,29 @@ export default function ScanHistory() {
     }
   };
 
+  const deleteScanRecord = async (scan: ScanRow) => {
+    const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
+    const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
+    if (scan.raw_video_url && !videoPaths.includes(scan.raw_video_url)) {
+      videoPaths.push(scan.raw_video_url);
+    }
+    if (videoPaths.length > 0) {
+      await supabase.storage.from("scan-videos").remove(videoPaths);
+    }
+    if (scan.pointcloud_url) {
+      await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
+    }
+    await supabase.from("scans").delete().eq("id", scan.id);
+    const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
+    if (pt && (pt as any).total_scans > 0) {
+      await supabase.from("patients").update({ total_scans: (pt as any).total_scans - 1 }).eq("id", scan.patient_id);
+    }
+  };
+
   const handleDelete = async (scan: ScanRow) => {
     setDeleting(scan.id);
     try {
-      // Delete storage files first.
-      const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
-      const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
-      if (scan.raw_video_url && !videoPaths.includes(scan.raw_video_url)) {
-        videoPaths.push(scan.raw_video_url);
-      }
-      if (videoPaths.length > 0) {
-        await supabase.storage.from("scan-videos").remove(videoPaths);
-      }
-      // Reclaim the LingBot point-cloud `.ply`.
-      if (scan.pointcloud_url) {
-        await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
-      }
-      // Delete scan record.
-      await supabase.from("scans").delete().eq("id", scan.id);
-      // Decrement patient total_scans
-      const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
-      if (pt && (pt as any).total_scans > 0) {
-        await supabase.from("patients").update({ total_scans: (pt as any).total_scans - 1 }).eq("id", scan.patient_id);
-      }
+      await deleteScanRecord(scan);
       setScans((prev) => prev.filter((s) => s.id !== scan.id));
       setAllScans((prev) => prev.filter((s) => s.id !== scan.id));
       setConfirmDeleteId(null);
@@ -165,6 +169,53 @@ export default function ScanHistory() {
       toast({ title: "Delete failed", description: e.message, variant: "destructive" });
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkConfirm(false);
+  };
+
+  const toggleSelect = (scan: ScanRow) => {
+    if (scan.sent_to_doctor) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(scan.id)) next.delete(scan.id); else next.add(scan.id);
+      return next;
+    });
+  };
+
+  const selectableScans = scans.filter((s) => !s.sent_to_doctor);
+
+  const handleBulkDelete = async () => {
+    const targets = scans.filter((s) => selectedIds.has(s.id) && !s.sent_to_doctor);
+    if (targets.length === 0) return;
+    setBulkDeleting(true);
+    let ok = 0;
+    let fail = 0;
+    const deletedIds: string[] = [];
+    for (const scan of targets) {
+      try {
+        await deleteScanRecord(scan);
+        deletedIds.push(scan.id);
+        ok++;
+      } catch (e) {
+        fail++;
+        logError(e, { operation: "ScanHistory/bulkDelete", userId: scan.id });
+      }
+    }
+    if (deletedIds.length > 0) {
+      setScans((prev) => prev.filter((s) => !deletedIds.includes(s.id)));
+      setAllScans((prev) => prev.filter((s) => !deletedIds.includes(s.id)));
+    }
+    setBulkDeleting(false);
+    exitSelectMode();
+    if (fail === 0) {
+      toast({ title: `Deleted ${ok} scan${ok === 1 ? "" : "s"}` });
+    } else {
+      toast({ title: `Deleted ${ok}, failed ${fail}`, variant: "destructive" });
     }
   };
 
@@ -219,8 +270,73 @@ export default function ScanHistory() {
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
-      <span className="mono-label text-muted-foreground">YOUR SCANS</span>
-      <h1 className="font-display text-2xl font-semibold mt-1 mb-6">Scan History</h1>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <span className="mono-label text-muted-foreground">YOUR SCANS</span>
+          <h1 className="font-display text-2xl font-semibold mt-1">Scan History</h1>
+        </div>
+        {!selectMode ? (
+          selectableScans.length > 0 && (
+            <button
+              onClick={() => setSelectMode(true)}
+              className="mono-label text-muted-foreground hover:text-foreground transition border border-border rounded-pill px-3 py-1.5"
+            >
+              SELECT
+            </button>
+          )
+        ) : (
+          <button
+            onClick={exitSelectMode}
+            className="mono-label text-muted-foreground hover:text-foreground transition flex items-center gap-1 border border-border rounded-pill px-3 py-1.5"
+          >
+            <X className="w-3 h-3" /> CANCEL
+          </button>
+        )}
+      </div>
+
+      {selectMode && (
+        <div className="mb-4 p-3 rounded-card border border-border bg-card flex items-center justify-between gap-2 flex-wrap">
+          <span className="mono-label text-foreground">{selectedIds.size} SELECTED</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                if (selectedIds.size === selectableScans.length) setSelectedIds(new Set());
+                else setSelectedIds(new Set(selectableScans.map((s) => s.id)));
+              }}
+              className="mono-label text-muted-foreground hover:text-foreground transition"
+            >
+              {selectedIds.size === selectableScans.length && selectableScans.length > 0 ? "CLEAR" : "SELECT ALL"}
+            </button>
+            {bulkConfirm ? (
+              <>
+                <span className="mono-label text-destructive text-[10px]">DELETE {selectedIds.size}?</span>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
+                  className="mono-label text-[10px] text-destructive border border-destructive/40 px-2 py-0.5 rounded-pill hover:bg-destructive/10 transition disabled:opacity-50"
+                >
+                  {bulkDeleting ? "DELETING..." : "YES, DELETE"}
+                </button>
+                <button
+                  onClick={() => setBulkConfirm(false)}
+                  disabled={bulkDeleting}
+                  className="mono-label text-[10px] text-muted-foreground hover:text-foreground transition"
+                >
+                  CANCEL
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setBulkConfirm(true)}
+                disabled={selectedIds.size === 0}
+                className="mono-label text-destructive border border-destructive/40 px-3 py-1 rounded-pill hover:bg-destructive/10 transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <Trash2 className="w-3 h-3" /> DELETE ({selectedIds.size})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <PillNav tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} className="mb-6" />
 
@@ -259,7 +375,21 @@ export default function ScanHistory() {
         <div className="space-y-3">
           {scans.map((scan, idx) => (
             <div key={scan.id} className="bg-card rounded-card border border-border overflow-hidden shadow-sm">
-              <button onClick={() => toggleExpand(scan.id)} className="w-full flex items-center gap-4 p-4 text-left">
+              <button
+                onClick={() => selectMode ? toggleSelect(scan) : toggleExpand(scan.id)}
+                className="w-full flex items-center gap-4 p-4 text-left"
+              >
+                {selectMode && (
+                  <div className="flex-shrink-0">
+                    {scan.sent_to_doctor ? (
+                      <Square className="w-5 h-5 text-muted-foreground/30" />
+                    ) : selectedIds.has(scan.id) ? (
+                      <CheckSquare className="w-5 h-5 text-primary" />
+                    ) : (
+                      <Square className="w-5 h-5 text-muted-foreground" />
+                    )}
+                  </div>
+                )}
                 <div className="w-16 h-16 rounded-card bg-soft-panel flex items-center justify-center flex-shrink-0">
                   <span className="mono-label text-muted-foreground">SCAN</span>
                 </div>
@@ -275,10 +405,10 @@ export default function ScanHistory() {
                   </p>
                 </div>
                 <StatusBadge variant={scan.status as any} />
-                {expandedId === scan.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                {!selectMode && (expandedId === scan.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />)}
               </button>
 
-              {expandedId === scan.id && (
+              {!selectMode && expandedId === scan.id && (
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
                   <div className="rounded-lg overflow-hidden bg-card border border-border dark">
                     <div className="px-3 pt-3 pb-1 bg-card">
