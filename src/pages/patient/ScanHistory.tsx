@@ -203,7 +203,7 @@ export default function ScanHistory() {
         ok++;
       } catch (e) {
         fail++;
-        logError(e, { operation: "ScanHistory/bulkDelete", scanId: scan.id });
+        logError(e, { operation: "ScanHistory/bulkDelete", userId: scan.id });
       }
     }
     if (deletedIds.length > 0) {
