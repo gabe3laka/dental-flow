@@ -612,6 +612,8 @@ export default function ScanSubmission() {
 
   /* ────────────────────────────── REVIEWING ────────────────────────── */
   if (phase === "reviewing" && recordedUrl) {
+    const isUpload = inputSource === "upload_video";
+    const effectiveMin = isUpload ? UPLOAD_MIN_DURATION_SEC : MIN_DURATION_SEC;
     return (
       <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-28">
         <span className="mono-label text-primary block mb-2">REVIEW SCAN</span>
@@ -634,14 +636,14 @@ export default function ScanSubmission() {
 
         <div className="flex gap-2">
           <Button onClick={handleRetake} variant="outline" className="flex-1 rounded-pill mono-label">
-            Re-record
+            {isUpload ? "Pick different video" : "Re-record"}
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={elapsed < MIN_DURATION_SEC}
+            disabled={elapsed < effectiveMin}
             className="flex-1 rounded-pill mono-label bg-primary text-primary-foreground"
           >
-            {elapsed < MIN_DURATION_SEC ? `Hold ≥${MIN_DURATION_SEC}s` : "Build 3D Map"}
+            {elapsed < effectiveMin ? `Need ≥${effectiveMin}s` : "Build 3D Map"}
           </Button>
         </div>
 
