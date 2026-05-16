@@ -580,7 +580,6 @@ export default function ScanSubmission() {
           ref={fileInputRef}
           type="file"
           accept="video/mp4,video/webm,video/quicktime"
-          capture="environment"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
