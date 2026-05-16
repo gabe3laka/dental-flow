@@ -342,29 +342,39 @@ export default function ScanSubmission() {
       const scanFolder = `${patient.id}/${Date.now()}`;
       const videoPath = `${scanFolder}/raw_video.${ext}`;
 
-      // 1. Upload raw video to scan-videos bucket
-      setUploadPercent(10);
-      const { error: vidErr } = await supabase.storage
-        .from("scan-videos")
-        .upload(videoPath, recordedBlob, { contentType: mimeRef.current, upsert: false });
-      if (vidErr) throw vidErr;
-
-      // 2. Upload keyframe stills (used by analyze-scan-teeth) — non-fatal on failure
+      const isUpload = inputSource === "upload_video";
       const keyframeMeta: Array<{ zone: string; path: string; t_sec: number }> = [];
-      for (let i = 0; i < keyframesRef.current.length; i++) {
-        const k = keyframesRef.current[i];
-        const path = `${scanFolder}/frame-${i.toString().padStart(2, "0")}.jpg`;
-        try {
-          const { error } = await supabase.storage.from("scan-videos").upload(path, k.blob, {
-            contentType: "image/jpeg",
-            upsert: false,
-          });
-          if (!error) keyframeMeta.push({ zone: `FRAME_${i}`, path, t_sec: k.tSec });
-        } catch { /* skip individual frame failures */ }
-        setUploadPercent(10 + Math.round(((i + 1) / Math.max(keyframesRef.current.length, 1)) * 60));
+
+      if (isUpload) {
+        // 1. Upload raw video via XHR for real byte progress.
+        await uploadFileWithProgress(videoPath, recordedBlob, mimeRef.current);
+        // No client keyframes for uploaded videos in v1.
+      } else {
+        // 1. Upload raw video to scan-videos bucket
+        setUploadPercent(10);
+        const { error: vidErr } = await supabase.storage
+          .from("scan-videos")
+          .upload(videoPath, recordedBlob, { contentType: mimeRef.current, upsert: false });
+        if (vidErr) throw vidErr;
+
+        // 2. Upload keyframe stills (used by analyze-scan-teeth) — non-fatal on failure
+        for (let i = 0; i < keyframesRef.current.length; i++) {
+          const k = keyframesRef.current[i];
+          const path = `${scanFolder}/frame-${i.toString().padStart(2, "0")}.jpg`;
+          try {
+            const { error } = await supabase.storage.from("scan-videos").upload(path, k.blob, {
+              contentType: "image/jpeg",
+              upsert: false,
+            });
+            if (!error) keyframeMeta.push({ zone: `FRAME_${i}`, path, t_sec: k.tSec });
+          } catch { /* skip individual frame failures */ }
+          setUploadPercent(10 + Math.round(((i + 1) / Math.max(keyframesRef.current.length, 1)) * 60));
+        }
       }
 
       setUploadPercent(80);
+
+      const effectiveScanType: string = isUpload ? "upload_video" : scanType;
 
       // 3. Insert scans row
       const { data: scanRow, error: insErr } = await supabase
@@ -372,12 +382,12 @@ export default function ScanSubmission() {
         .insert({
           patient_id: patient.id,
           status: "pending",
-          source: scanType, // 'scope' | 'wand' — replaces legacy '3d_plus'
+          source: effectiveScanType,
           video_url: videoPath,
           zones_captured: keyframeMeta.length > 0 ? keyframeMeta : null,
           // New columns (added by 20260509 migration). Cast keeps this compiling
           // against the older generated types.ts until it's regenerated.
-          scan_type: scanType,
+          scan_type: effectiveScanType,
           raw_video_url: videoPath,
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
@@ -405,7 +415,7 @@ export default function ScanSubmission() {
         if (LINGBOT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-scan", {
-              body: { scan_id: scanRow.id, scan_type: scanType },
+              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
             });
           } catch (e) {
             logError(e, {
@@ -421,7 +431,7 @@ export default function ScanSubmission() {
         if (SPLAT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-splat", {
-              body: { scan_id: scanRow.id, scan_type: scanType },
+              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
             });
           } catch (e) {
             logError(e, {
@@ -433,16 +443,15 @@ export default function ScanSubmission() {
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
-        //    These DO NOT depend on the point cloud — analyze-scan-quality
-        //    reads zones_captured + quality_score; analyze-scan-teeth reads
-        //    zones_captured + signs URLs from scan-videos. Safe to run with
-        //    LingBot disabled.
         try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
-        try {
-          await supabase.functions.invoke("analyze-scan-teeth", {
-            body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
-          });
-        } catch { /* non-blocking */ }
+        // TODO(phase2): extract keyframes from uploaded video to restore analyze-scan-teeth.
+        if (!isUpload) {
+          try {
+            await supabase.functions.invoke("analyze-scan-teeth", {
+              body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
+            });
+          } catch { /* non-blocking */ }
+        }
       }
 
       setUploadPercent(100);
@@ -457,7 +466,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, navigate]);
+  }, [user, recordedBlob, scanType, inputSource, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
