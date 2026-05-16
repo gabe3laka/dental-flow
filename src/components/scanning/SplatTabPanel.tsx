@@ -14,6 +14,17 @@ interface SplatRow {
   splat_processing_error: string | null;
 }
 
+const SPLAT_DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
+
+function DisclaimerBanner() {
+  return (
+    <div className="mb-3 rounded-card border border-border bg-muted/30 px-3 py-2">
+      <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+      <p className="text-xs text-foreground mt-0.5">{SPLAT_DISCLAIMER}</p>
+    </div>
+  );
+}
+
 /**
  * Inline "3D PLUS" panel — Gaussian splat viewer for the scan results page.
  * Mirrors the legacy Scan3DPlusView page behavior: 8s polling, signed URL
@@ -97,11 +108,20 @@ export function SplatTabPanel({ scanId }: { scanId: string }) {
     }
   };
 
-  if (loading) return <Skeleton className="w-full h-[70vh] rounded-card mb-4" />;
+  if (loading) {
+    return (
+      <>
+        <DisclaimerBanner />
+        <Skeleton className="w-full h-[70vh] rounded-card mb-4" />
+      </>
+    );
+  }
 
   if (status === "failed") {
     return (
-      <div className="rounded-card border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center gap-3 text-center mb-4">
+      <>
+        <DisclaimerBanner />
+        <div className="rounded-card border border-destructive/30 bg-destructive/5 p-6 flex flex-col items-center gap-3 text-center mb-4">
         <AlertTriangle className="w-7 h-7 text-destructive" />
         <span className="mono-label text-destructive text-xs">SPLAT RECONSTRUCTION FAILED</span>
         <p className="text-xs text-muted-foreground max-w-[320px] break-all">
@@ -115,27 +135,41 @@ export function SplatTabPanel({ scanId }: { scanId: string }) {
           <RefreshCw className={`w-3.5 h-3.5 mr-1 ${retrying ? "animate-spin" : ""}`} />
           {retrying ? "Restarting…" : "Retry"}
         </Button>
-      </div>
+        </div>
+      </>
     );
   }
 
   if (status === "complete" && row?.splat_url) {
-    if (signing) return <Skeleton className="w-full h-[70vh] rounded-card mb-4" />;
+    if (signing) {
+      return (
+        <>
+          <DisclaimerBanner />
+          <Skeleton className="w-full h-[70vh] rounded-card mb-4" />
+        </>
+      );
+    }
     if (signError || !signedUrl) {
       return (
-        <div className="rounded-card border border-dashed border-border bg-card p-6 flex flex-col items-center gap-3 text-center mb-4">
+        <>
+          <DisclaimerBanner />
+          <div className="rounded-card border border-dashed border-border bg-card p-6 flex flex-col items-center gap-3 text-center mb-4">
           <AlertTriangle className="w-7 h-7 text-destructive" />
           <span className="mono-label text-foreground text-xs">Couldn't open the splat</span>
           <p className="text-xs text-muted-foreground max-w-[280px]">
             We couldn't load the Gaussian splat. Try again in a moment.
           </p>
-        </div>
+          </div>
+        </>
       );
     }
     return (
-      <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
-        <SuperSplatEmbed fileUrl={signedUrl} filename="scene.ply" />
-      </div>
+      <>
+        <DisclaimerBanner />
+        <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
+          <SuperSplatEmbed fileUrl={signedUrl} filename="scene.ply" />
+        </div>
+      </>
     );
   }
 
@@ -143,12 +177,15 @@ export function SplatTabPanel({ scanId }: { scanId: string }) {
   const label =
     status === "processing" ? "Reconstructing splat… (in progress)" : "Reconstructing splat…";
   return (
-    <div className="rounded-card border border-dashed border-border bg-card p-6 flex flex-col items-center gap-3 text-center mb-4">
+    <>
+      <DisclaimerBanner />
+      <div className="rounded-card border border-dashed border-border bg-card p-6 flex flex-col items-center gap-3 text-center mb-4">
       <Loader2 className="w-7 h-7 text-primary animate-spin" />
       <span className="mono-label text-foreground text-xs">{label}</span>
       <p className="text-xs text-muted-foreground max-w-[280px]">
         The splat reconstruction is still in progress. This panel refreshes automatically.
       </p>
-    </div>
+      </div>
+    </>
   );
 }
