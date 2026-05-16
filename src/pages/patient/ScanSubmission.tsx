@@ -222,8 +222,104 @@ export default function ScanSubmission() {
     setRecordedBlob(null);
     setRecordedUrl(null);
     setElapsed(0);
-    setPhase("recording");
+    setUploadedDuration(null);
+    setUploadFileError(null);
+    if (inputSource === "upload_video") {
+      setPhase("uploading_file");
+    } else {
+      setPhase("recording");
+    }
+  }, [recordedUrl, inputSource]);
+
+  /* ── Validate a user-picked video file ── */
+  const handleFilePicked = useCallback(async (file: File) => {
+    setUploadFileError(null);
+    setUploadedDuration(null);
+
+    if (!UPLOAD_ALLOWED_MIMES.includes(file.type)) {
+      setUploadFileError("Unsupported format. Use MP4, WebM, or MOV.");
+      return;
+    }
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setUploadFileError("File too large. Max 150 MB.");
+      return;
+    }
+
+    // Probe duration via a hidden <video> element.
+    const url = URL.createObjectURL(file);
+    const probed = await new Promise<number | null>((resolve) => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.src = url;
+      v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) ? v.duration : null);
+      v.onerror = () => resolve(null);
+    });
+
+    if (probed == null) {
+      URL.revokeObjectURL(url);
+      setUploadFileError("Couldn't read this video. Try a different file.");
+      return;
+    }
+    if (probed < UPLOAD_MIN_DURATION_SEC) {
+      URL.revokeObjectURL(url);
+      setUploadFileError(`Video too short. Minimum ${UPLOAD_MIN_DURATION_SEC}s.`);
+      return;
+    }
+    if (probed > UPLOAD_MAX_DURATION_SEC) {
+      URL.revokeObjectURL(url);
+      setUploadFileError(
+        `Video too long. Maximum ${UPLOAD_MAX_DURATION_SEC}s — please trim and re-upload.`,
+      );
+      return;
+    }
+    if (probed > UPLOAD_SOFT_WARN_DURATION_SEC) {
+      toast({
+        title: "Long video",
+        description:
+          "Long videos increase the chance reconstruction fails. 30–40 s works best.",
+      });
+    }
+
+    // Accept — wire up as the recorded blob and move into the shared review phase.
+    mimeRef.current = file.type;
+    keyframesRef.current = [];
+    setRecordedBlob(file);
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedUrl(url);
+    setElapsed(Math.round(probed));
+    setUploadedDuration(probed);
+    setPhase("reviewing");
   }, [recordedUrl]);
+
+  /* ── XHR-based upload with real byte progress (uploaded-video path only) ── */
+  const uploadFileWithProgress = useCallback(
+    async (path: string, blob: Blob, contentType: string): Promise<void> => {
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("scan-videos")
+        .createSignedUploadUrl(path);
+      if (signErr || !signed) throw signErr ?? new Error("Could not get upload URL");
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", signed.signedUrl, true);
+        xhr.setRequestHeader("Content-Type", contentType);
+        xhr.setRequestHeader("x-upsert", "false");
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            // Scale 0–80% to the byte upload; the remaining 20% is metadata + dispatch.
+            setUploadPercent(Math.round((ev.loaded / ev.total) * 80));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error("Upload network error"));
+        xhr.send(blob);
+      });
+    },
+    [],
+  );
 
   /* ── Upload + dispatch reconstruction ── */
   const handleSubmit = useCallback(async () => {
