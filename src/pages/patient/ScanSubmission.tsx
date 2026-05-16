@@ -478,6 +478,12 @@ export default function ScanSubmission() {
           Slowly pan your phone around your mouth for {TARGET_DURATION_SEC} seconds. We turn the video into a 3D map of your teeth.
         </p>
 
+        {/* Persistent disclaimer */}
+        <div className="w-full mb-6 rounded-card border border-border bg-muted/30 px-3 py-2">
+          <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+          <p className="text-xs text-foreground mt-0.5">{DISCLAIMER}</p>
+        </div>
+
         {/* Scope vs Wand chooser */}
         <div className="w-full mb-8">
           <span className="mono-label text-muted-foreground block mb-2">CAPTURE DEVICE</span>
@@ -501,18 +507,103 @@ export default function ScanSubmission() {
           </div>
         </div>
 
-        <button
-          onClick={() => setPhase("recording")}
-          className="w-full py-4 rounded-full bg-primary text-primary-foreground font-mono text-sm tracking-widest uppercase"
-        >
-          Start Recording
-        </button>
+        {/* Input picker */}
+        <div className="w-full mb-4 grid grid-cols-1 gap-2">
+          <button
+            onClick={() => { setInputSource("live"); setPhase("recording"); }}
+            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+          >
+            <Camera className="w-4 h-4 text-primary" />
+            <span className="flex-1">
+              <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
+              <span className="text-xs text-foreground mt-0.5 block">
+                Record a {TARGET_DURATION_SEC}s scan with your phone camera
+              </span>
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setInputSource("upload_video");
+              setUploadFileError(null);
+              setPhase("uploading_file");
+            }}
+            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+          >
+            <Video className="w-4 h-4 text-primary" />
+            <span className="flex-1">
+              <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
+              <span className="text-xs text-foreground mt-0.5 block">
+                Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+              </span>
+            </span>
+          </button>
+        </div>
+
         <button
           onClick={() => navigate(-1)}
           className="mt-4 font-mono text-xs text-muted-foreground hover:text-foreground transition"
         >
           Cancel
         </button>
+
+        <PatientBottomNav />
+      </div>
+    );
+  }
+
+  /* ────────────────────────────── UPLOAD FILE PICKER ────────────────── */
+  if (phase === "uploading_file") {
+    return (
+      <div className="min-h-screen bg-background px-6 py-10 max-w-[480px] mx-auto pb-28">
+        <button
+          onClick={() => setPhase("intro")}
+          className="mono-label text-muted-foreground hover:text-foreground text-[11px] mb-4 inline-flex items-center gap-1"
+        >
+          ← BACK
+        </button>
+        <span className="mono-label text-primary block mb-2">UPLOAD VIDEO</span>
+        <h1 className="font-display text-xl font-semibold text-foreground mb-3">
+          Pick a short video
+        </h1>
+        <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
+          MP4, WebM, or MOV · {UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC} seconds · up to 150 MB.
+          For best results, slowly pan around your mouth.
+        </p>
+
+        <div className="rounded-card border border-border bg-muted/30 px-3 py-2 mb-6">
+          <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+          <p className="text-xs text-foreground mt-0.5">{DISCLAIMER}</p>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleFilePicked(f);
+            // Reset so picking the same file twice still fires onChange.
+            e.target.value = "";
+          }}
+        />
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full rounded-card border border-dashed border-border bg-card hover:border-primary/60 transition px-4 py-10 flex flex-col items-center gap-3"
+        >
+          <Upload className="w-6 h-6 text-primary" />
+          <span className="mono-label text-[11px] text-foreground">CHOOSE A VIDEO</span>
+          <span className="text-xs text-muted-foreground">From your camera roll or files</span>
+        </button>
+
+        {uploadFileError && (
+          <div className="mt-4 rounded-card border border-destructive/40 bg-destructive/5 px-3 py-2">
+            <span className="mono-label text-destructive text-[10px]">CAN'T USE THIS FILE</span>
+            <p className="text-xs text-foreground mt-0.5">{uploadFileError}</p>
+          </div>
+        )}
 
         <PatientBottomNav />
       </div>
