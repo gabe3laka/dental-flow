@@ -64,6 +64,7 @@ function pickMimeType(): string {
 
 function extFromMime(mime: string): string {
   if (mime.startsWith("video/mp4")) return "mp4";
+  if (mime.startsWith("video/quicktime")) return "mov";
   return "webm";
 }
 
