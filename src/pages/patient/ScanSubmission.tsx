@@ -6,12 +6,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { FlipHorizontal, Loader2 } from "lucide-react";
+import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
 
 const MIN_DURATION_SEC = 10;
-const TARGET_DURATION_SEC = 25;
+const TARGET_DURATION_SEC = 34;
 const MAX_DURATION_SEC = 45;
+
+// Uploaded-video constraints (Upload Video path only).
+const UPLOAD_MIN_DURATION_SEC = 4;
+const UPLOAD_MAX_DURATION_SEC = 60;        // hard cap
+const UPLOAD_SOFT_WARN_DURATION_SEC = 40;  // soft warning above this
+const UPLOAD_MAX_BYTES = 150 * 1024 * 1024;
+const UPLOAD_ALLOWED_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
 
 // Build-time feature flag. When false (default) the LingBot GPU pipeline is
 // paused: ScanSubmission still uploads video + keyframes, still inserts the
@@ -22,18 +29,18 @@ const MAX_DURATION_SEC = 45;
 const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
 
 // Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
-// Default: ON. To explicitly disable, set VITE_ENABLE_SPLAT="false" in the build env.
+// Default: OFF. Enable by setting VITE_ENABLE_SPLAT="true" in the build env.
 // Independent of LINGBOT — both can be on, either alone, or neither.
 // When SPLAT_ENABLED is true: dispatch to reconstruct-splat is fired in parallel
 // with (and independent of) the lingbot dispatch.
-const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT !== "false";
+const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT === "true";
 
 const STAGE_GUIDANCE = [
-  { upTo: 5,  text: "Open wide — show your upper arch" },
-  { upTo: 10, text: "Tilt down — show your lower arch" },
-  { upTo: 15, text: "Turn slowly to your left side" },
-  { upTo: 20, text: "Now slowly to your right side" },
-  { upTo: 25, text: "Hold still on your front smile" },
+  { upTo: 6,  text: "Open wide — show your upper arch" },
+  { upTo: 13, text: "Tilt down — show your lower arch" },
+  { upTo: 20, text: "Turn slowly to your left side" },
+  { upTo: 27, text: "Now slowly to your right side" },
+  { upTo: 34, text: "Hold still on your front smile" },
   { upTo: 99, text: "Great — keep the camera steady" },
 ];
 
@@ -60,7 +67,18 @@ function extFromMime(mime: string): string {
   return "webm";
 }
 
-type Phase = "intro" | "recording" | "reviewing" | "uploading" | "processing";
+type Phase =
+  | "intro"
+  | "picker"
+  | "recording"
+  | "uploading_file"
+  | "reviewing"
+  | "uploading"
+  | "processing";
+
+type InputSource = "live" | "upload_video";
+
+const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
 export default function ScanSubmission() {
   const navigate = useNavigate();
@@ -68,6 +86,7 @@ export default function ScanSubmission() {
 
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
+  const [inputSource, setInputSource] = useState<InputSource>("live");
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -76,6 +95,8 @@ export default function ScanSubmission() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [uploadPercent, setUploadPercent] = useState(0);
+  const [uploadFileError, setUploadFileError] = useState<string | null>(null);
+  const [uploadedDuration, setUploadedDuration] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +107,7 @@ export default function ScanSubmission() {
   const mimeRef = useRef<string>("video/webm");
   const keyframesRef = useRef<Array<{ tSec: number; blob: Blob }>>([]);
   const keyframeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── Camera init ── */
   useEffect(() => {
