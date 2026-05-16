@@ -6,12 +6,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { FlipHorizontal, Loader2 } from "lucide-react";
+import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
 
 const MIN_DURATION_SEC = 10;
-const TARGET_DURATION_SEC = 25;
+const TARGET_DURATION_SEC = 34;
 const MAX_DURATION_SEC = 45;
+
+// Uploaded-video constraints (Upload Video path only).
+const UPLOAD_MIN_DURATION_SEC = 4;
+const UPLOAD_MAX_DURATION_SEC = 60;        // hard cap
+const UPLOAD_SOFT_WARN_DURATION_SEC = 40;  // soft warning above this
+const UPLOAD_MAX_BYTES = 150 * 1024 * 1024;
+const UPLOAD_ALLOWED_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
 
 // Build-time feature flag. When false (default) the LingBot GPU pipeline is
 // paused: ScanSubmission still uploads video + keyframes, still inserts the
@@ -22,18 +29,18 @@ const MAX_DURATION_SEC = 45;
 const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
 
 // Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
-// Default: ON. To explicitly disable, set VITE_ENABLE_SPLAT="false" in the build env.
+// Default: OFF. Enable by setting VITE_ENABLE_SPLAT="true" in the build env.
 // Independent of LINGBOT — both can be on, either alone, or neither.
 // When SPLAT_ENABLED is true: dispatch to reconstruct-splat is fired in parallel
 // with (and independent of) the lingbot dispatch.
-const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT !== "false";
+const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT === "true";
 
 const STAGE_GUIDANCE = [
-  { upTo: 5,  text: "Open wide — show your upper arch" },
-  { upTo: 10, text: "Tilt down — show your lower arch" },
-  { upTo: 15, text: "Turn slowly to your left side" },
-  { upTo: 20, text: "Now slowly to your right side" },
-  { upTo: 25, text: "Hold still on your front smile" },
+  { upTo: 6,  text: "Open wide — show your upper arch" },
+  { upTo: 13, text: "Tilt down — show your lower arch" },
+  { upTo: 20, text: "Turn slowly to your left side" },
+  { upTo: 27, text: "Now slowly to your right side" },
+  { upTo: 34, text: "Hold still on your front smile" },
   { upTo: 99, text: "Great — keep the camera steady" },
 ];
 
@@ -60,7 +67,18 @@ function extFromMime(mime: string): string {
   return "webm";
 }
 
-type Phase = "intro" | "recording" | "reviewing" | "uploading" | "processing";
+type Phase =
+  | "intro"
+  | "picker"
+  | "recording"
+  | "uploading_file"
+  | "reviewing"
+  | "uploading"
+  | "processing";
+
+type InputSource = "live" | "upload_video";
+
+const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
 export default function ScanSubmission() {
   const navigate = useNavigate();
@@ -68,6 +86,7 @@ export default function ScanSubmission() {
 
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
+  const [inputSource, setInputSource] = useState<InputSource>("live");
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -76,6 +95,8 @@ export default function ScanSubmission() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [uploadPercent, setUploadPercent] = useState(0);
+  const [uploadFileError, setUploadFileError] = useState<string | null>(null);
+  const [uploadedDuration, setUploadedDuration] = useState<number | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -86,6 +107,7 @@ export default function ScanSubmission() {
   const mimeRef = useRef<string>("video/webm");
   const keyframesRef = useRef<Array<{ tSec: number; blob: Blob }>>([]);
   const keyframeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   /* ── Camera init ── */
   useEffect(() => {
@@ -200,8 +222,104 @@ export default function ScanSubmission() {
     setRecordedBlob(null);
     setRecordedUrl(null);
     setElapsed(0);
-    setPhase("recording");
+    setUploadedDuration(null);
+    setUploadFileError(null);
+    if (inputSource === "upload_video") {
+      setPhase("uploading_file");
+    } else {
+      setPhase("recording");
+    }
+  }, [recordedUrl, inputSource]);
+
+  /* ── Validate a user-picked video file ── */
+  const handleFilePicked = useCallback(async (file: File) => {
+    setUploadFileError(null);
+    setUploadedDuration(null);
+
+    if (!UPLOAD_ALLOWED_MIMES.includes(file.type)) {
+      setUploadFileError("Unsupported format. Use MP4, WebM, or MOV.");
+      return;
+    }
+    if (file.size > UPLOAD_MAX_BYTES) {
+      setUploadFileError("File too large. Max 150 MB.");
+      return;
+    }
+
+    // Probe duration via a hidden <video> element.
+    const url = URL.createObjectURL(file);
+    const probed = await new Promise<number | null>((resolve) => {
+      const v = document.createElement("video");
+      v.preload = "metadata";
+      v.src = url;
+      v.onloadedmetadata = () => resolve(Number.isFinite(v.duration) ? v.duration : null);
+      v.onerror = () => resolve(null);
+    });
+
+    if (probed == null) {
+      URL.revokeObjectURL(url);
+      setUploadFileError("Couldn't read this video. Try a different file.");
+      return;
+    }
+    if (probed < UPLOAD_MIN_DURATION_SEC) {
+      URL.revokeObjectURL(url);
+      setUploadFileError(`Video too short. Minimum ${UPLOAD_MIN_DURATION_SEC}s.`);
+      return;
+    }
+    if (probed > UPLOAD_MAX_DURATION_SEC) {
+      URL.revokeObjectURL(url);
+      setUploadFileError(
+        `Video too long. Maximum ${UPLOAD_MAX_DURATION_SEC}s — please trim and re-upload.`,
+      );
+      return;
+    }
+    if (probed > UPLOAD_SOFT_WARN_DURATION_SEC) {
+      toast({
+        title: "Long video",
+        description:
+          "Long videos increase the chance reconstruction fails. 30–40 s works best.",
+      });
+    }
+
+    // Accept — wire up as the recorded blob and move into the shared review phase.
+    mimeRef.current = file.type;
+    keyframesRef.current = [];
+    setRecordedBlob(file);
+    if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    setRecordedUrl(url);
+    setElapsed(Math.round(probed));
+    setUploadedDuration(probed);
+    setPhase("reviewing");
   }, [recordedUrl]);
+
+  /* ── XHR-based upload with real byte progress (uploaded-video path only) ── */
+  const uploadFileWithProgress = useCallback(
+    async (path: string, blob: Blob, contentType: string): Promise<void> => {
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("scan-videos")
+        .createSignedUploadUrl(path);
+      if (signErr || !signed) throw signErr ?? new Error("Could not get upload URL");
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", signed.signedUrl, true);
+        xhr.setRequestHeader("Content-Type", contentType);
+        xhr.setRequestHeader("x-upsert", "false");
+        xhr.upload.onprogress = (ev) => {
+          if (ev.lengthComputable) {
+            // Scale 0–80% to the byte upload; the remaining 20% is metadata + dispatch.
+            setUploadPercent(Math.round((ev.loaded / ev.total) * 80));
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve();
+          else reject(new Error(`Upload failed (${xhr.status})`));
+        };
+        xhr.onerror = () => reject(new Error("Upload network error"));
+        xhr.send(blob);
+      });
+    },
+    [],
+  );
 
   /* ── Upload + dispatch reconstruction ── */
   const handleSubmit = useCallback(async () => {
@@ -224,29 +342,39 @@ export default function ScanSubmission() {
       const scanFolder = `${patient.id}/${Date.now()}`;
       const videoPath = `${scanFolder}/raw_video.${ext}`;
 
-      // 1. Upload raw video to scan-videos bucket
-      setUploadPercent(10);
-      const { error: vidErr } = await supabase.storage
-        .from("scan-videos")
-        .upload(videoPath, recordedBlob, { contentType: mimeRef.current, upsert: false });
-      if (vidErr) throw vidErr;
-
-      // 2. Upload keyframe stills (used by analyze-scan-teeth) — non-fatal on failure
+      const isUpload = inputSource === "upload_video";
       const keyframeMeta: Array<{ zone: string; path: string; t_sec: number }> = [];
-      for (let i = 0; i < keyframesRef.current.length; i++) {
-        const k = keyframesRef.current[i];
-        const path = `${scanFolder}/frame-${i.toString().padStart(2, "0")}.jpg`;
-        try {
-          const { error } = await supabase.storage.from("scan-videos").upload(path, k.blob, {
-            contentType: "image/jpeg",
-            upsert: false,
-          });
-          if (!error) keyframeMeta.push({ zone: `FRAME_${i}`, path, t_sec: k.tSec });
-        } catch { /* skip individual frame failures */ }
-        setUploadPercent(10 + Math.round(((i + 1) / Math.max(keyframesRef.current.length, 1)) * 60));
+
+      if (isUpload) {
+        // 1. Upload raw video via XHR for real byte progress.
+        await uploadFileWithProgress(videoPath, recordedBlob, mimeRef.current);
+        // No client keyframes for uploaded videos in v1.
+      } else {
+        // 1. Upload raw video to scan-videos bucket
+        setUploadPercent(10);
+        const { error: vidErr } = await supabase.storage
+          .from("scan-videos")
+          .upload(videoPath, recordedBlob, { contentType: mimeRef.current, upsert: false });
+        if (vidErr) throw vidErr;
+
+        // 2. Upload keyframe stills (used by analyze-scan-teeth) — non-fatal on failure
+        for (let i = 0; i < keyframesRef.current.length; i++) {
+          const k = keyframesRef.current[i];
+          const path = `${scanFolder}/frame-${i.toString().padStart(2, "0")}.jpg`;
+          try {
+            const { error } = await supabase.storage.from("scan-videos").upload(path, k.blob, {
+              contentType: "image/jpeg",
+              upsert: false,
+            });
+            if (!error) keyframeMeta.push({ zone: `FRAME_${i}`, path, t_sec: k.tSec });
+          } catch { /* skip individual frame failures */ }
+          setUploadPercent(10 + Math.round(((i + 1) / Math.max(keyframesRef.current.length, 1)) * 60));
+        }
       }
 
       setUploadPercent(80);
+
+      const effectiveScanType: string = isUpload ? "upload_video" : scanType;
 
       // 3. Insert scans row
       const { data: scanRow, error: insErr } = await supabase
@@ -254,12 +382,12 @@ export default function ScanSubmission() {
         .insert({
           patient_id: patient.id,
           status: "pending",
-          source: scanType, // 'scope' | 'wand' — replaces legacy '3d_plus'
+          source: effectiveScanType,
           video_url: videoPath,
           zones_captured: keyframeMeta.length > 0 ? keyframeMeta : null,
           // New columns (added by 20260509 migration). Cast keeps this compiling
           // against the older generated types.ts until it's regenerated.
-          scan_type: scanType,
+          scan_type: effectiveScanType,
           raw_video_url: videoPath,
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
@@ -287,7 +415,7 @@ export default function ScanSubmission() {
         if (LINGBOT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-scan", {
-              body: { scan_id: scanRow.id, scan_type: scanType },
+              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
             });
           } catch (e) {
             logError(e, {
@@ -303,7 +431,7 @@ export default function ScanSubmission() {
         if (SPLAT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-splat", {
-              body: { scan_id: scanRow.id, scan_type: scanType },
+              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
             });
           } catch (e) {
             logError(e, {
@@ -315,16 +443,15 @@ export default function ScanSubmission() {
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
-        //    These DO NOT depend on the point cloud — analyze-scan-quality
-        //    reads zones_captured + quality_score; analyze-scan-teeth reads
-        //    zones_captured + signs URLs from scan-videos. Safe to run with
-        //    LingBot disabled.
         try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
-        try {
-          await supabase.functions.invoke("analyze-scan-teeth", {
-            body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
-          });
-        } catch { /* non-blocking */ }
+        // TODO(phase2): extract keyframes from uploaded video to restore analyze-scan-teeth.
+        if (!isUpload) {
+          try {
+            await supabase.functions.invoke("analyze-scan-teeth", {
+              body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
+            });
+          } catch { /* non-blocking */ }
+        }
       }
 
       setUploadPercent(100);
@@ -339,7 +466,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, navigate]);
+  }, [user, recordedBlob, scanType, inputSource, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
@@ -350,6 +477,12 @@ export default function ScanSubmission() {
         <p className="text-muted-foreground text-sm text-center mb-8 leading-relaxed max-w-xs">
           Slowly pan your phone around your mouth for {TARGET_DURATION_SEC} seconds. We turn the video into a 3D map of your teeth.
         </p>
+
+        {/* Persistent disclaimer */}
+        <div className="w-full mb-6 rounded-card border border-border bg-muted/30 px-3 py-2">
+          <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+          <p className="text-xs text-foreground mt-0.5">{DISCLAIMER}</p>
+        </div>
 
         {/* Scope vs Wand chooser */}
         <div className="w-full mb-8">
@@ -374,18 +507,103 @@ export default function ScanSubmission() {
           </div>
         </div>
 
-        <button
-          onClick={() => setPhase("recording")}
-          className="w-full py-4 rounded-full bg-primary text-primary-foreground font-mono text-sm tracking-widest uppercase"
-        >
-          Start Recording
-        </button>
+        {/* Input picker */}
+        <div className="w-full mb-4 grid grid-cols-1 gap-2">
+          <button
+            onClick={() => { setInputSource("live"); setPhase("recording"); }}
+            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+          >
+            <Camera className="w-4 h-4 text-primary" />
+            <span className="flex-1">
+              <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
+              <span className="text-xs text-foreground mt-0.5 block">
+                Record a {TARGET_DURATION_SEC}s scan with your phone camera
+              </span>
+            </span>
+          </button>
+          <button
+            onClick={() => {
+              setInputSource("upload_video");
+              setUploadFileError(null);
+              setPhase("uploading_file");
+            }}
+            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+          >
+            <Video className="w-4 h-4 text-primary" />
+            <span className="flex-1">
+              <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
+              <span className="text-xs text-foreground mt-0.5 block">
+                Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+              </span>
+            </span>
+          </button>
+        </div>
+
         <button
           onClick={() => navigate(-1)}
           className="mt-4 font-mono text-xs text-muted-foreground hover:text-foreground transition"
         >
           Cancel
         </button>
+
+        <PatientBottomNav />
+      </div>
+    );
+  }
+
+  /* ────────────────────────────── UPLOAD FILE PICKER ────────────────── */
+  if (phase === "uploading_file") {
+    return (
+      <div className="min-h-screen bg-background px-6 py-10 max-w-[480px] mx-auto pb-28">
+        <button
+          onClick={() => setPhase("intro")}
+          className="mono-label text-muted-foreground hover:text-foreground text-[11px] mb-4 inline-flex items-center gap-1"
+        >
+          ← BACK
+        </button>
+        <span className="mono-label text-primary block mb-2">UPLOAD VIDEO</span>
+        <h1 className="font-display text-xl font-semibold text-foreground mb-3">
+          Pick a short video
+        </h1>
+        <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
+          MP4, WebM, or MOV · {UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC} seconds · up to 150 MB.
+          For best results, slowly pan around your mouth.
+        </p>
+
+        <div className="rounded-card border border-border bg-muted/30 px-3 py-2 mb-6">
+          <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+          <p className="text-xs text-foreground mt-0.5">{DISCLAIMER}</p>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void handleFilePicked(f);
+            // Reset so picking the same file twice still fires onChange.
+            e.target.value = "";
+          }}
+        />
+
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full rounded-card border border-dashed border-border bg-card hover:border-primary/60 transition px-4 py-10 flex flex-col items-center gap-3"
+        >
+          <Upload className="w-6 h-6 text-primary" />
+          <span className="mono-label text-[11px] text-foreground">CHOOSE A VIDEO</span>
+          <span className="text-xs text-muted-foreground">From your camera roll or files</span>
+        </button>
+
+        {uploadFileError && (
+          <div className="mt-4 rounded-card border border-destructive/40 bg-destructive/5 px-3 py-2">
+            <span className="mono-label text-destructive text-[10px]">CAN'T USE THIS FILE</span>
+            <p className="text-xs text-foreground mt-0.5">{uploadFileError}</p>
+          </div>
+        )}
 
         <PatientBottomNav />
       </div>
