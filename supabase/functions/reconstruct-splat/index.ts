@@ -124,6 +124,10 @@ serve(async (req) => {
         input: {
           video_url: signed.signedUrl,
           scan_id,
+          // Required by the splat-worker contract: it builds the output
+          // path <patient_id>/<scan_id>/scene.ply and rejects the job
+          // without patient_id. scan.patient_id is already SELECTed above.
+          patient_id: scan.patient_id,
           scan_type: effectiveType,
           callback_url: callbackUrl,
         },
