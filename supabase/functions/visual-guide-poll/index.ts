@@ -1,12 +1,6 @@
-// Cron-driven poller for AI Visual Guide generation jobs.
-// Selects scans with generation_status='generating_scene' AND a job id,
-// asks World Labs for status, downloads outputs on completion, and ONLY
-// writes the new generative_* columns. Never touches splat_*, processing_*,
-// pointcloud_url, or any reconstruct path.
-//
-// Required env (server-side only):
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
-//   WORLDLABS_API_KEY, WORLDLABS_API_URL
+// Cron-driven poller for AI Visual Guide generation jobs (World Labs Marble).
+// Polls GET https://api.worldlabs.ai/marble/v1/operations/{operation_id}
+// with header WLT-Api-Key: <WORLDLABS_API_KEY>.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -18,6 +12,7 @@ const corsHeaders = {
 
 const MAX_BATCH = 10;
 const TIMEOUT_MIN = 30;
+const MARBLE_BASE = "https://api.worldlabs.ai/marble/v1";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -26,12 +21,11 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const WORLDLABS_API_KEY = Deno.env.get("WORLDLABS_API_KEY");
-    const WORLDLABS_API_URL = Deno.env.get("WORLDLABS_API_URL");
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-    if (!WORLDLABS_API_KEY || !WORLDLABS_API_URL) {
-      return new Response(JSON.stringify({ processed: 0, reason: "WORLDLABS not configured" }), {
+    if (!WORLDLABS_API_KEY) {
+      return new Response(JSON.stringify({ processed: 0, reason: "WORLDLABS_API_KEY not configured" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -60,30 +54,47 @@ serve(async (req) => {
           }
         }
 
-        // ============================================================
-        // TODO: confirm against World Labs API docs (user-provided)
-        // Replace this with the actual status endpoint + response shape.
-        // ============================================================
-        const statusUrl = `${WORLDLABS_API_URL.replace(/\/$/, "")}/status/${encodeURIComponent(job.generation_job_id!)}`;
+        const statusUrl = `${MARBLE_BASE}/operations/${encodeURIComponent(job.generation_job_id!)}`;
         const res = await fetch(statusUrl, {
-          headers: { authorization: `Bearer ${WORLDLABS_API_KEY}` },
+          headers: { "WLT-Api-Key": WORLDLABS_API_KEY },
         });
         if (!res.ok) {
           results.push({ scan_id: job.id, status: `http_${res.status}` });
           continue;
         }
         const payload = await res.json().catch(() => ({} as Record<string, unknown>));
-        // TODO: confirm field names against World Labs response
-        const state = String(payload?.status ?? payload?.state ?? "").toLowerCase();
+        const done = Boolean(payload?.done);
+        const opError = payload?.error;
 
-        if (state === "completed" || state === "succeeded" || state === "ready") {
-          // TODO: confirm URL fields against World Labs response
-          const sceneUrl = (payload?.scene_url ?? payload?.spz_url ?? payload?.output_url) as string | undefined;
-          const glbUrl = (payload?.glb_url ?? payload?.mesh_url) as string | undefined;
+        if (!done) {
+          results.push({ scan_id: job.id, status: "pending" });
+          continue;
+        }
+
+        if (opError) {
+          const msg = typeof opError === "string"
+            ? opError
+            : (opError as { message?: string })?.message ?? "Marble reported failure";
+          await admin.from("scans").update({
+            generation_status: "failed",
+            generation_error: msg,
+          }).eq("id", job.id);
+          results.push({ scan_id: job.id, status: "failed" });
+          continue;
+        }
+
+        // done: true, error: null → success
+        const response = (payload?.response ?? {}) as Record<string, unknown>;
+        const assets = (response?.assets ?? {}) as Record<string, unknown>;
+        const splats = (assets?.splats ?? {}) as Record<string, unknown>;
+        const spzUrls = (splats?.spz_urls ?? {}) as Record<string, string>;
+        const mesh = (assets?.mesh ?? {}) as Record<string, unknown>;
+        const sceneUrl = spzUrls["500k"] ?? spzUrls["100k"] ?? spzUrls["full_res"];
+        const glbUrl = mesh?.collider_mesh_url as string | undefined;
 
           const update: Record<string, unknown> = {
             generation_status: "render_ready",
-            generative_assets: payload as Record<string, unknown>,
+            generative_assets: assets,
           };
 
           if (sceneUrl) {
@@ -105,15 +116,6 @@ serve(async (req) => {
 
           await admin.from("scans").update(update).eq("id", job.id);
           results.push({ scan_id: job.id, status: "ready" });
-        } else if (state === "failed" || state === "error") {
-          await admin.from("scans").update({
-            generation_status: "failed",
-            generation_error: String(payload?.error ?? payload?.message ?? "World Labs reported failure"),
-          }).eq("id", job.id);
-          results.push({ scan_id: job.id, status: "failed" });
-        } else {
-          results.push({ scan_id: job.id, status: state || "pending" });
-        }
       } catch (e) {
         console.error("poll error", job.id, e);
         results.push({ scan_id: job.id, status: "error" });
