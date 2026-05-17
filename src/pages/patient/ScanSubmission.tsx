@@ -117,6 +117,17 @@ export default function ScanSubmission() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
   const [inputSource, setInputSource] = useState<InputSource>("live");
+  const [pipelines, setPipelines] = useState<PipelineChoice>(() => loadPipelinePref());
+
+  function togglePipeline(key: keyof PipelineChoice) {
+    setPipelines((prev) => {
+      // Ensure at least one stays selected
+      const next = { ...prev, [key]: !prev[key] };
+      if (!next.lingbot && !next.splat && !next.aiGuide) return prev;
+      try { localStorage.setItem(PIPELINE_PREF_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
