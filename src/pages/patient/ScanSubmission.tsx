@@ -32,7 +32,9 @@ const UPLOAD_ALLOWED_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
 // avoids a Vite rebuild every time we want to flip a pipeline on/off — just
 // add or remove the relevant Supabase secret.
 const LINGBOT_ENABLED = true;
-const SPLAT_ENABLED = true;
+// SuperSplat pipeline disabled — only LingBot point cloud runs on new scans.
+// Flip to true to re-enable gsplat/COLMAP dispatch via reconstruct-splat.
+const SPLAT_ENABLED = false;
 
 const STAGE_GUIDANCE = [
   { upTo: 6,  text: "Open wide — show your upper arch" },
