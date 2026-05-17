@@ -545,7 +545,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, inputSource, pipelines, navigate, uploadFileWithProgress]);
+  }, [user, recordedBlob, scanType, inputSource, pipeline, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
@@ -595,19 +595,19 @@ export default function ScanSubmission() {
               { key: "splat" as const,   label: "3D PLUS",     desc: "Photoreal gaussian splat (slower)" },
               { key: "aiGuide" as const, label: "AI GUIDE β",  desc: "Generative visual guide — not a medical scan" },
             ].map((opt) => {
-              const selected = pipelines[opt.key];
+              const selected = pipeline === opt.key;
               return (
                 <button
                   key={opt.key}
-                  onClick={() => togglePipeline(opt.key)}
+                  onClick={() => selectPipeline(opt.key)}
                   className={`rounded-card border px-3 py-3 text-left transition flex items-start gap-3 ${
                     selected ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/40"
                   }`}
                 >
-                  <span className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center text-[10px] ${
+                  <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${
                     selected ? "bg-primary border-primary text-primary-foreground" : "border-border bg-background"
                   }`}>
-                    {selected ? "✓" : ""}
+                    {selected ? "●" : ""}
                   </span>
                   <span className="flex-1">
                     <span className="mono-label text-[10px] text-primary block">{opt.label}</span>
@@ -618,41 +618,66 @@ export default function ScanSubmission() {
             })}
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 font-mono">
-            Pick one or more. Same scan video powers each pipeline.
+            {pipeline === "aiGuide"
+              ? "AI Guide uses its own photo + video uploader on the next step."
+              : "Capture once — the scan video powers the selected pipeline."}
           </p>
         </div>
 
-        {/* Input picker */}
-        <div className="w-full mb-4 grid grid-cols-1 gap-2">
-          <button
-            onClick={() => { setInputSource("live"); setPhase("recording"); }}
-            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
-          >
-            <Camera className="w-4 h-4 text-primary" />
-            <span className="flex-1">
-              <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
-              <span className="text-xs text-foreground mt-0.5 block">
-                Record a {TARGET_DURATION_SEC}s scan with your phone camera
+        {/* Input picker — only for video-based pipelines. AI Guide branches off
+            into its own panel via startAiGuideFlow(). */}
+        {pipeline === "aiGuide" ? (
+          <div className="w-full mb-4">
+            <button
+              onClick={startAiGuideFlow}
+              disabled={creatingAiGuide}
+              className="w-full rounded-card border border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center justify-center gap-2 text-sm font-medium transition disabled:opacity-60"
+            >
+              {creatingAiGuide ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Opening AI Guide…
+                </>
+              ) : (
+                <>Continue to AI Guide →</>
+              )}
+            </button>
+            <p className="text-[10px] text-muted-foreground mt-2 font-mono text-center">
+              You'll upload mouth photos or a short clip on the next screen.
+            </p>
+          </div>
+        ) : (
+          <div className="w-full mb-4 grid grid-cols-1 gap-2">
+            <button
+              onClick={() => { setInputSource("live"); setPhase("recording"); }}
+              className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+            >
+              <Camera className="w-4 h-4 text-primary" />
+              <span className="flex-1">
+                <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
+                <span className="text-xs text-foreground mt-0.5 block">
+                  Record a {TARGET_DURATION_SEC}s scan with your phone camera
+                </span>
               </span>
-            </span>
-          </button>
-          <button
-            onClick={() => {
-              setInputSource("upload_video");
-              setUploadFileError(null);
-              setPhase("uploading_file");
-            }}
-            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
-          >
-            <Video className="w-4 h-4 text-primary" />
-            <span className="flex-1">
-              <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
-              <span className="text-xs text-foreground mt-0.5 block">
-                Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+            </button>
+            <button
+              onClick={() => {
+                setInputSource("upload_video");
+                setUploadFileError(null);
+                setPhase("uploading_file");
+              }}
+              className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+            >
+              <Video className="w-4 h-4 text-primary" />
+              <span className="flex-1">
+                <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
+                <span className="text-xs text-foreground mt-0.5 block">
+                  Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+                </span>
               </span>
-            </span>
-          </button>
-        </div>
+            </button>
+          </div>
+        )}
 
         <button
           onClick={() => navigate(-1)}
