@@ -292,32 +292,19 @@ export default function ScanSubmission() {
     setPhase("reviewing");
   }, [recordedUrl]);
 
-  /* ── XHR-based upload with real byte progress (uploaded-video path only) ── */
+  /* ── Upload via the Supabase SDK (matches the working live-camera path).
+     Earlier we used a custom XHR PUT to a signed upload URL to get real byte
+     progress, but that returned 400 on some clients (notably iOS .mov via the
+     camera roll). Using the SDK upload aligns the upload-video path with the
+     proven live-camera path byte-for-byte; we surface coarse progress instead. */
   const uploadFileWithProgress = useCallback(
     async (path: string, blob: Blob, contentType: string): Promise<void> => {
-      const { data: signed, error: signErr } = await supabase.storage
+      setUploadPercent(15);
+      const { error } = await supabase.storage
         .from("scan-videos")
-        .createSignedUploadUrl(path);
-      if (signErr || !signed) throw signErr ?? new Error("Could not get upload URL");
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", signed.signedUrl, true);
-        xhr.setRequestHeader("Content-Type", contentType);
-        xhr.setRequestHeader("x-upsert", "false");
-        xhr.upload.onprogress = (ev) => {
-          if (ev.lengthComputable) {
-            // Scale 0–80% to the byte upload; the remaining 20% is metadata + dispatch.
-            setUploadPercent(Math.round((ev.loaded / ev.total) * 80));
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) resolve();
-          else reject(new Error(`Upload failed (${xhr.status})`));
-        };
-        xhr.onerror = () => reject(new Error("Upload network error"));
-        xhr.send(blob);
-      });
+        .upload(path, blob, { contentType, upsert: false });
+      if (error) throw error;
+      setUploadPercent(80);
     },
     [],
   );
