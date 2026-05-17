@@ -15,6 +15,7 @@ import { logError } from "@/lib/logger";
 import { ArrowLeft, Send, BookmarkPlus, CheckCircle2, AlertTriangle, ChevronRight, Loader2, X, Trash2 } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { SplatTabPanel } from "@/components/scanning/SplatTabPanel";
+import { AiVisualGuidePanel } from "@/components/scanning/AiVisualGuidePanel";
 
 interface ScanData {
   id: string;
@@ -512,7 +513,7 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => {
+        {(["analysis", "photos", "3d", "3d-plus", "ai-guide"] as const).map((mode) => {
           const ready =
             (mode === "3d" && !!scan.pointcloud_url) ||
             (mode === "3d-plus" && !!scan.splat_url);
@@ -533,7 +534,8 @@ export default function ScanResults() {
               {mode === "analysis" ? "ANALYSIS"
                 : mode === "photos" ? "PHOTOS"
                 : mode === "3d" ? "3D MAP"
-                : "3D PLUS"}
+                : mode === "3d-plus" ? "3D PLUS"
+                : "AI GUIDE"}
             </button>
           );
         })}
@@ -550,6 +552,10 @@ export default function ScanResults() {
       )}
 
       {viewMode === "3d-plus" && <SplatTabPanel scanId={scan.id} />}
+
+      {viewMode === "ai-guide" && (
+        <AiVisualGuidePanel scanId={scan.id} patientId={scan.patient_id} />
+      )}
 
       {viewMode === "3d" && (
         <div className="rounded-card overflow-hidden bg-card border border-border mb-4 dark">
