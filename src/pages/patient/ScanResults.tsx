@@ -82,7 +82,7 @@ export default function ScanResults() {
   const [sending, setSending] = useState(false);
   const [showNoteInput, setShowNoteInput] = useState(false);
   const [patientNote, setPatientNote] = useState("");
-  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3d-plus">("analysis");
+  const [viewMode, setViewMode] = useState<"photos" | "3d" | "analysis" | "3d-plus" | "ai-guide">("analysis");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedTooth3D, setSelectedTooth3D] = useState<string | null>(null);
   const [zoneSignedUrls, setZoneSignedUrls] = useState<Record<string, string>>({});
