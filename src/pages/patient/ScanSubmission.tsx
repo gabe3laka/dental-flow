@@ -362,7 +362,12 @@ export default function ScanSubmission() {
 
       setUploadPercent(80);
 
-      const effectiveScanType: string = isUpload ? "upload_video" : scanType;
+      // Pipeline contract uses scan_type ('scope' | 'wand'); provenance uses
+      // `source`. Uploaded videos run the same splat pipeline as live captures,
+      // so persist scan_type = scanType for both paths and only differentiate
+      // via `source`.
+      const pipelineScanType: ScanType = scanType;
+      const sourceTag: string = isUpload ? "upload_video" : scanType;
 
       // 3. Insert scans row
       const { data: scanRow, error: insErr } = await supabase
@@ -370,12 +375,12 @@ export default function ScanSubmission() {
         .insert({
           patient_id: patient.id,
           status: "pending",
-          source: effectiveScanType,
+          source: sourceTag,
           video_url: videoPath,
           zones_captured: keyframeMeta.length > 0 ? keyframeMeta : null,
           // New columns (added by 20260509 migration). Cast keeps this compiling
           // against the older generated types.ts until it's regenerated.
-          scan_type: effectiveScanType,
+          scan_type: pipelineScanType,
           raw_video_url: videoPath,
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
@@ -400,10 +405,10 @@ export default function ScanSubmission() {
       //    the GPU server processes). Gated behind VITE_ENABLE_LINGBOT so we
       //    can pause the GPU pipeline without removing the code path.
       if (scanRow?.id) {
-        if (LINGBOT_ENABLED) {
+          if (LINGBOT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-scan", {
-              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
+                body: { scan_id: scanRow.id, scan_type: pipelineScanType },
             });
           } catch (e) {
             logError(e, {
@@ -419,7 +424,7 @@ export default function ScanSubmission() {
         if (SPLAT_ENABLED) {
           try {
             await supabase.functions.invoke("reconstruct-splat", {
-              body: { scan_id: scanRow.id, scan_type: effectiveScanType },
+              body: { scan_id: scanRow.id, scan_type: pipelineScanType },
             });
           } catch (e) {
             logError(e, {
