@@ -425,9 +425,10 @@ export default function ScanSubmission() {
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
           // treats that as the legacy-scan branch instead of "BUILDING…" forever.
-          processing_status: LINGBOT_ENABLED ? "queued" : null,
+          processing_status: (pipelines.lingbot && LINGBOT_ENABLED) ? "queued" : null,
           // Splat-aware: same pattern. Independent of LINGBOT.
-          splat_processing_status: SPLAT_ENABLED ? "queued" : null,
+          splat_processing_status: (pipelines.splat && SPLAT_ENABLED) ? "queued" : null,
+          generation_status: pipelines.aiGuide ? "generating_scene" : null,
         } as never)
         .select("id")
         .single();
