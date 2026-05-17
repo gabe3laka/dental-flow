@@ -8,6 +8,15 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
+import {
+  BOARD_CELLS,
+  composeBoard,
+  estimateSharpness,
+  qualityFor,
+  sampleVideoFrames,
+  type BoardCellKey,
+  type CellAssignment,
+} from "@/lib/scanning/referenceBoard";
 
 const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 34;
@@ -82,6 +91,25 @@ type InputSource = "live" | "upload_video";
 
 const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
+type PipelineChoice = { lingbot: boolean; splat: boolean; aiGuide: boolean };
+const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v1";
+const DEFAULT_PIPELINES: PipelineChoice = { lingbot: true, splat: false, aiGuide: false };
+
+function loadPipelinePref(): PipelineChoice {
+  try {
+    const raw = localStorage.getItem(PIPELINE_PREF_KEY);
+    if (!raw) return DEFAULT_PIPELINES;
+    const parsed = JSON.parse(raw) as Partial<PipelineChoice>;
+    return {
+      lingbot: parsed.lingbot ?? DEFAULT_PIPELINES.lingbot,
+      splat: parsed.splat ?? DEFAULT_PIPELINES.splat,
+      aiGuide: parsed.aiGuide ?? DEFAULT_PIPELINES.aiGuide,
+    };
+  } catch {
+    return DEFAULT_PIPELINES;
+  }
+}
+
 export default function ScanSubmission() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -89,6 +117,17 @@ export default function ScanSubmission() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
   const [inputSource, setInputSource] = useState<InputSource>("live");
+  const [pipelines, setPipelines] = useState<PipelineChoice>(() => loadPipelinePref());
+
+  function togglePipeline(key: keyof PipelineChoice) {
+    setPipelines((prev) => {
+      // Ensure at least one stays selected
+      const next = { ...prev, [key]: !prev[key] };
+      if (!next.lingbot && !next.splat && !next.aiGuide) return prev;
+      try { localStorage.setItem(PIPELINE_PREF_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -386,9 +425,10 @@ export default function ScanSubmission() {
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
           // treats that as the legacy-scan branch instead of "BUILDING…" forever.
-          processing_status: LINGBOT_ENABLED ? "queued" : null,
+          processing_status: (pipelines.lingbot && LINGBOT_ENABLED) ? "queued" : null,
           // Splat-aware: same pattern. Independent of LINGBOT.
-          splat_processing_status: SPLAT_ENABLED ? "queued" : null,
+          splat_processing_status: (pipelines.splat && SPLAT_ENABLED) ? "queued" : null,
+          generation_status: pipelines.aiGuide ? "generating_scene" : null,
         } as never)
         .select("id")
         .single();
@@ -422,7 +462,7 @@ export default function ScanSubmission() {
             isUpload,
             pipelineScanType,
           });
-          if (LINGBOT_ENABLED) {
+          if (pipelines.lingbot && LINGBOT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-scan", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-scan", {
@@ -441,7 +481,7 @@ export default function ScanSubmission() {
         // 5b. Dispatch splat (gsplat + COLMAP) reconstruction job. Non-blocking,
         //     completely independent of lingbot — both can land terminal callbacks
         //     on the same scan; the callback routes by ?pipeline=splat.
-        if (SPLAT_ENABLED) {
+        if (pipelines.splat && SPLAT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-splat", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-splat", {
@@ -459,6 +499,46 @@ export default function ScanSubmission() {
           console.warn("[scan-dispatch] SPLAT_ENABLED is false — skipping reconstruct-splat. Set VITE_ENABLE_SPLAT=true in build env.");
         }
 
+        // 5c. AI Visual Guide (beta) — additive. Auto-compose a 6-cell reference
+        //     board from the source media, upload to scan-reference-boards under
+        //     the patient's folder, then dispatch generate-visual-guide.
+        if (pipelines.aiGuide && recordedBlob) {
+          try {
+            const file = recordedBlob instanceof File
+              ? recordedBlob
+              : new File([recordedBlob], `scan.${extFromMime(mimeRef.current)}`, { type: mimeRef.current });
+            const frames = await sampleVideoFrames(file, 6);
+            const assignments = BOARD_CELLS.reduce((acc, cell, idx) => {
+              const src = frames[idx] ?? null;
+              const score = src ? estimateSharpness(src) : 0;
+              acc[cell.key] = { key: cell.key, source: src, quality: qualityFor(score) };
+              return acc;
+            }, {} as Record<BoardCellKey, CellAssignment>);
+            const blob = await composeBoard(assignments);
+            const boardPath = `${patient.id}/${scanRow.id}/board-${Date.now()}.png`;
+            const { error: upErr } = await supabase.storage
+              .from("scan-reference-boards")
+              .upload(boardPath, blob, { contentType: "image/png", upsert: true });
+            if (upErr) throw upErr;
+            await supabase
+              .from("scans")
+              .update({ reference_board_url: boardPath } as never)
+              .eq("id", scanRow.id);
+            await supabase.functions.invoke("generate-visual-guide", {
+              body: {
+                scan_id: scanRow.id,
+                patient_id: patient.id,
+                reference_board_url: boardPath,
+                mode: "dental_visual_guide",
+              },
+            });
+            console.info("[scan-dispatch] generate-visual-guide dispatched", { scan_id: scanRow.id });
+          } catch (e) {
+            console.error("[scan-dispatch] AI Guide dispatch failed", e);
+            logError(e, { operation: "ScanSubmission/dispatchAiGuide", extra: { scanId: scanRow.id } });
+          }
+        }
+
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
         try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
@@ -473,9 +553,13 @@ export default function ScanSubmission() {
       }
 
       setUploadPercent(100);
+      const parts: string[] = [];
+      if (pipelines.lingbot && LINGBOT_ENABLED) parts.push("3D Map");
+      if (pipelines.splat && SPLAT_ENABLED) parts.push("3D Plus");
+      if (pipelines.aiGuide) parts.push("AI Guide");
       toast({
         title: "Scan uploaded!",
-        description: (LINGBOT_ENABLED || SPLAT_ENABLED) ? "Building your 3D map…" : "Analyzing your scan…",
+        description: parts.length ? `Building: ${parts.join(" · ")}…` : "Analyzing your scan…",
       });
       navigate(`/patient/scans/${scanRow?.id}/results`);
     } catch (e) {
@@ -484,7 +568,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, inputSource, navigate, uploadFileWithProgress]);
+  }, [user, recordedBlob, scanType, inputSource, pipelines, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
@@ -523,6 +607,42 @@ export default function ScanSubmission() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Output picker — choose what to build from this scan */}
+        <div className="w-full mb-6">
+          <span className="mono-label text-muted-foreground block mb-2">WHAT TO BUILD</span>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              { key: "lingbot" as const, label: "3D MAP",      desc: "Point cloud of your teeth (LingBot)" },
+              { key: "splat" as const,   label: "3D PLUS",     desc: "Photoreal gaussian splat (slower)" },
+              { key: "aiGuide" as const, label: "AI GUIDE β",  desc: "Generative visual guide — not a medical scan" },
+            ].map((opt) => {
+              const selected = pipelines[opt.key];
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => togglePipeline(opt.key)}
+                  className={`rounded-card border px-3 py-3 text-left transition flex items-start gap-3 ${
+                    selected ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center text-[10px] ${
+                    selected ? "bg-primary border-primary text-primary-foreground" : "border-border bg-background"
+                  }`}>
+                    {selected ? "✓" : ""}
+                  </span>
+                  <span className="flex-1">
+                    <span className="mono-label text-[10px] text-primary block">{opt.label}</span>
+                    <span className="text-xs text-foreground mt-0.5 block">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2 font-mono">
+            Pick one or more. Same scan video powers each pipeline.
+          </p>
         </div>
 
         {/* Input picker */}
