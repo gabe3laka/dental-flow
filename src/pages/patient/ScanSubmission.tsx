@@ -407,6 +407,13 @@ export default function ScanSubmission() {
       if (scanRow?.id) {
           // Dispatch breadcrumbs — surfaces in browser console so we can tell
           // from the client side whether each pipeline branch actually ran.
+          console.info("[scan-dispatch] build-env", {
+            VITE_ENABLE_SPLAT_raw: import.meta.env.VITE_ENABLE_SPLAT,
+            VITE_ENABLE_LINGBOT_raw: import.meta.env.VITE_ENABLE_LINGBOT,
+            SPLAT_ENABLED_resolved: import.meta.env.VITE_ENABLE_SPLAT === "true",
+            LINGBOT_ENABLED_resolved: import.meta.env.VITE_ENABLE_LINGBOT === "true",
+            MODE: import.meta.env.MODE,
+          });
           console.info("[scan-dispatch] flags", {
             scan_id: scanRow.id,
             LINGBOT_ENABLED,
