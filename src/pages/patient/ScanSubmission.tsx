@@ -8,6 +8,15 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
+import {
+  BOARD_CELLS,
+  composeBoard,
+  estimateSharpness,
+  qualityFor,
+  sampleVideoFrames,
+  type BoardCellKey,
+  type CellAssignment,
+} from "@/lib/scanning/referenceBoard";
 
 const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 34;
@@ -81,6 +90,25 @@ type Phase =
 type InputSource = "live" | "upload_video";
 
 const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
+
+type PipelineChoice = { lingbot: boolean; splat: boolean; aiGuide: boolean };
+const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v1";
+const DEFAULT_PIPELINES: PipelineChoice = { lingbot: true, splat: false, aiGuide: false };
+
+function loadPipelinePref(): PipelineChoice {
+  try {
+    const raw = localStorage.getItem(PIPELINE_PREF_KEY);
+    if (!raw) return DEFAULT_PIPELINES;
+    const parsed = JSON.parse(raw) as Partial<PipelineChoice>;
+    return {
+      lingbot: parsed.lingbot ?? DEFAULT_PIPELINES.lingbot,
+      splat: parsed.splat ?? DEFAULT_PIPELINES.splat,
+      aiGuide: parsed.aiGuide ?? DEFAULT_PIPELINES.aiGuide,
+    };
+  } catch {
+    return DEFAULT_PIPELINES;
+  }
+}
 
 export default function ScanSubmission() {
   const navigate = useNavigate();
