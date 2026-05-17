@@ -951,6 +951,12 @@ export type Database = {
         Args: { _doctor_user_id: string; _patient_id: string }
         Returns: boolean
       }
+      list_stale_storage_objects: {
+        Args: { _bucket_id: string; _limit?: number; _older_than: string }
+        Returns: {
+          name: string
+        }[]
+      }
     }
     Enums: {
       action_type:
