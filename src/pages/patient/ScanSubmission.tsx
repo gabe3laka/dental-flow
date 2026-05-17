@@ -462,7 +462,7 @@ export default function ScanSubmission() {
             isUpload,
             pipelineScanType,
           });
-          if (LINGBOT_ENABLED) {
+          if (pipelines.lingbot && LINGBOT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-scan", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-scan", {
@@ -481,7 +481,7 @@ export default function ScanSubmission() {
         // 5b. Dispatch splat (gsplat + COLMAP) reconstruction job. Non-blocking,
         //     completely independent of lingbot — both can land terminal callbacks
         //     on the same scan; the callback routes by ?pipeline=splat.
-        if (SPLAT_ENABLED) {
+        if (pipelines.splat && SPLAT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-splat", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-splat", {
@@ -497,6 +497,46 @@ export default function ScanSubmission() {
           }
         } else {
           console.warn("[scan-dispatch] SPLAT_ENABLED is false — skipping reconstruct-splat. Set VITE_ENABLE_SPLAT=true in build env.");
+        }
+
+        // 5c. AI Visual Guide (beta) — additive. Auto-compose a 6-cell reference
+        //     board from the source media, upload to scan-reference-boards under
+        //     the patient's folder, then dispatch generate-visual-guide.
+        if (pipelines.aiGuide && recordedBlob) {
+          try {
+            const file = recordedBlob instanceof File
+              ? recordedBlob
+              : new File([recordedBlob], `scan.${extFromMime(mimeRef.current)}`, { type: mimeRef.current });
+            const frames = await sampleVideoFrames(file, 6);
+            const assignments = BOARD_CELLS.reduce((acc, cell, idx) => {
+              const src = frames[idx] ?? null;
+              const score = src ? estimateSharpness(src) : 0;
+              acc[cell.key] = { key: cell.key, source: src, quality: qualityFor(score) };
+              return acc;
+            }, {} as Record<BoardCellKey, CellAssignment>);
+            const blob = await composeBoard(assignments);
+            const boardPath = `${patient.id}/${scanRow.id}/board-${Date.now()}.png`;
+            const { error: upErr } = await supabase.storage
+              .from("scan-reference-boards")
+              .upload(boardPath, blob, { contentType: "image/png", upsert: true });
+            if (upErr) throw upErr;
+            await supabase
+              .from("scans")
+              .update({ reference_board_url: boardPath } as never)
+              .eq("id", scanRow.id);
+            await supabase.functions.invoke("generate-visual-guide", {
+              body: {
+                scan_id: scanRow.id,
+                patient_id: patient.id,
+                reference_board_url: boardPath,
+                mode: "dental_visual_guide",
+              },
+            });
+            console.info("[scan-dispatch] generate-visual-guide dispatched", { scan_id: scanRow.id });
+          } catch (e) {
+            console.error("[scan-dispatch] AI Guide dispatch failed", e);
+            logError(e, { operation: "ScanSubmission/dispatchAiGuide", extra: { scanId: scanRow.id } });
+          }
         }
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
