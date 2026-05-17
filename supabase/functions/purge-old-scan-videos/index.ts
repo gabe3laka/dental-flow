@@ -16,50 +16,56 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const url = new URL(req.url);
+    const purgeAll = url.searchParams.get("all") === "1";
+    const bucketParam = url.searchParams.get("bucket"); // optional override
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const cutoff = new Date(Date.now() - MAX_AGE_HOURS * 3600 * 1000).toISOString();
+    const cutoff = purgeAll
+      ? new Date().toISOString()
+      : new Date(Date.now() - MAX_AGE_HOURS * 3600 * 1000).toISOString();
 
-    // Pull stale objects directly from storage.objects via PostgREST
-    // (service role bypasses RLS).
-    const { data: stale, error: queryErr } = await supabase
-      .schema("storage")
-      .from("objects")
-      .select("name")
-      .eq("bucket_id", "scan-videos")
-      .lt("created_at", cutoff)
-      .limit(1000);
+    const buckets = bucketParam ? [bucketParam] : ["scan-videos"];
+    const result: Record<string, number> = {};
 
-    if (queryErr) throw queryErr;
+    for (const bucket of buckets) {
+      let q = supabase
+        .schema("storage")
+        .from("objects")
+        .select("name")
+        .eq("bucket_id", bucket)
+        .limit(1000);
+      if (!purgeAll) q = q.lt("created_at", cutoff);
 
-    const paths = (stale ?? []).map((o: { name: string }) => o.name).filter(Boolean);
-    if (paths.length === 0) {
-      return new Response(JSON.stringify({ deleted: 0, cutoff }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+      const { data: stale, error: queryErr } = await q;
+      if (queryErr) throw queryErr;
 
-    let deleted = 0;
-    for (let i = 0; i < paths.length; i += BATCH) {
-      const chunk = paths.slice(i, i + BATCH);
-      const { error: rmErr } = await supabase.storage.from("scan-videos").remove(chunk);
-      if (rmErr) {
-        console.error("storage remove error:", rmErr);
-        continue;
+      const paths = (stale ?? []).map((o: { name: string }) => o.name).filter(Boolean);
+      let deleted = 0;
+
+      for (let i = 0; i < paths.length; i += BATCH) {
+        const chunk = paths.slice(i, i + BATCH);
+        const { error: rmErr } = await supabase.storage.from(bucket).remove(chunk);
+        if (rmErr) {
+          console.error(`storage remove error (${bucket}):`, rmErr);
+          continue;
+        }
+        deleted += chunk.length;
+
+        if (bucket === "scan-videos") {
+          await supabase.from("scans").update({ raw_video_url: null }).in("raw_video_url", chunk);
+        } else if (bucket === "scan-pointclouds") {
+          await supabase.from("scans").update({ pointcloud_url: null }).in("pointcloud_url", chunk);
+        }
       }
-      deleted += chunk.length;
-
-      // Null out DB refs so signed-URL calls don't 404 silently
-      await supabase
-        .from("scans")
-        .update({ raw_video_url: null })
-        .in("raw_video_url", chunk);
+      result[bucket] = deleted;
     }
 
-    return new Response(JSON.stringify({ deleted, cutoff }), {
+    return new Response(JSON.stringify({ deleted: result, cutoff, purgeAll }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
