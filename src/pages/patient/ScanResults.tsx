@@ -512,20 +512,31 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => (
-          <button
-            key={mode}
-            onClick={() => setViewMode(mode)}
-            className={`flex-1 py-2 rounded-pill mono-label text-[10px] transition ${
-              viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {mode === "analysis" ? "ANALYSIS"
-              : mode === "photos" ? "PHOTOS"
-              : mode === "3d" ? "3D MAP"
-              : "3D PLUS"}
-          </button>
-        ))}
+        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => {
+          const ready =
+            (mode === "3d" && !!scan.pointcloud_url) ||
+            (mode === "3d-plus" && !!scan.splat_url);
+          return (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`flex-1 py-2 rounded-pill mono-label text-[10px] transition inline-flex items-center justify-center gap-1.5 ${
+                viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {ready && (
+                <span
+                  aria-label="ready"
+                  className="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse"
+                />
+              )}
+              {mode === "analysis" ? "ANALYSIS"
+                : mode === "photos" ? "PHOTOS"
+                : mode === "3d" ? "3D MAP"
+                : "3D PLUS"}
+            </button>
+          );
+        })}
       </div>
 
       {viewMode === "photos" && (
