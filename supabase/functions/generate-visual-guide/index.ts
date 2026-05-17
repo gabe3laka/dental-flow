@@ -110,8 +110,6 @@ serve(async (req) => {
           world_prompt: {
             type: "image",
             image_prompt: { source: "uri", uri: signed.signedUrl },
-            text_prompt:
-              "Photoreal intra-oral dental cavity reference board — six standardized clinical views, soft diffuse lighting, neutral white balance.",
           },
         }),
       });
