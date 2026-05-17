@@ -125,6 +125,7 @@ serve(async (req) => {
         headers: {
           "content-type": "application/json",
           authorization: `Bearer ${WORLDLABS_API_KEY}`,
+          "x-api-key": WORLDLABS_API_KEY,
         },
         body: JSON.stringify({
           mode: mode ?? "dental_visual_guide",
