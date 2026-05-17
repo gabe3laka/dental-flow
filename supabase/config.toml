@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.reconstruct-splat]
 verify_jwt = true
+
+[functions.purge-old-scan-videos]
+verify_jwt = false

@@ -1,24 +1,76 @@
 ## Goal
-Stop the SuperSplat pipeline entirely so only the LingBot (point cloud) flow runs on new scans. Pure frontend dispatch gate — no edge-function or schema changes.
 
-## Change
+1. One-time: empty the `scan-videos` and `scan-pointclouds` buckets (329 + 5 objects, ~1.18 GB).
+2. Ongoing: auto-delete every object in `scan-videos` 2 hours after upload. Keep `scan-pointclouds` permanent (that's the actual artifact).
 
-**File:** `src/pages/patient/ScanSubmission.tsx`
+## Approach
 
-1. Line 35: flip `const SPLAT_ENABLED = true;` → `const SPLAT_ENABLED = false;`
-2. Line 389: when `SPLAT_ENABLED` is false, write `splat_processing_status: null` on insert (already the behavior of the existing ternary — no edit needed once the flag flips).
-3. The existing `if (SPLAT_ENABLED) { … }` block at line 442 will naturally skip the `reconstruct-splat` invoke and log the "skipping" warning.
-4. Line 476 toast already reads `(LINGBOT_ENABLED || SPLAT_ENABLED)` — still true via lingbot, no edit needed.
+### Part 1 — One-time purge
 
-## Result
+Run via the Supabase insert tool (data operation, not schema):
 
-- New scans dispatch **only** `reconstruct-scan` (LingBot) + `analyze-scan-quality` + `analyze-scan-teeth`.
-- `scans.splat_processing_status` stays `NULL` on insert, so the 3D PLUS tab in `ScanResults` will sit in its idle/empty state instead of showing a "queued / processing" spinner.
-- No RunPod gsplat job is enqueued, no `SPLAT_API_URL` call is made.
-- LingBot flow and its green-dot readiness indicator on the 3D MAP tab are untouched.
+```sql
+-- Remove all objects in both buckets
+DELETE FROM storage.objects WHERE bucket_id = 'scan-videos';
+DELETE FROM storage.objects WHERE bucket_id = 'scan-pointclouds';
+```
 
-## Out of scope
-- Not deleting the `reconstruct-splat` edge function (kept for future re-enable + retry button in `SplatTabPanel`).
-- Not changing `SuperSplatEmbed`, `SplatTabPanel`, or the splat polling — they simply have nothing to render until a manual retry.
+Note: this also wipes the pointclouds for the 5 existing scans, so those scans' 3D MAP tab will go back to its empty state. Confirming this is intended before running.
 
-To re-enable later: flip the single constant back to `true`.
+Also null out the now-dangling DB references so the UI doesn't try to sign missing paths:
+
+```sql
+UPDATE public.scans
+SET raw_video_url = NULL,
+    pointcloud_url = NULL,
+    processing_status = 'failed',
+    processing_error = 'storage purged'
+WHERE raw_video_url IS NOT NULL OR pointcloud_url IS NOT NULL;
+```
+
+### Part 2 — Auto-delete `scan-videos` after 2 hours
+
+Two pieces:
+
+**A. New edge function `purge-old-scan-videos`** (`supabase/functions/purge-old-scan-videos/index.ts`)
+- Uses service role.
+- Queries `storage.objects` for `bucket_id = 'scan-videos'` where `created_at < now() - interval '2 hours'`.
+- Batches `supabase.storage.from('scan-videos').remove([...paths])` (chunks of 100).
+- For each deleted object, also `UPDATE scans SET raw_video_url = NULL WHERE raw_video_url = <path>` so the DB stays consistent. `pointcloud_url` is untouched.
+- Returns `{ deleted: N }`. Idempotent — safe to run repeatedly.
+- Registered in `supabase/config.toml` with `verify_jwt = false` (cron caller).
+
+**B. pg_cron schedule** — runs every 15 minutes (granularity is fine; the 2-hour window is the contract). Created via the **insert** tool (not migration) because it embeds the project URL + anon key:
+
+```sql
+SELECT cron.schedule(
+  'purge-old-scan-videos',
+  '*/15 * * * *',
+  $$
+  SELECT net.http_post(
+    url := 'https://qalegwgqtyleuaowvuje.supabase.co/functions/v1/purge-old-scan-videos',
+    headers := '{"Content-Type":"application/json","apikey":"<anon>"}'::jsonb,
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
+
+Requires `pg_cron` + `pg_net` extensions — enable via migration if not already on.
+
+### Part 3 — Frontend implications (no code changes needed)
+
+- `ScanResults.tsx` already renders the point cloud from `pointcloud_url` independently of `raw_video_url`, so deleting the source video after reconstruction doesn't break the 3D MAP tab.
+- Doctor's `ScanReview` / scan video playback: if anything still plays the raw video, it will 404 after 2 hours. Will grep for `raw_video_url` consumers during implementation and flag any that need a "video expired" empty state. (Out of scope to redesign those — just noting.)
+
+## Files touched
+
+- New: `supabase/functions/purge-old-scan-videos/index.ts`
+- Edit: `supabase/config.toml` (register function, `verify_jwt = false`)
+- Migration: enable `pg_cron`, `pg_net` if missing
+- Insert (data): purge SQL + cron schedule SQL
+
+## Open questions
+
+1. Confirm the existing 5 pointcloud files should be wiped too — once gone, those scans lose their 3D reconstruction permanently. Alternative: purge only `scan-videos` and leave `scan-pointclouds` intact.
+2. Confirm 2 hours is measured from **upload time** (`storage.objects.created_at`), not from `scans.reconstructed_at`. Upload-time is simpler and safer (no orphans if reconstruction never completes).
