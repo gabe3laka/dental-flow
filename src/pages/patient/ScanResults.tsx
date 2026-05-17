@@ -159,7 +159,7 @@ export default function ScanResults() {
       try {
         const { data } = await supabase
           .from("scans")
-          .select("ai_analysis, detection_tags, quality_score, processing_status, pointcloud_url")
+          .select("ai_analysis, detection_tags, quality_score, processing_status, pointcloud_url, splat_url")
           .eq("id", scanId)
           .single();
         if (!data) return;
@@ -182,6 +182,7 @@ export default function ScanResults() {
             quality_score: data.quality_score ?? prev.quality_score,
             processing_status: status ?? prev.processing_status,
             pointcloud_url: pointcloudUrl ?? prev.pointcloud_url,
+            splat_url: ((data as any).splat_url as string | null) ?? prev.splat_url,
           };
         });
 
