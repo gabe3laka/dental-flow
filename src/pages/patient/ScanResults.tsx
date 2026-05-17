@@ -118,6 +118,7 @@ export default function ScanResults() {
             pointcloud_url: (row.pointcloud_url as string | null) ?? null,
             processing_status: (row.processing_status as string | null) ?? null,
             scan_type: (row.scan_type as string | null) ?? (row.source as string | null) ?? null,
+            splat_url: (row.splat_url as string | null) ?? null,
           };
           setScan(scanData);
           // Start polling if AI analysis is missing OR 3D reconstruction
