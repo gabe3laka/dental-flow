@@ -8,15 +8,6 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
-import {
-  BOARD_CELLS,
-  composeBoard,
-  estimateSharpness,
-  qualityFor,
-  sampleVideoFrames,
-  type BoardCellKey,
-  type CellAssignment,
-} from "@/lib/scanning/referenceBoard";
 
 const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 34;
@@ -91,23 +82,16 @@ type InputSource = "live" | "upload_video";
 
 const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
-type PipelineChoice = { lingbot: boolean; splat: boolean; aiGuide: boolean };
-const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v1";
-const DEFAULT_PIPELINES: PipelineChoice = { lingbot: true, splat: false, aiGuide: false };
+type Pipeline = "lingbot" | "splat" | "aiGuide";
+const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v2";
+const DEFAULT_PIPELINE: Pipeline = "lingbot";
 
-function loadPipelinePref(): PipelineChoice {
+function loadPipelinePref(): Pipeline {
   try {
     const raw = localStorage.getItem(PIPELINE_PREF_KEY);
-    if (!raw) return DEFAULT_PIPELINES;
-    const parsed = JSON.parse(raw) as Partial<PipelineChoice>;
-    return {
-      lingbot: parsed.lingbot ?? DEFAULT_PIPELINES.lingbot,
-      splat: parsed.splat ?? DEFAULT_PIPELINES.splat,
-      aiGuide: parsed.aiGuide ?? DEFAULT_PIPELINES.aiGuide,
-    };
-  } catch {
-    return DEFAULT_PIPELINES;
-  }
+    if (raw === "lingbot" || raw === "splat" || raw === "aiGuide") return raw;
+  } catch { /* ignore */ }
+  return DEFAULT_PIPELINE;
 }
 
 export default function ScanSubmission() {
@@ -117,17 +101,47 @@ export default function ScanSubmission() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
   const [inputSource, setInputSource] = useState<InputSource>("live");
-  const [pipelines, setPipelines] = useState<PipelineChoice>(() => loadPipelinePref());
+  const [pipeline, setPipeline] = useState<Pipeline>(() => loadPipelinePref());
+  const [creatingAiGuide, setCreatingAiGuide] = useState(false);
 
-  function togglePipeline(key: keyof PipelineChoice) {
-    setPipelines((prev) => {
-      // Ensure at least one stays selected
-      const next = { ...prev, [key]: !prev[key] };
-      if (!next.lingbot && !next.splat && !next.aiGuide) return prev;
-      try { localStorage.setItem(PIPELINE_PREF_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  function selectPipeline(key: Pipeline) {
+    setPipeline(key);
+    try { localStorage.setItem(PIPELINE_PREF_KEY, key); } catch { /* ignore */ }
   }
+
+  /** AI Guide path: create a draft scan row and route to its ScanResults
+   *  with the AI Guide tab pre-selected. The existing AiVisualGuidePanel
+   *  takes over from there (photo/video upload, board compose, dispatch). */
+  const startAiGuideFlow = useCallback(async () => {
+    if (!user) return;
+    setCreatingAiGuide(true);
+    try {
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!patient) throw new Error("Patient record not found");
+      const { data: scanRow, error } = await supabase
+        .from("scans")
+        .insert({
+          patient_id: patient.id,
+          status: "pending",
+          source: "ai_guide",
+          scan_type: scanType,
+          generation_status: "awaiting_reference_board",
+        } as never)
+        .select("id")
+        .single();
+      if (error || !scanRow?.id) throw error ?? new Error("Could not create scan");
+      navigate(`/patient/scans/${scanRow.id}/results?tab=ai-guide`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not start AI Guide";
+      logError(e, { operation: "ScanSubmission/startAiGuideFlow", userId: user?.id });
+      toast({ title: "Could not start AI Guide", description: msg, variant: "destructive" });
+      setCreatingAiGuide(false);
+    }
+  }, [user, scanType, navigate]);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -425,10 +439,10 @@ export default function ScanSubmission() {
           // LingBot-aware: only mark "queued" when LingBot is on. With LingBot
           // off no callback ever fires, so leave the status NULL — Progress.tsx
           // treats that as the legacy-scan branch instead of "BUILDING…" forever.
-          processing_status: (pipelines.lingbot && LINGBOT_ENABLED) ? "queued" : null,
+          processing_status: (pipeline === "lingbot" && LINGBOT_ENABLED) ? "queued" : null,
           // Splat-aware: same pattern. Independent of LINGBOT.
-          splat_processing_status: (pipelines.splat && SPLAT_ENABLED) ? "queued" : null,
-          generation_status: pipelines.aiGuide ? "generating_scene" : null,
+          splat_processing_status: (pipeline === "splat" && SPLAT_ENABLED) ? "queued" : null,
+          generation_status: null,
         } as never)
         .select("id")
         .single();
@@ -462,7 +476,7 @@ export default function ScanSubmission() {
             isUpload,
             pipelineScanType,
           });
-          if (pipelines.lingbot && LINGBOT_ENABLED) {
+          if (pipeline === "lingbot" && LINGBOT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-scan", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-scan", {
@@ -481,7 +495,7 @@ export default function ScanSubmission() {
         // 5b. Dispatch splat (gsplat + COLMAP) reconstruction job. Non-blocking,
         //     completely independent of lingbot — both can land terminal callbacks
         //     on the same scan; the callback routes by ?pipeline=splat.
-        if (pipelines.splat && SPLAT_ENABLED) {
+        if (pipeline === "splat" && SPLAT_ENABLED) {
           console.info("[scan-dispatch] invoking reconstruct-splat", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-splat", {
@@ -499,45 +513,9 @@ export default function ScanSubmission() {
           console.warn("[scan-dispatch] SPLAT_ENABLED is false — skipping reconstruct-splat. Set VITE_ENABLE_SPLAT=true in build env.");
         }
 
-        // 5c. AI Visual Guide (beta) — additive. Auto-compose a 6-cell reference
-        //     board from the source media, upload to scan-reference-boards under
-        //     the patient's folder, then dispatch generate-visual-guide.
-        if (pipelines.aiGuide && recordedBlob) {
-          try {
-            const file = recordedBlob instanceof File
-              ? recordedBlob
-              : new File([recordedBlob], `scan.${extFromMime(mimeRef.current)}`, { type: mimeRef.current });
-            const frames = await sampleVideoFrames(file, 6);
-            const assignments = BOARD_CELLS.reduce((acc, cell, idx) => {
-              const src = frames[idx] ?? null;
-              const score = src ? estimateSharpness(src) : 0;
-              acc[cell.key] = { key: cell.key, source: src, quality: qualityFor(score) };
-              return acc;
-            }, {} as Record<BoardCellKey, CellAssignment>);
-            const blob = await composeBoard(assignments);
-            const boardPath = `${patient.id}/${scanRow.id}/board-${Date.now()}.png`;
-            const { error: upErr } = await supabase.storage
-              .from("scan-reference-boards")
-              .upload(boardPath, blob, { contentType: "image/png", upsert: true });
-            if (upErr) throw upErr;
-            await supabase
-              .from("scans")
-              .update({ reference_board_url: boardPath } as never)
-              .eq("id", scanRow.id);
-            await supabase.functions.invoke("generate-visual-guide", {
-              body: {
-                scan_id: scanRow.id,
-                patient_id: patient.id,
-                reference_board_url: boardPath,
-                mode: "dental_visual_guide",
-              },
-            });
-            console.info("[scan-dispatch] generate-visual-guide dispatched", { scan_id: scanRow.id });
-          } catch (e) {
-            console.error("[scan-dispatch] AI Guide dispatch failed", e);
-            logError(e, { operation: "ScanSubmission/dispatchAiGuide", extra: { scanId: scanRow.id } });
-          }
-        }
+        // 5c. AI Guide path is no longer dispatched from this screen — see
+        //     startAiGuideFlow() above, which routes directly into the
+        //     AiVisualGuidePanel before any video capture happens.
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
@@ -554,9 +532,8 @@ export default function ScanSubmission() {
 
       setUploadPercent(100);
       const parts: string[] = [];
-      if (pipelines.lingbot && LINGBOT_ENABLED) parts.push("3D Map");
-      if (pipelines.splat && SPLAT_ENABLED) parts.push("3D Plus");
-      if (pipelines.aiGuide) parts.push("AI Guide");
+      if (pipeline === "lingbot" && LINGBOT_ENABLED) parts.push("3D Map");
+      if (pipeline === "splat" && SPLAT_ENABLED) parts.push("3D Plus");
       toast({
         title: "Scan uploaded!",
         description: parts.length ? `Building: ${parts.join(" · ")}…` : "Analyzing your scan…",
@@ -568,7 +545,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, inputSource, pipelines, navigate, uploadFileWithProgress]);
+  }, [user, recordedBlob, scanType, inputSource, pipeline, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
@@ -618,19 +595,19 @@ export default function ScanSubmission() {
               { key: "splat" as const,   label: "3D PLUS",     desc: "Photoreal gaussian splat (slower)" },
               { key: "aiGuide" as const, label: "AI GUIDE β",  desc: "Generative visual guide — not a medical scan" },
             ].map((opt) => {
-              const selected = pipelines[opt.key];
+              const selected = pipeline === opt.key;
               return (
                 <button
                   key={opt.key}
-                  onClick={() => togglePipeline(opt.key)}
+                  onClick={() => selectPipeline(opt.key)}
                   className={`rounded-card border px-3 py-3 text-left transition flex items-start gap-3 ${
                     selected ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/40"
                   }`}
                 >
-                  <span className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center text-[10px] ${
+                  <span className={`mt-0.5 w-4 h-4 rounded-full border flex items-center justify-center text-[10px] ${
                     selected ? "bg-primary border-primary text-primary-foreground" : "border-border bg-background"
                   }`}>
-                    {selected ? "✓" : ""}
+                    {selected ? "●" : ""}
                   </span>
                   <span className="flex-1">
                     <span className="mono-label text-[10px] text-primary block">{opt.label}</span>
@@ -641,41 +618,66 @@ export default function ScanSubmission() {
             })}
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 font-mono">
-            Pick one or more. Same scan video powers each pipeline.
+            {pipeline === "aiGuide"
+              ? "AI Guide uses its own photo + video uploader on the next step."
+              : "Capture once — the scan video powers the selected pipeline."}
           </p>
         </div>
 
-        {/* Input picker */}
-        <div className="w-full mb-4 grid grid-cols-1 gap-2">
-          <button
-            onClick={() => { setInputSource("live"); setPhase("recording"); }}
-            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
-          >
-            <Camera className="w-4 h-4 text-primary" />
-            <span className="flex-1">
-              <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
-              <span className="text-xs text-foreground mt-0.5 block">
-                Record a {TARGET_DURATION_SEC}s scan with your phone camera
+        {/* Input picker — only for video-based pipelines. AI Guide branches off
+            into its own panel via startAiGuideFlow(). */}
+        {pipeline === "aiGuide" ? (
+          <div className="w-full mb-4">
+            <button
+              onClick={startAiGuideFlow}
+              disabled={creatingAiGuide}
+              className="w-full rounded-card border border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center justify-center gap-2 text-sm font-medium transition disabled:opacity-60"
+            >
+              {creatingAiGuide ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Opening AI Guide…
+                </>
+              ) : (
+                <>Continue to AI Guide →</>
+              )}
+            </button>
+            <p className="text-[10px] text-muted-foreground mt-2 font-mono text-center">
+              You'll upload mouth photos or a short clip on the next screen.
+            </p>
+          </div>
+        ) : (
+          <div className="w-full mb-4 grid grid-cols-1 gap-2">
+            <button
+              onClick={() => { setInputSource("live"); setPhase("recording"); }}
+              className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+            >
+              <Camera className="w-4 h-4 text-primary" />
+              <span className="flex-1">
+                <span className="mono-label text-[10px] text-primary block">LIVE CAMERA</span>
+                <span className="text-xs text-foreground mt-0.5 block">
+                  Record a {TARGET_DURATION_SEC}s scan with your phone camera
+                </span>
               </span>
-            </span>
-          </button>
-          <button
-            onClick={() => {
-              setInputSource("upload_video");
-              setUploadFileError(null);
-              setPhase("uploading_file");
-            }}
-            className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
-          >
-            <Video className="w-4 h-4 text-primary" />
-            <span className="flex-1">
-              <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
-              <span className="text-xs text-foreground mt-0.5 block">
-                Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+            </button>
+            <button
+              onClick={() => {
+                setInputSource("upload_video");
+                setUploadFileError(null);
+                setPhase("uploading_file");
+              }}
+              className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+            >
+              <Video className="w-4 h-4 text-primary" />
+              <span className="flex-1">
+                <span className="mono-label text-[10px] text-primary block">UPLOAD VIDEO</span>
+                <span className="text-xs text-foreground mt-0.5 block">
+                  Pick a short clip ({UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC}s) from your device
+                </span>
               </span>
-            </span>
-          </button>
-        </div>
+            </button>
+          </div>
+        )}
 
         <button
           onClick={() => navigate(-1)}

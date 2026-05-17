@@ -1,76 +1,58 @@
-# Two fixes: AI Guide upload error + unified scan capture flow
+# Restructure scan submission flow
 
-## 1. Fix: "new row violates row-level security policy"
+## Goal
+Make pipeline choice the FIRST decision (single-select, not multi). Then branch the rest of the flow based on which pipeline was picked:
 
-**Root cause:** The migration for `scan-reference-boards` only created an INSERT policy for `service_role`. But `AiVisualGuidePanel.buildAndDispatch()` uploads the composed board PNG from the **browser** using the patient's JWT — so the insert is blocked.
+- **3D Map** or **3D Plus** → keep the existing Live Camera / Upload Video picker and the whole record / review / upload flow.
+- **AI Guide (β)** → skip the video flow entirely and drop the user into the AI Guide's own photo/video upload UI (the one currently living in `AiVisualGuidePanel` on the scan results page).
 
-**Fix:** Add a new migration that lets authenticated patients INSERT/UPDATE into `scan-reference-boards` (and to be safe, the other two new buckets) *but only* under their own patient-id folder — mirroring the pattern used elsewhere via `get_patient_id_for_user(auth.uid())`.
-
-```text
-CREATE POLICY "Patients write own scan-reference-boards"
-  ON storage.objects FOR INSERT
-  WITH CHECK (
-    bucket_id = 'scan-reference-boards'
-    AND (storage.foldername(name))[1] = get_patient_id_for_user(auth.uid())::text
-  );
--- + matching UPDATE policy (for upsert:true), same predicate.
-```
-
-Doctors/admins keep read-only access via existing SELECT policy. No frontend code change needed for the bug itself.
-
-## 2. UX: pick the pipeline at capture time
-
-Currently, tapping the blue camera icon → ScanSubmission → always runs LingBot + Splat. AI Guide is a separate panel reached only after the scan exists. That's confusing.
-
-**New flow:**
+## UX flow (patient)
 
 ```text
-[ blue camera button ]
-        ↓
-  ┌──────────────────────────┐
-  │  Choose capture method   │
-  │  • Record video          │
-  │  • Upload video / photos │
-  └──────────────────────────┘
-        ↓
-  ┌──────────────────────────┐
-  │  What do you want?       │
-  │  ◉ 3D Map     (LingBot)  │
-  │  ◉ 3D Plus    (Splat)    │
-  │  ◉ AI Guide   (beta)     │
-  │  ☐ also generate others  │
-  └──────────────────────────┘
-        ↓
-  capture / upload → submit
+[Intro screen]
+  DISCLAIMER
+  CAPTURE DEVICE  (Scope / Wand)
+  WHAT TO BUILD   (single radio: 3D Map | 3D Plus | AI Guide β)
+  [Continue →]
+
+  ├── 3D Map / 3D Plus selected
+  │     → existing picker: LIVE CAMERA  /  UPLOAD VIDEO
+  │     → record or upload → review → submit → ScanResults
+  │
+  └── AI Guide β selected
+        → create a lightweight draft `scans` row (scan_type, patient_id,
+          processing_status=null, splat_processing_status=null,
+          generation_status='awaiting_reference_board')
+        → navigate to /patient/scans/:id?tab=ai-guide
+        → ScanResults auto-selects AI GUIDE tab, AiVisualGuidePanel
+          handles photos+video upload, board composition, dispatch
+          (this is the panel the user already approved)
 ```
 
-### Frontend changes (ScanSubmission.tsx only)
+## Why this shape
 
-- Add a new state `pipelines: { lingbot: boolean; splat: boolean; aiGuide: boolean }` rendered as a 3-card chooser shown right after the source choice (record vs upload) and before capture begins. Default = whatever the patient picked last (localStorage `lastPipelineChoice`), falling back to `{ lingbot: true, splat: true, aiGuide: false }` so today's behavior is the default.
-- AI Guide option is enabled for *both* video and photo uploads (the existing `referenceBoard.ts` already handles `sampleVideoFrames`).
-- In `handleSubmit`, gate the existing dispatch lines:
-  - `processing_status: pipelines.lingbot && LINGBOT_ENABLED ? "queued" : null`
-  - `splat_processing_status: pipelines.splat && SPLAT_ENABLED ? "queued" : null`
-  - Only invoke `reconstruct-scan` / `reconstruct-splat` if their flag is on.
-- If `pipelines.aiGuide`, after the scans-row insert auto-compose a reference board from the uploaded frames (video → `sampleVideoFrames`, photos → direct), upload it to `scan-reference-boards/{patient_id}/{scan_id}/board.png`, set `generation_status='reference_board_created'`, and invoke `generate-visual-guide`. This re-uses everything already in `src/lib/scanning/referenceBoard.ts`.
-- On the results page, auto-select the tab matching the user's primary pick.
+- The two yellow options (Live Camera + Upload Video) only make sense for pipelines that consume a single continuous scan video. AI Guide composes a 2×3 board from arbitrary photos / sampled frames, which is a different mental model and already has its own purpose-built UI.
+- One pipeline per submission also removes the confusing "pick one or more" copy from the screenshot.
+- No new backend, no new edge function, no schema change — we reuse the existing `AiVisualGuidePanel`, `generate-visual-guide`, `scan-reference-boards` bucket, and `generation_status` column.
 
-### What does NOT change
+## Files to change (frontend only)
 
-- No edits to `SplatTabPanel`, `SuperSplatEmbed`, `reconstruct-scan`, `reconstruct-splat`, `reconstruct-scan-callback`, `generate-visual-guide`, `visual-guide-poll`, or the LingBot/cron paths.
-- No DB schema changes beyond the storage policy fix above.
-- AiVisualGuidePanel still works exactly as today for scans that didn't pre-select AI Guide.
+### `src/pages/patient/ScanSubmission.tsx`
+- Replace `PipelineChoice` multi-checkbox with single-select state: `pipeline: 'lingbot' | 'splat' | 'aiGuide'` (persisted in `localStorage` under the existing key).
+- Update the WHAT TO BUILD card group to render as a radio group (one selected at a time), remove the "Pick one or more…" helper, replace with "Same scan video powers both 3D options" only when a 3D option is highlighted.
+- Add a `Continue` button on the intro screen (replaces auto-advance) that:
+  - If `pipeline === 'aiGuide'`: insert a draft `scans` row via the supabase client (patient_id from `get_patient_id_for_user`, `scan_type`, `generation_status='awaiting_reference_board'`), then `navigate('/patient/scans/' + id + '?tab=ai-guide')`. On insert error, toast and stay.
+  - Else: advance to the existing `picker` phase (Live Camera / Upload Video) exactly as today.
+- In `handleSubmit`, drop the `pipelines.aiGuide` branch and the inline `composeBoard` / `generate-visual-guide` dispatch (no longer reachable from this path). Keep the LingBot / Splat dispatch gating, but driven by `pipeline === 'lingbot'` / `pipeline === 'splat'`.
+- Remove now-unused imports from `referenceBoard` (`composeBoard`, `BOARD_CELLS`, `estimateSharpness`, `qualityFor`, `sampleVideoFrames`, `CellAssignment`, `BoardCellKey`) — they live in `AiVisualGuidePanel` already.
 
-## Technical summary
+### `src/pages/patient/ScanResults.tsx`
+- Read `?tab=ai-guide` (or similar) from `useSearchParams` on mount and set the active tab to AI Guide when present, so the redirect lands the patient straight on the panel.
 
-- 1 new migration: `scan-reference-boards` patient-folder INSERT + UPDATE policies (and the same for `generated-scenes` / `generated-assets` only if we ever want client writes — for now, scope to the bucket actually written from the browser).
-- `ScanSubmission.tsx`: add `PipelinePicker` sub-component, new state, conditional dispatch, optional inline AI-Guide board-build call.
-- `ScanResults.tsx`: read `?tab=` query param (or first-completed pipeline) to choose default tab.
-- No new secrets, no new edge functions.
+## Files NOT changed
+- `AiVisualGuidePanel.tsx`, `referenceBoard.ts`, `SplatTabPanel.tsx`, `SuperSplatEmbed`.
+- `reconstruct-scan`, `reconstruct-splat`, `generate-visual-guide`, `visual-guide-poll`.
+- Storage buckets, RLS policies, DB schema.
 
 ## Open question
-
-For uploaded **single-video** AI Guide builds, the user can't tag which frame is LEFT/FRONT/RIGHT/etc. We have two options — please pick one before I implement:
-
-- **A. Auto-tag:** sample 6 evenly-spaced frames and assign them to the 6 cells in order. Fast, zero UI, but tags may be wrong.
-- **B. Tag step:** after upload, show the existing reference-board editor so the patient can drag frames into cells before dispatch. One extra screen, better quality.
+Creating the draft `scans` row for AI Guide requires inserting with only `patient_id` + `scan_type` + `generation_status`. Existing scan inserts on this page always also set `raw_video_url` and a few NOT-NULL-ish fields. I'll need to verify the `scans` table column nullability before writing the insert (quick `supabase--read_query` at implementation time). If a column is NOT NULL with no default, the alternative is to keep the user on `ScanSubmission` and mount `AiVisualGuidePanel` inline with a temporary in-memory id, deferring the row insert to the panel's dispatch step. I'll choose between these two during implementation based on what the schema allows — both keep the UX identical.
