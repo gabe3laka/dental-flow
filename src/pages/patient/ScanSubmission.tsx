@@ -609,6 +609,42 @@ export default function ScanSubmission() {
           </div>
         </div>
 
+        {/* Output picker — choose what to build from this scan */}
+        <div className="w-full mb-6">
+          <span className="mono-label text-muted-foreground block mb-2">WHAT TO BUILD</span>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              { key: "lingbot" as const, label: "3D MAP",      desc: "Point cloud of your teeth (LingBot)" },
+              { key: "splat" as const,   label: "3D PLUS",     desc: "Photoreal gaussian splat (slower)" },
+              { key: "aiGuide" as const, label: "AI GUIDE β",  desc: "Generative visual guide — not a medical scan" },
+            ].map((opt) => {
+              const selected = pipelines[opt.key];
+              return (
+                <button
+                  key={opt.key}
+                  onClick={() => togglePipeline(opt.key)}
+                  className={`rounded-card border px-3 py-3 text-left transition flex items-start gap-3 ${
+                    selected ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`mt-0.5 w-4 h-4 rounded-sm border flex items-center justify-center text-[10px] ${
+                    selected ? "bg-primary border-primary text-primary-foreground" : "border-border bg-background"
+                  }`}>
+                    {selected ? "✓" : ""}
+                  </span>
+                  <span className="flex-1">
+                    <span className="mono-label text-[10px] text-primary block">{opt.label}</span>
+                    <span className="text-xs text-foreground mt-0.5 block">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2 font-mono">
+            Pick one or more. Same scan video powers each pipeline.
+          </p>
+        </div>
+
         {/* Input picker */}
         <div className="w-full mb-4 grid grid-cols-1 gap-2">
           <button
