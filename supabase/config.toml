@@ -38,3 +38,9 @@ verify_jwt = true
 
 [functions.purge-old-scan-videos]
 verify_jwt = false
+
+[functions.generate-visual-guide]
+verify_jwt = true
+
+[functions.visual-guide-poll]
+verify_jwt = false

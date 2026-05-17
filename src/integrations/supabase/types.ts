@@ -641,6 +641,15 @@ export type Database = {
           created_at: string
           detection_tags: Json | null
           doctor_review_id: string | null
+          generation_engine: string | null
+          generation_error: string | null
+          generation_job_id: string | null
+          generation_started_at: string | null
+          generation_status: string | null
+          generative_assets: Json | null
+          generative_glb_url: string | null
+          generative_saved_to_record: boolean | null
+          generative_scene_url: string | null
           id: string
           lingbot_metrics: Json | null
           patient_id: string
@@ -651,6 +660,7 @@ export type Database = {
           quality_score: number | null
           raw_video_url: string | null
           reconstructed_at: string | null
+          reference_board_url: string | null
           runpod_job_id: string | null
           runpod_splat_job_id: string | null
           scan_type: string | null
@@ -673,6 +683,15 @@ export type Database = {
           created_at?: string
           detection_tags?: Json | null
           doctor_review_id?: string | null
+          generation_engine?: string | null
+          generation_error?: string | null
+          generation_job_id?: string | null
+          generation_started_at?: string | null
+          generation_status?: string | null
+          generative_assets?: Json | null
+          generative_glb_url?: string | null
+          generative_saved_to_record?: boolean | null
+          generative_scene_url?: string | null
           id?: string
           lingbot_metrics?: Json | null
           patient_id: string
@@ -683,6 +702,7 @@ export type Database = {
           quality_score?: number | null
           raw_video_url?: string | null
           reconstructed_at?: string | null
+          reference_board_url?: string | null
           runpod_job_id?: string | null
           runpod_splat_job_id?: string | null
           scan_type?: string | null
@@ -705,6 +725,15 @@ export type Database = {
           created_at?: string
           detection_tags?: Json | null
           doctor_review_id?: string | null
+          generation_engine?: string | null
+          generation_error?: string | null
+          generation_job_id?: string | null
+          generation_started_at?: string | null
+          generation_status?: string | null
+          generative_assets?: Json | null
+          generative_glb_url?: string | null
+          generative_saved_to_record?: boolean | null
+          generative_scene_url?: string | null
           id?: string
           lingbot_metrics?: Json | null
           patient_id?: string
@@ -715,6 +744,7 @@ export type Database = {
           quality_score?: number | null
           raw_video_url?: string | null
           reconstructed_at?: string | null
+          reference_board_url?: string | null
           runpod_job_id?: string | null
           runpod_splat_job_id?: string | null
           scan_type?: string | null
