@@ -26,14 +26,13 @@ const UPLOAD_ALLOWED_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
 // skips the `reconstruct-scan` Edge Function invocation and stores the row
 // with processing_status=null instead of "queued" so the UI doesn't sit on
 // "BUILDING…" forever. Flip to "true" in build env to re-enable.
-const LINGBOT_ENABLED = import.meta.env.VITE_ENABLE_LINGBOT === "true";
-
-// Build-time feature flag for the splat (gsplat + COLMAP) pipeline.
-// Default: OFF. Enable by setting VITE_ENABLE_SPLAT="true" in the build env.
-// Independent of LINGBOT — both can be on, either alone, or neither.
-// When SPLAT_ENABLED is true: dispatch to reconstruct-splat is fired in parallel
-// with (and independent of) the lingbot dispatch.
-const SPLAT_ENABLED = import.meta.env.VITE_ENABLE_SPLAT === "true";
+// Pipeline gates are now SERVER-SIDE. The client always invokes both edge
+// functions; each edge function independently no-ops if its required secrets
+// (LINGBOT_API_URL / SPLAT_API_URL + LINGBOT_API_TOKEN) are missing. This
+// avoids a Vite rebuild every time we want to flip a pipeline on/off — just
+// add or remove the relevant Supabase secret.
+const LINGBOT_ENABLED = true;
+const SPLAT_ENABLED = true;
 
 const STAGE_GUIDANCE = [
   { upTo: 6,  text: "Open wide — show your upper arch" },
