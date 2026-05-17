@@ -28,6 +28,7 @@ interface ScanData {
   pointcloud_url: string | null;
   processing_status: string | null;
   scan_type: string | null;
+  splat_url: string | null;
 }
 
 /** Map AI analysis teeth array to toothData for 3D visualization */
