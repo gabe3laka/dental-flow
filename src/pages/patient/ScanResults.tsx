@@ -28,6 +28,7 @@ interface ScanData {
   pointcloud_url: string | null;
   processing_status: string | null;
   scan_type: string | null;
+  splat_url: string | null;
 }
 
 /** Map AI analysis teeth array to toothData for 3D visualization */
@@ -117,6 +118,7 @@ export default function ScanResults() {
             pointcloud_url: (row.pointcloud_url as string | null) ?? null,
             processing_status: (row.processing_status as string | null) ?? null,
             scan_type: (row.scan_type as string | null) ?? (row.source as string | null) ?? null,
+            splat_url: (row.splat_url as string | null) ?? null,
           };
           setScan(scanData);
           // Start polling if AI analysis is missing OR 3D reconstruction
@@ -157,7 +159,7 @@ export default function ScanResults() {
       try {
         const { data } = await supabase
           .from("scans")
-          .select("ai_analysis, detection_tags, quality_score, processing_status, pointcloud_url")
+          .select("ai_analysis, detection_tags, quality_score, processing_status, pointcloud_url, splat_url")
           .eq("id", scanId)
           .single();
         if (!data) return;
@@ -180,6 +182,7 @@ export default function ScanResults() {
             quality_score: data.quality_score ?? prev.quality_score,
             processing_status: status ?? prev.processing_status,
             pointcloud_url: pointcloudUrl ?? prev.pointcloud_url,
+            splat_url: ((data as any).splat_url as string | null) ?? prev.splat_url,
           };
         });
 
@@ -509,20 +512,31 @@ export default function ScanResults() {
 
       {/* View Toggle */}
       <div className="flex gap-1.5 mb-4">
-        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => (
-          <button
-            key={mode}
-            onClick={() => setViewMode(mode)}
-            className={`flex-1 py-2 rounded-pill mono-label text-[10px] transition ${
-              viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {mode === "analysis" ? "ANALYSIS"
-              : mode === "photos" ? "PHOTOS"
-              : mode === "3d" ? "3D MAP"
-              : "3D PLUS"}
-          </button>
-        ))}
+        {(["analysis", "photos", "3d", "3d-plus"] as const).map((mode) => {
+          const ready =
+            (mode === "3d" && !!scan.pointcloud_url) ||
+            (mode === "3d-plus" && !!scan.splat_url);
+          return (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={`flex-1 py-2 rounded-pill mono-label text-[10px] transition inline-flex items-center justify-center gap-1.5 ${
+                viewMode === mode ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {ready && (
+                <span
+                  aria-label="ready"
+                  className="w-1.5 h-1.5 rounded-full bg-status-success animate-pulse"
+                />
+              )}
+              {mode === "analysis" ? "ANALYSIS"
+                : mode === "photos" ? "PHOTOS"
+                : mode === "3d" ? "3D MAP"
+                : "3D PLUS"}
+            </button>
+          );
+        })}
       </div>
 
       {viewMode === "photos" && (
