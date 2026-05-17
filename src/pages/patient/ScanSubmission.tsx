@@ -8,15 +8,6 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
-import {
-  BOARD_CELLS,
-  composeBoard,
-  estimateSharpness,
-  qualityFor,
-  sampleVideoFrames,
-  type BoardCellKey,
-  type CellAssignment,
-} from "@/lib/scanning/referenceBoard";
 
 const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 34;
@@ -91,23 +82,16 @@ type InputSource = "live" | "upload_video";
 
 const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
-type PipelineChoice = { lingbot: boolean; splat: boolean; aiGuide: boolean };
-const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v1";
-const DEFAULT_PIPELINES: PipelineChoice = { lingbot: true, splat: false, aiGuide: false };
+type Pipeline = "lingbot" | "splat" | "aiGuide";
+const PIPELINE_PREF_KEY = "arcline.lastPipelineChoice.v2";
+const DEFAULT_PIPELINE: Pipeline = "lingbot";
 
-function loadPipelinePref(): PipelineChoice {
+function loadPipelinePref(): Pipeline {
   try {
     const raw = localStorage.getItem(PIPELINE_PREF_KEY);
-    if (!raw) return DEFAULT_PIPELINES;
-    const parsed = JSON.parse(raw) as Partial<PipelineChoice>;
-    return {
-      lingbot: parsed.lingbot ?? DEFAULT_PIPELINES.lingbot,
-      splat: parsed.splat ?? DEFAULT_PIPELINES.splat,
-      aiGuide: parsed.aiGuide ?? DEFAULT_PIPELINES.aiGuide,
-    };
-  } catch {
-    return DEFAULT_PIPELINES;
-  }
+    if (raw === "lingbot" || raw === "splat" || raw === "aiGuide") return raw;
+  } catch { /* ignore */ }
+  return DEFAULT_PIPELINE;
 }
 
 export default function ScanSubmission() {
@@ -117,17 +101,47 @@ export default function ScanSubmission() {
   const [phase, setPhase] = useState<Phase>("intro");
   const [scanType, setScanType] = useState<ScanType>("scope");
   const [inputSource, setInputSource] = useState<InputSource>("live");
-  const [pipelines, setPipelines] = useState<PipelineChoice>(() => loadPipelinePref());
+  const [pipeline, setPipeline] = useState<Pipeline>(() => loadPipelinePref());
+  const [creatingAiGuide, setCreatingAiGuide] = useState(false);
 
-  function togglePipeline(key: keyof PipelineChoice) {
-    setPipelines((prev) => {
-      // Ensure at least one stays selected
-      const next = { ...prev, [key]: !prev[key] };
-      if (!next.lingbot && !next.splat && !next.aiGuide) return prev;
-      try { localStorage.setItem(PIPELINE_PREF_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  function selectPipeline(key: Pipeline) {
+    setPipeline(key);
+    try { localStorage.setItem(PIPELINE_PREF_KEY, key); } catch { /* ignore */ }
   }
+
+  /** AI Guide path: create a draft scan row and route to its ScanResults
+   *  with the AI Guide tab pre-selected. The existing AiVisualGuidePanel
+   *  takes over from there (photo/video upload, board compose, dispatch). */
+  const startAiGuideFlow = useCallback(async () => {
+    if (!user) return;
+    setCreatingAiGuide(true);
+    try {
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!patient) throw new Error("Patient record not found");
+      const { data: scanRow, error } = await supabase
+        .from("scans")
+        .insert({
+          patient_id: patient.id,
+          status: "pending",
+          source: "ai_guide",
+          scan_type: scanType,
+          generation_status: "awaiting_reference_board",
+        } as never)
+        .select("id")
+        .single();
+      if (error || !scanRow?.id) throw error ?? new Error("Could not create scan");
+      navigate(`/patient/scans/${scanRow.id}/results?tab=ai-guide`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not start AI Guide";
+      logError(e, { operation: "ScanSubmission/startAiGuideFlow", userId: user?.id });
+      toast({ title: "Could not start AI Guide", description: msg, variant: "destructive" });
+      setCreatingAiGuide(false);
+    }
+  }, [user, scanType, navigate]);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
