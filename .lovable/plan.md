@@ -1,58 +1,56 @@
-# Restructure scan submission flow
-
 ## Goal
-Make pipeline choice the FIRST decision (single-select, not multi). Then branch the rest of the flow based on which pipeline was picked:
 
-- **3D Map** or **3D Plus** → keep the existing Live Camera / Upload Video picker and the whole record / review / upload flow.
-- **AI Guide (β)** → skip the video flow entirely and drop the user into the AI Guide's own photo/video upload UI (the one currently living in `AiVisualGuidePanel` on the scan results page).
+Wire the AI Visual Guide edge functions to the real World Labs Marble API. The current code guesses the auth header (`Authorization: Bearer`) and a generic endpoint, which is why we get `401 No API key found`. Marble uses a custom `WLT-Api-Key` header and a specific URL/payload/poll shape.
 
-## UX flow (patient)
+## Root cause
 
-```text
-[Intro screen]
-  DISCLAIMER
-  CAPTURE DEVICE  (Scope / Wand)
-  WHAT TO BUILD   (single radio: 3D Map | 3D Plus | AI Guide β)
-  [Continue →]
+- `generate-visual-guide` POSTs to `WORLDLABS_API_URL` with `Authorization: Bearer …` (and now an extra `x-api-key`). Marble ignores both — it only accepts `WLT-Api-Key`.
+- Payload shape is also wrong: Marble expects `{ display_name, model, world_prompt: { type, image_prompt: { source: "uri", uri } } }`, not a flat `{ mode, reference_board_url }`.
+- The polling endpoint and response fields in `visual-guide-poll` are guessed and don't match Marble either.
 
-  ├── 3D Map / 3D Plus selected
-  │     → existing picker: LIVE CAMERA  /  UPLOAD VIDEO
-  │     → record or upload → review → submit → ScanResults
-  │
-  └── AI Guide β selected
-        → create a lightweight draft `scans` row (scan_type, patient_id,
-          processing_status=null, splat_processing_status=null,
-          generation_status='awaiting_reference_board')
-        → navigate to /patient/scans/:id?tab=ai-guide
-        → ScanResults auto-selects AI GUIDE tab, AiVisualGuidePanel
-          handles photos+video upload, board composition, dispatch
-          (this is the panel the user already approved)
-```
+## Changes
 
-## Why this shape
+### `supabase/functions/generate-visual-guide/index.ts`
+- Replace `WORLDLABS_API_URL` usage with a hardcoded base `https://api.worldlabs.ai/marble/v1` (Marble's API host is stable; the env var was being misused as a full path). Keep `WORLDLABS_API_KEY` as the only required secret.
+- Send request to `POST {base}/worlds:generate` with header `WLT-Api-Key: <key>` (drop `Authorization` + `x-api-key`).
+- Body:
+  ```json
+  {
+    "display_name": "Dental Visual Guide <scan_id>",
+    "model": "marble-1.1",
+    "world_prompt": {
+      "type": "image",
+      "image_prompt": { "source": "uri", "uri": "<signed board url>" },
+      "text_prompt": "Dental intra-oral reference board…"
+    }
+  }
+  ```
+- Parse `operation_id` from the response and store it in `generation_job_id` (rename intent: this is Marble's operation id, not a generic job id — DB column name stays).
 
-- The two yellow options (Live Camera + Upload Video) only make sense for pipelines that consume a single continuous scan video. AI Guide composes a 2×3 board from arbitrary photos / sampled frames, which is a different mental model and already has its own purpose-built UI.
-- One pipeline per submission also removes the confusing "pick one or more" copy from the screenshot.
-- No new backend, no new edge function, no schema change — we reuse the existing `AiVisualGuidePanel`, `generate-visual-guide`, `scan-reference-boards` bucket, and `generation_status` column.
+### `supabase/functions/visual-guide-poll/index.ts`
+- Same hardcoded base + `WLT-Api-Key` header.
+- `GET {base}/operations/{operation_id}`.
+- Parse the response per Marble's shape:
+  - `done: false` → pending (no DB write).
+  - `done: true, error: null` → success. Pull asset URLs from `response.assets`:
+    - `response.assets.splats.spz_urls["500k"]` → download → upload to `generated-scenes/{patient_id}/{scan_id}/scene.spz`, save path in `generative_scene_url`.
+    - `response.assets.mesh.collider_mesh_url` → download → upload to `generated-assets/{patient_id}/{scan_id}/model.glb`, save path in `generative_glb_url`.
+    - Store the whole `response.assets` object in `generative_assets` (already a JSONB column).
+    - Set `generation_status = 'render_ready'`.
+  - `done: true, error: …` → `generation_status = 'failed'` with the error message.
 
-## Files to change (frontend only)
-
-### `src/pages/patient/ScanSubmission.tsx`
-- Replace `PipelineChoice` multi-checkbox with single-select state: `pipeline: 'lingbot' | 'splat' | 'aiGuide'` (persisted in `localStorage` under the existing key).
-- Update the WHAT TO BUILD card group to render as a radio group (one selected at a time), remove the "Pick one or more…" helper, replace with "Same scan video powers both 3D options" only when a 3D option is highlighted.
-- Add a `Continue` button on the intro screen (replaces auto-advance) that:
-  - If `pipeline === 'aiGuide'`: insert a draft `scans` row via the supabase client (patient_id from `get_patient_id_for_user`, `scan_type`, `generation_status='awaiting_reference_board'`), then `navigate('/patient/scans/' + id + '?tab=ai-guide')`. On insert error, toast and stay.
-  - Else: advance to the existing `picker` phase (Live Camera / Upload Video) exactly as today.
-- In `handleSubmit`, drop the `pipelines.aiGuide` branch and the inline `composeBoard` / `generate-visual-guide` dispatch (no longer reachable from this path). Keep the LingBot / Splat dispatch gating, but driven by `pipeline === 'lingbot'` / `pipeline === 'splat'`.
-- Remove now-unused imports from `referenceBoard` (`composeBoard`, `BOARD_CELLS`, `estimateSharpness`, `qualityFor`, `sampleVideoFrames`, `CellAssignment`, `BoardCellKey`) — they live in `AiVisualGuidePanel` already.
-
-### `src/pages/patient/ScanResults.tsx`
-- Read `?tab=ai-guide` (or similar) from `useSearchParams` on mount and set the active tab to AI Guide when present, so the redirect lands the patient straight on the panel.
+### `WORLDLABS_API_URL` secret
+No longer read by either function. Leave the secret in place (harmless), or the user can delete it later — no code change needed for the secret itself.
 
 ## Files NOT changed
-- `AiVisualGuidePanel.tsx`, `referenceBoard.ts`, `SplatTabPanel.tsx`, `SuperSplatEmbed`.
-- `reconstruct-scan`, `reconstruct-splat`, `generate-visual-guide`, `visual-guide-poll`.
-- Storage buckets, RLS policies, DB schema.
+- `AiVisualGuidePanel.tsx`, `ScanResults.tsx`, `ScanSubmission.tsx`, `referenceBoard.ts`.
+- DB schema, storage buckets, RLS policies.
+- All other edge functions.
+
+## Verification
+1. Deploy both functions.
+2. From the patient AI Guide panel, submit a reference board → `generate-visual-guide` should return 200 with a Marble `operation_id` in `generation_job_id`.
+3. Within ~5 min, the cron-driven `visual-guide-poll` should mark the scan `render_ready` and populate `generative_scene_url` / `generative_glb_url`. Tail Edge Function logs to confirm.
 
 ## Open question
-Creating the draft `scans` row for AI Guide requires inserting with only `patient_id` + `scan_type` + `generation_status`. Existing scan inserts on this page always also set `raw_video_url` and a few NOT-NULL-ish fields. I'll need to verify the `scans` table column nullability before writing the insert (quick `supabase--read_query` at implementation time). If a column is NOT NULL with no default, the alternative is to keep the user on `ScanSubmission` and mount `AiVisualGuidePanel` inline with a temporary in-memory id, deferring the row insert to the panel's dispatch step. I'll choose between these two during implementation based on what the schema allows — both keep the UX identical.
+The `text_prompt` for a dental intra-oral board is a guess; do you want a specific phrasing (e.g. "Photoreal intra-oral dental cavity, six standardized views, soft clinical lighting"), or should I just omit `text_prompt` so Marble auto-captions from the board image?

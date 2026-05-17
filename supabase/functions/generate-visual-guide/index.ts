@@ -1,24 +1,8 @@
-// Dispatches an async generative-3D job for the "AI Visual Guide (beta)" feature.
-// MIRRORS the auth model of reconstruct-splat:
-//   - Caller's JWT verified via anon-key client (RLS gates the scans select)
-//   - Service-role client only for trusted writes (status / job id)
-//
-// Contract:
-//   POST { scan_id, patient_id, reference_board_url, mode }
-//
-// External API call (World Labs):
-//   POST {WORLDLABS_API_URL}/<TODO: confirm path>
-//   Authorization: Bearer {WORLDLABS_API_KEY}
-//   Body: includes signed reference board URL
-//
-// Required env (server-side only):
-//   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
-//   WORLDLABS_API_KEY, WORLDLABS_API_URL
-//   FAL_API_KEY (optional, for FAL-side compositing)
-//
-// If WORLDLABS_API_KEY/URL is missing we set generation_status='failed' with a
-// clear message and return 200 — mirrors how reconstruct-splat warns and
-// skips dispatch (no exception thrown).
+// Dispatches a World Labs Marble world-generation job for the
+// "AI Visual Guide (beta)" feature. Uses the documented Marble API:
+//   POST https://api.worldlabs.ai/marble/v1/worlds:generate
+//   Header: WLT-Api-Key: <WORLDLABS_API_KEY>
+// See: https://docs.worldlabs.ai
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -28,6 +12,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+const MARBLE_BASE = "https://api.worldlabs.ai/marble/v1";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -52,7 +38,6 @@ serve(async (req) => {
     const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
     const WORLDLABS_API_KEY = Deno.env.get("WORLDLABS_API_KEY");
-    const WORLDLABS_API_URL = Deno.env.get("WORLDLABS_API_URL");
 
     if (!ANON_KEY) {
       console.error("SUPABASE_ANON_KEY missing — cannot enforce per-user auth");
@@ -76,19 +61,18 @@ serve(async (req) => {
 
     const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE);
 
-    // Graceful no-op if secrets are missing
-    if (!WORLDLABS_API_KEY || !WORLDLABS_API_URL) {
-      console.warn("WORLDLABS_API_KEY / WORLDLABS_API_URL not set — skipping dispatch");
+    if (!WORLDLABS_API_KEY) {
+      console.warn("WORLDLABS_API_KEY not set — skipping dispatch");
       await adminClient
         .from("scans")
         .update({
           generation_engine: "worldlabs_fal",
           generation_status: "failed",
-          generation_error: "WORLDLABS not configured",
+          generation_error: "WORLDLABS_API_KEY not configured",
           generation_started_at: new Date().toISOString(),
         })
         .eq("id", scan_id);
-      return jsonResponse({ scan_id, dispatched: false, reason: "WORLDLABS not configured" });
+      return jsonResponse({ scan_id, dispatched: false, reason: "WORLDLABS_API_KEY not configured" });
     }
 
     // Sign reference board for the external API
@@ -103,44 +87,40 @@ serve(async (req) => {
     await adminClient
       .from("scans")
       .update({
-        generation_engine: "worldlabs_fal",
+        generation_engine: "worldlabs_marble",
         generation_status: "generating_scene",
         generation_started_at: new Date().toISOString(),
         generation_error: null,
       })
       .eq("id", scan_id);
 
-    // ============================================================
-    // TODO: confirm against World Labs API docs (user-provided)
-    // The exact endpoint path and request/response shape live here.
-    // Until the user pastes the real contract we POST a generic
-    // body to {WORLDLABS_API_URL}; do NOT hardcode a guessed URL.
-    // ============================================================
     let dispatchOk = false;
-    let jobId: string | null = null;
+    let operationId: string | null = null;
     let dispatchErr: string | null = null;
     try {
-      const dispatch = await fetch(WORLDLABS_API_URL.replace(/\/$/, ""), {
+      const dispatch = await fetch(`${MARBLE_BASE}/worlds:generate`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${WORLDLABS_API_KEY}`,
-          "x-api-key": WORLDLABS_API_KEY,
+          "WLT-Api-Key": WORLDLABS_API_KEY,
         },
         body: JSON.stringify({
-          mode: mode ?? "dental_visual_guide",
-          scan_id,
-          patient_id,
-          reference_board_url: signed.signedUrl,
+          display_name: `Dental Visual Guide ${scan_id}`,
+          model: "marble-1.1",
+          world_prompt: {
+            type: "image",
+            image_prompt: { source: "uri", uri: signed.signedUrl },
+            text_prompt:
+              "Photoreal intra-oral dental cavity reference board — six standardized clinical views, soft diffuse lighting, neutral white balance.",
+          },
         }),
       });
       if (!dispatch.ok) {
         const text = await dispatch.text().catch(() => "");
-        dispatchErr = `World Labs HTTP ${dispatch.status}: ${text.slice(0, 500)}`;
+        dispatchErr = `Marble HTTP ${dispatch.status}: ${text.slice(0, 500)}`;
       } else {
         const result = await dispatch.json().catch(() => ({} as Record<string, unknown>));
-        // TODO: confirm against World Labs API docs — adjust id field name
-        jobId = (result?.id ?? result?.job_id ?? result?.request_id ?? null) as string | null;
+        operationId = (result?.operation_id ?? null) as string | null;
         dispatchOk = true;
       }
     } catch (e) {
@@ -158,14 +138,14 @@ serve(async (req) => {
       return jsonResponse({ error: dispatchErr ?? "Dispatch failed" }, { status: 502 });
     }
 
-    if (jobId) {
+    if (operationId) {
       await adminClient
         .from("scans")
-        .update({ generation_job_id: jobId })
+        .update({ generation_job_id: operationId })
         .eq("id", scan_id);
     }
 
-    return jsonResponse({ scan_id, dispatched: true, generation_job_id: jobId });
+    return jsonResponse({ scan_id, dispatched: true, generation_job_id: operationId });
   } catch (e) {
     console.error("generate-visual-guide error:", e);
     return jsonResponse(
