@@ -405,12 +405,24 @@ export default function ScanSubmission() {
       //    the GPU server processes). Gated behind VITE_ENABLE_LINGBOT so we
       //    can pause the GPU pipeline without removing the code path.
       if (scanRow?.id) {
+          // Dispatch breadcrumbs — surfaces in browser console so we can tell
+          // from the client side whether each pipeline branch actually ran.
+          console.info("[scan-dispatch] flags", {
+            scan_id: scanRow.id,
+            LINGBOT_ENABLED,
+            SPLAT_ENABLED,
+            isUpload,
+            pipelineScanType,
+          });
           if (LINGBOT_ENABLED) {
+          console.info("[scan-dispatch] invoking reconstruct-scan", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-scan", {
                 body: { scan_id: scanRow.id, scan_type: pipelineScanType },
             });
+            console.info("[scan-dispatch] reconstruct-scan invoke returned", { scan_id: scanRow.id });
           } catch (e) {
+            console.error("[scan-dispatch] reconstruct-scan threw", e);
             logError(e, {
               operation: "ScanSubmission/dispatchReconstruct",
               extra: { scanId: scanRow.id },
@@ -422,16 +434,21 @@ export default function ScanSubmission() {
         //     completely independent of lingbot — both can land terminal callbacks
         //     on the same scan; the callback routes by ?pipeline=splat.
         if (SPLAT_ENABLED) {
+          console.info("[scan-dispatch] invoking reconstruct-splat", { scan_id: scanRow.id });
           try {
             await supabase.functions.invoke("reconstruct-splat", {
               body: { scan_id: scanRow.id, scan_type: pipelineScanType },
             });
+            console.info("[scan-dispatch] reconstruct-splat invoke returned", { scan_id: scanRow.id });
           } catch (e) {
+            console.error("[scan-dispatch] reconstruct-splat threw", e);
             logError(e, {
               operation: "ScanSubmission/dispatchSplat",
               extra: { scanId: scanRow.id },
             });
           }
+        } else {
+          console.warn("[scan-dispatch] SPLAT_ENABLED is false — skipping reconstruct-splat. Set VITE_ENABLE_SPLAT=true in build env.");
         }
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
