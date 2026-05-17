@@ -1,30 +1,30 @@
-# Make Upload Video use the same splat pipeline as Live Camera
+# Add runtime VITE_ENABLE_SPLAT visibility log
 
-## Problem
+## Goal
+Print the resolved value of `import.meta.env.VITE_ENABLE_SPLAT` (and `VITE_ENABLE_LINGBOT` for parity) in the browser console at scan-submit time so we can instantly confirm whether the deployed Lovable build actually sees the flag — instead of inferring it from edge-function log silence.
 
-The "Upload Video" path in `ScanSubmission.tsx` looks like it dispatches to `reconstruct-splat`, but it diverges from the live-camera path in one place that breaks the worker contract:
+## Change
+Single file: `src/pages/patient/ScanSubmission.tsx`.
 
-- Live camera inserts `scans` with `scan_type = scanType` (`"scope"` or `"wand"`) and dispatches `reconstruct-splat` with that same value.
-- Upload Video overrides `effectiveScanType = "upload_video"` and writes `scan_type = "upload_video"` to the row. `reconstruct-splat` then reads `scan.scan_type` and forwards `"upload_video"` to the RunPod worker, which only knows `"scope" | "wand"`. The job either fails validation worker-side or runs with the wrong preset.
+At the top of the submit handler (before the existing `[scan-dispatch] flags` breadcrumb), add one `console.info` that logs the raw `import.meta.env` values exactly as the bundled build sees them:
 
-Everything else is already aligned: same bucket, same path layout (`scan-videos/${patient.id}/${ts}/raw_video.${ext}`), same SDK upload call, same `splat_processing_status = "queued"`, same `supabase.functions.invoke("reconstruct-splat", ...)`.
+```ts
+console.info("[scan-dispatch] build-env", {
+  VITE_ENABLE_SPLAT_raw: import.meta.env.VITE_ENABLE_SPLAT,
+  VITE_ENABLE_LINGBOT_raw: import.meta.env.VITE_ENABLE_LINGBOT,
+  SPLAT_ENABLED_resolved: import.meta.env.VITE_ENABLE_SPLAT === "true",
+  LINGBOT_ENABLED_resolved: import.meta.env.VITE_ENABLE_LINGBOT === "true",
+  MODE: import.meta.env.MODE,
+});
+```
 
-## Fix (frontend only, one file)
+Why both raw and resolved: the raw value reveals "undefined" (flag not set at build time) vs `"false"` (set but off) vs `"true"`, while the resolved booleans show what the dispatch branches will actually evaluate.
 
-`src/pages/patient/ScanSubmission.tsx`:
+## What this kills
+The most common silent failure mode: a build deployed without the env var set, where every dispatch branch quietly no-ops and edge logs stay empty. After this change, one glance at DevTools after submitting a scan tells you exactly which of these is true:
+- flag missing → set it in Lovable env vars and redeploy
+- flag set to non-"true" string → fix the value
+- flag is `"true"` but no edge invocation → upstream client error (the existing `[scan-dispatch] reconstruct-splat threw` breadcrumb catches that)
 
-1. Stop overriding `scan_type` for uploads. Persist `scan_type = scanType` (the user-selected `"scope" | "wand"`, defaulting to `"scope"`) for both live and upload rows so `reconstruct-splat` sends a valid type to the worker.
-2. Keep `source = "upload_video"` (and a separate `inputSource` flag if needed) so analytics/UI can still distinguish camera-roll uploads from live captures. The pipeline contract uses `scan_type`; the provenance uses `source`.
-3. Pass `scan_type: scanType` (not `"upload_video"`) in the `reconstruct-splat` invoke body for symmetry, even though the edge function already prefers the DB value.
-4. Leave `analyze-scan-teeth` still skipped for uploads (no client keyframes) — that's an analysis concern, not the splat pipeline.
-
-No edge-function, schema, RLS, or storage changes. Live-camera path stays byte-identical.
-
-## Verification
-
-- Upload an MP4/MOV from camera roll → row inserts with `scan_type='scope'`, `source='upload_video'`, `splat_processing_status='queued'`.
-- `reconstruct-splat` logs show the same payload shape as a live capture (`video_url`, `scan_id`, `patient_id`, `scan_type:'scope'`, `callback_url`).
-- Callback writes `splat_url`; results page renders the splat exactly like a live-recorded scan.
-- Live-camera flow unchanged.
-
-Awaiting approval.
+## Out of scope
+No edge function changes, no behavior changes, no UI changes. Pure observability.
