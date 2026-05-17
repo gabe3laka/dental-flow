@@ -207,7 +207,7 @@ export function AiVisualGuidePanel({
           toast({ title: `Unsupported file`, description: f.name, variant: "destructive" });
         }
       } catch (e) {
-        logError(e, { operation: "AiVisualGuide/handleFile", name: f.name });
+        logError(e, { operation: "AiVisualGuide/handleFile" });
       }
     }
     setAssets((prev) => assignSequentialCells([...prev, ...next]));
