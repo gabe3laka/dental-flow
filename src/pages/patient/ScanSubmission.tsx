@@ -17,7 +17,7 @@ const MAX_DURATION_SEC = 45;
 const UPLOAD_MIN_DURATION_SEC = 4;
 const UPLOAD_MAX_DURATION_SEC = 60;        // hard cap
 const UPLOAD_SOFT_WARN_DURATION_SEC = 40;  // soft warning above this
-const UPLOAD_MAX_BYTES = 150 * 1024 * 1024;
+const UPLOAD_MAX_BYTES = 200 * 1024 * 1024;
 const UPLOAD_ALLOWED_MIMES = ["video/mp4", "video/webm", "video/quicktime"];
 
 // Build-time feature flag. When false (default) the LingBot GPU pipeline is
@@ -242,7 +242,7 @@ export default function ScanSubmission() {
       return;
     }
     if (file.size > UPLOAD_MAX_BYTES) {
-      setUploadFileError("File too large. Max 150 MB.");
+      setUploadFileError("File too large. Max 200 MB.");
       return;
     }
 
@@ -554,7 +554,7 @@ export default function ScanSubmission() {
           Pick a short video
         </h1>
         <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
-          MP4, WebM, or MOV · {UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC} seconds · up to 150 MB.
+          MP4, WebM, or MOV · {UPLOAD_MIN_DURATION_SEC}–{UPLOAD_MAX_DURATION_SEC} seconds · up to 200 MB.
           For best results, slowly pan around your mouth.
         </p>
 
