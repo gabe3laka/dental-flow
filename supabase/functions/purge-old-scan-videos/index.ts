@@ -33,15 +33,10 @@ Deno.serve(async (req) => {
     const result: Record<string, number> = {};
 
     for (const bucket of buckets) {
-      let q = supabase
-        .schema("storage")
-        .from("objects")
-        .select("name")
-        .eq("bucket_id", bucket)
-        .limit(1000);
-      if (!purgeAll) q = q.lt("created_at", cutoff);
-
-      const { data: stale, error: queryErr } = await q;
+      const { data: stale, error: queryErr } = await supabase.rpc(
+        "list_stale_storage_objects",
+        { _bucket_id: bucket, _older_than: cutoff, _limit: 1000 },
+      );
       if (queryErr) throw queryErr;
 
       const paths = (stale ?? []).map((o: { name: string }) => o.name).filter(Boolean);
