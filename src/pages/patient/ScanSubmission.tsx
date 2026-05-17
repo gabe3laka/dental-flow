@@ -553,9 +553,13 @@ export default function ScanSubmission() {
       }
 
       setUploadPercent(100);
+      const parts: string[] = [];
+      if (pipelines.lingbot && LINGBOT_ENABLED) parts.push("3D Map");
+      if (pipelines.splat && SPLAT_ENABLED) parts.push("3D Plus");
+      if (pipelines.aiGuide) parts.push("AI Guide");
       toast({
         title: "Scan uploaded!",
-        description: (LINGBOT_ENABLED || SPLAT_ENABLED) ? "Building your 3D map…" : "Analyzing your scan…",
+        description: parts.length ? `Building: ${parts.join(" · ")}…` : "Analyzing your scan…",
       });
       navigate(`/patient/scans/${scanRow?.id}/results`);
     } catch (e) {
@@ -564,7 +568,7 @@ export default function ScanSubmission() {
       toast({ title: "Submission failed", description: msg, variant: "destructive" });
       setPhase("reviewing");
     }
-  }, [user, recordedBlob, scanType, inputSource, navigate, uploadFileWithProgress]);
+  }, [user, recordedBlob, scanType, inputSource, pipelines, navigate, uploadFileWithProgress]);
 
   /* ────────────────────────────── INTRO ────────────────────────────── */
   if (phase === "intro") {
