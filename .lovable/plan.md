@@ -1,30 +1,24 @@
-# Add runtime VITE_ENABLE_SPLAT visibility log
-
 ## Goal
-Print the resolved value of `import.meta.env.VITE_ENABLE_SPLAT` (and `VITE_ENABLE_LINGBOT` for parity) in the browser console at scan-submit time so we can instantly confirm whether the deployed Lovable build actually sees the flag — instead of inferring it from edge-function log silence.
+Stop the SuperSplat pipeline entirely so only the LingBot (point cloud) flow runs on new scans. Pure frontend dispatch gate — no edge-function or schema changes.
 
 ## Change
-Single file: `src/pages/patient/ScanSubmission.tsx`.
 
-At the top of the submit handler (before the existing `[scan-dispatch] flags` breadcrumb), add one `console.info` that logs the raw `import.meta.env` values exactly as the bundled build sees them:
+**File:** `src/pages/patient/ScanSubmission.tsx`
 
-```ts
-console.info("[scan-dispatch] build-env", {
-  VITE_ENABLE_SPLAT_raw: import.meta.env.VITE_ENABLE_SPLAT,
-  VITE_ENABLE_LINGBOT_raw: import.meta.env.VITE_ENABLE_LINGBOT,
-  SPLAT_ENABLED_resolved: import.meta.env.VITE_ENABLE_SPLAT === "true",
-  LINGBOT_ENABLED_resolved: import.meta.env.VITE_ENABLE_LINGBOT === "true",
-  MODE: import.meta.env.MODE,
-});
-```
+1. Line 35: flip `const SPLAT_ENABLED = true;` → `const SPLAT_ENABLED = false;`
+2. Line 389: when `SPLAT_ENABLED` is false, write `splat_processing_status: null` on insert (already the behavior of the existing ternary — no edit needed once the flag flips).
+3. The existing `if (SPLAT_ENABLED) { … }` block at line 442 will naturally skip the `reconstruct-splat` invoke and log the "skipping" warning.
+4. Line 476 toast already reads `(LINGBOT_ENABLED || SPLAT_ENABLED)` — still true via lingbot, no edit needed.
 
-Why both raw and resolved: the raw value reveals "undefined" (flag not set at build time) vs `"false"` (set but off) vs `"true"`, while the resolved booleans show what the dispatch branches will actually evaluate.
+## Result
 
-## What this kills
-The most common silent failure mode: a build deployed without the env var set, where every dispatch branch quietly no-ops and edge logs stay empty. After this change, one glance at DevTools after submitting a scan tells you exactly which of these is true:
-- flag missing → set it in Lovable env vars and redeploy
-- flag set to non-"true" string → fix the value
-- flag is `"true"` but no edge invocation → upstream client error (the existing `[scan-dispatch] reconstruct-splat threw` breadcrumb catches that)
+- New scans dispatch **only** `reconstruct-scan` (LingBot) + `analyze-scan-quality` + `analyze-scan-teeth`.
+- `scans.splat_processing_status` stays `NULL` on insert, so the 3D PLUS tab in `ScanResults` will sit in its idle/empty state instead of showing a "queued / processing" spinner.
+- No RunPod gsplat job is enqueued, no `SPLAT_API_URL` call is made.
+- LingBot flow and its green-dot readiness indicator on the 3D MAP tab are untouched.
 
 ## Out of scope
-No edge function changes, no behavior changes, no UI changes. Pure observability.
+- Not deleting the `reconstruct-splat` edge function (kept for future re-enable + retry button in `SplatTabPanel`).
+- Not changing `SuperSplatEmbed`, `SplatTabPanel`, or the splat polling — they simply have nothing to render until a manual retry.
+
+To re-enable later: flip the single constant back to `true`.
