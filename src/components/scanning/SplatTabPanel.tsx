@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { usePointCloudUrl } from "@/lib/scanning/usePointCloudUrl";
-import { SuperSplatEmbed } from "@/lib/scanning/SuperSplatEmbed";
+import { PointCloudViewer } from "@/lib/scanning/PointCloudViewer";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
@@ -166,8 +166,8 @@ export function SplatTabPanel({ scanId }: { scanId: string }) {
     return (
       <>
         <DisclaimerBanner />
-        <div className="rounded-card overflow-hidden bg-card border border-border mb-4">
-          <SuperSplatEmbed fileUrl={signedUrl} filename="scene.ply" />
+        <div className="rounded-card overflow-hidden bg-black border border-border mb-4">
+          <PointCloudViewer plyUrl={signedUrl} height={340} />
         </div>
       </>
     );

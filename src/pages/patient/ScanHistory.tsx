@@ -137,18 +137,32 @@ export default function ScanHistory() {
   }, [searchParams]);
 
   const deleteScanRecord = async (scan: ScanRow) => {
+    // Delete the authoritative DB row first and confirm a row was actually
+    // removed. RLS silently filters denied deletes (no error, empty result),
+    // so without this check the UI would falsely report success and the row
+    // would reappear on reload.
+    const { data: deleted, error } = await supabase
+      .from("scans")
+      .delete()
+      .eq("id", scan.id)
+      .select("id");
+    if (error) throw error;
+    if (!deleted || deleted.length === 0) {
+      throw new Error("You don't have permission to delete this scan.");
+    }
+
+    // Best-effort storage cleanup — non-fatal; the row is already gone.
     const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
     const videoPaths = zones.map((z) => z.path).filter(Boolean) as string[];
     if (scan.raw_video_url && !videoPaths.includes(scan.raw_video_url)) {
       videoPaths.push(scan.raw_video_url);
     }
     if (videoPaths.length > 0) {
-      await supabase.storage.from("scan-videos").remove(videoPaths);
+      try { await supabase.storage.from("scan-videos").remove(videoPaths); } catch { /* non-fatal */ }
     }
     if (scan.pointcloud_url) {
-      await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]);
+      try { await supabase.storage.from("scan-pointclouds").remove([scan.pointcloud_url]); } catch { /* non-fatal */ }
     }
-    await supabase.from("scans").delete().eq("id", scan.id);
     const { data: pt } = await supabase.from("patients").select("id, total_scans").eq("id", scan.patient_id).maybeSingle();
     if (pt && (pt as any).total_scans > 0) {
       await supabase.from("patients").update({ total_scans: (pt as any).total_scans - 1 }).eq("id", scan.patient_id);
@@ -161,6 +175,7 @@ export default function ScanHistory() {
       await deleteScanRecord(scan);
       setScans((prev) => prev.filter((s) => s.id !== scan.id));
       setAllScans((prev) => prev.filter((s) => s.id !== scan.id));
+      setExpandedId((cur) => (cur === scan.id ? null : cur));
       setConfirmDeleteId(null);
       toast({ title: "Scan deleted" });
     } catch (e: any) {

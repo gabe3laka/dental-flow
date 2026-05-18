@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { PatientBottomNav } from "@/components/patient/PatientBottomNav";
@@ -6,7 +6,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
-import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
+import { FlipHorizontal, Loader2, Video, Upload, Camera, ImagePlus, X } from "lucide-react";
+import {
+  BOARD_CELLS,
+  type BoardCellKey,
+  type CellAssignment,
+  autoTagCellFromName,
+  composeBoard,
+  estimateSharpness,
+  loadImageFromFile,
+  qualityFor,
+} from "@/lib/scanning/referenceBoard";
 import type { ScanType } from "@/lib/scanning/types";
 import { sampleVideoFrames, composeBoardFromFrames } from "@/lib/scanning/referenceBoard";
 
@@ -75,11 +85,57 @@ type Phase =
   | "picker"
   | "recording"
   | "uploading_file"
+  | "photos"
   | "reviewing"
   | "uploading"
   | "processing";
 
-type InputSource = "live" | "upload_video";
+type InputSource = "live" | "upload_video" | "upload_photos";
+
+const MAX_IMAGE_MB = 15;
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/heic", "image/heif"];
+
+type PhotoAsset = {
+  id: string;
+  name: string;
+  source: HTMLImageElement | HTMLCanvasElement;
+  thumbDataUrl: string;
+  sharpness: number;
+  cell: BoardCellKey | null;
+};
+
+/**
+ * Upload a composed reference board and dispatch AI Visual Guide generation.
+ * Shared by the video-frame path and the multi-photo path so both behave
+ * identically once a board exists.
+ */
+async function dispatchAiGuideBoard(
+  scanId: string,
+  patientId: string,
+  boardBlob: Blob,
+): Promise<void> {
+  const boardPath = `${patientId}/${scanId}/board-${Date.now()}.png`;
+  const { error: boardErr } = await supabase.storage
+    .from("scan-reference-boards")
+    .upload(boardPath, boardBlob, { contentType: "image/png", upsert: true });
+  if (boardErr) throw boardErr;
+  await supabase
+    .from("scans")
+    .update({
+      reference_board_url: boardPath,
+      generation_status: "reference_board_created",
+      generation_error: null,
+    } as never)
+    .eq("id", scanId);
+  await supabase.functions.invoke("generate-visual-guide", {
+    body: {
+      scan_id: scanId,
+      patient_id: patientId,
+      reference_board_url: boardPath,
+      mode: "dental_visual_guide",
+    },
+  });
+}
 
 const DISCLAIMER = "For visual guidance only. Not a medical device or diagnosis.";
 
@@ -119,6 +175,120 @@ export default function ScanSubmission() {
   const [uploadPercent, setUploadPercent] = useState(0);
   const [uploadFileError, setUploadFileError] = useState<string | null>(null);
   const [uploadedDuration, setUploadedDuration] = useState<number | null>(null);
+
+  /* ── AI Guide multi-photo references ── */
+  const [photoAssets, setPhotoAssets] = useState<PhotoAsset[]>([]);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  function assignSequentialCells(list: PhotoAsset[]): PhotoAsset[] {
+    const used = new Set<BoardCellKey>();
+    for (const a of list) if (a.cell) used.add(a.cell);
+    const remaining = BOARD_CELLS.map((c) => c.key).filter((k) => !used.has(k));
+    const untagged = list
+      .filter((a) => !a.cell)
+      .sort((a, b) => b.sharpness - a.sharpness);
+    const claim = new Map<string, BoardCellKey>();
+    for (let i = 0; i < Math.min(remaining.length, untagged.length); i++) {
+      claim.set(untagged[i].id, remaining[i]);
+    }
+    return list.map((a) => (claim.has(a.id) ? { ...a, cell: claim.get(a.id)! } : a));
+  }
+
+  const handlePhotoFiles = useCallback(async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const next: PhotoAsset[] = [];
+    for (const f of Array.from(files)) {
+      try {
+        if (!IMAGE_TYPES.includes(f.type) && !f.type.startsWith("image/")) {
+          toast({ title: "Unsupported file", description: f.name, variant: "destructive" });
+          continue;
+        }
+        if (f.size > MAX_IMAGE_MB * 1024 * 1024) {
+          toast({ title: `${f.name} too large`, description: `Max ${MAX_IMAGE_MB}MB`, variant: "destructive" });
+          continue;
+        }
+        const img = await loadImageFromFile(f);
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext("2d")?.drawImage(img, 0, 0);
+        next.push({
+          id: `${f.name}-${Math.random().toString(36).slice(2, 6)}`,
+          name: f.name,
+          source: c,
+          thumbDataUrl: c.toDataURL("image/jpeg", 0.6),
+          sharpness: estimateSharpness(c),
+          cell: autoTagCellFromName(f.name),
+        });
+      } catch (e) {
+        logError(e, { operation: "ScanSubmission/handlePhotoFile" });
+      }
+    }
+    setPhotoAssets((prev) => assignSequentialCells([...prev, ...next]));
+  }, []);
+
+  const assignments = useMemo<Record<BoardCellKey, CellAssignment>>(() => {
+    const map = {} as Record<BoardCellKey, CellAssignment>;
+    for (const { key } of BOARD_CELLS) {
+      const candidates = photoAssets.filter((a) => a.cell === key);
+      const best = candidates.sort((a, b) => b.sharpness - a.sharpness)[0];
+      map[key] = {
+        key,
+        source: best?.source ?? null,
+        quality: best ? qualityFor(best.sharpness) : "missing",
+      };
+    }
+    return map;
+  }, [photoAssets]);
+
+  const submitAiGuidePhotos = useCallback(async () => {
+    if (!user || photoAssets.length === 0) return;
+    setPhase("uploading");
+    setUploadPercent(0);
+    try {
+      const { data: patient } = await supabase
+        .from("patients")
+        .select("id, total_scans")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!patient) throw new Error("Patient record not found");
+
+      setUploadPercent(20);
+      const { data: scanRow, error: insErr } = await supabase
+        .from("scans")
+        .insert({
+          patient_id: patient.id,
+          status: "pending",
+          source: "ai_guide",
+          scan_type: scanType,
+          processing_status: null,
+          splat_processing_status: null,
+          generation_status: null,
+        } as never)
+        .select("id")
+        .single();
+      if (insErr || !scanRow?.id) throw insErr ?? new Error("Could not create scan");
+
+      await supabase
+        .from("patients")
+        .update({ total_scans: ((patient as { total_scans?: number | null }).total_scans ?? 0) + 1 })
+        .eq("id", patient.id);
+
+      setUploadPercent(55);
+      const board = await composeBoard(assignments);
+      setUploadPercent(80);
+      await dispatchAiGuideBoard(scanRow.id, patient.id, board);
+
+      setUploadPercent(100);
+      toast({ title: "Photos uploaded!", description: "Building: AI Guide…" });
+      navigate(`/patient/scans?scan=${scanRow.id}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Submission failed";
+      logError(e, { operation: "ScanSubmission/submitAiGuidePhotos", userId: user?.id });
+      toast({ title: "Submission failed", description: msg, variant: "destructive" });
+      setPhase("photos");
+    }
+  }, [user, photoAssets, scanType, assignments, navigate]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewRef = useRef<HTMLVideoElement>(null);
@@ -489,27 +659,7 @@ export default function ScanSubmission() {
           try {
             const frames = await sampleVideoFrames(recordedBlob as File, 12);
             const board = await composeBoardFromFrames(frames);
-            const boardPath = `${patient.id}/${scanRow.id}/board-${Date.now()}.png`;
-            const { error: boardErr } = await supabase.storage
-              .from("scan-reference-boards")
-              .upload(boardPath, board, { contentType: "image/png", upsert: true });
-            if (boardErr) throw boardErr;
-            await supabase
-              .from("scans")
-              .update({
-                reference_board_url: boardPath,
-                generation_status: "reference_board_created",
-                generation_error: null,
-              } as never)
-              .eq("id", scanRow.id);
-            await supabase.functions.invoke("generate-visual-guide", {
-              body: {
-                scan_id: scanRow.id,
-                patient_id: patient.id,
-                reference_board_url: boardPath,
-                mode: "dental_visual_guide",
-              },
-            });
+            await dispatchAiGuideBoard(scanRow.id, patient.id, board);
           } catch (e) {
             console.error("[scan-dispatch] generate-visual-guide threw", e);
             logError(e, {
@@ -626,13 +776,13 @@ export default function ScanSubmission() {
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 font-mono">
             {pipeline === "aiGuide"
-              ? "Capture once — we sample frames to build your AI guide."
+              ? "Record a clip, upload a video, or add reference photos."
               : "Capture once — the scan video powers the selected pipeline."}
           </p>
         </div>
 
-        {/* Input picker — Live Camera or Upload Video, same for every
-            pipeline including AI Guide. */}
+        {/* Input picker — Live Camera / Upload Video for every pipeline,
+            plus Upload Photos for AI Guide (multi-photo reference board). */}
         <div className="w-full mb-4 grid grid-cols-1 gap-2">
             <button
               onClick={() => { setInputSource("live"); setPhase("recording"); }}
@@ -662,6 +812,24 @@ export default function ScanSubmission() {
                 </span>
               </span>
             </button>
+            {pipeline === "aiGuide" && (
+              <button
+                onClick={() => {
+                  setInputSource("upload_photos");
+                  setUploadFileError(null);
+                  setPhase("photos");
+                }}
+                className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
+              >
+                <ImagePlus className="w-4 h-4 text-primary" />
+                <span className="flex-1">
+                  <span className="mono-label text-[10px] text-primary block">UPLOAD PHOTOS</span>
+                  <span className="text-xs text-foreground mt-0.5 block">
+                    Add mouth photos (left / front / right · upper / bite / lower)
+                  </span>
+                </span>
+              </button>
+            )}
         </div>
 
         <button
@@ -670,6 +838,112 @@ export default function ScanSubmission() {
         >
           Cancel
         </button>
+
+        <PatientBottomNav />
+      </div>
+    );
+  }
+
+  /* ────────────────────────────── AI GUIDE PHOTOS ──────────────────── */
+  if (phase === "photos") {
+    return (
+      <div className="min-h-screen bg-background px-6 py-10 max-w-[480px] mx-auto pb-28">
+        <button
+          onClick={() => setPhase("intro")}
+          className="mono-label text-muted-foreground hover:text-foreground text-[11px] mb-4 inline-flex items-center gap-1"
+        >
+          ← BACK
+        </button>
+        <span className="mono-label text-primary block mb-2">AI GUIDE · REFERENCE PHOTOS</span>
+        <h1 className="font-display text-xl font-semibold text-foreground mb-3">
+          Add your mouth photos
+        </h1>
+        <p className="text-muted-foreground text-sm mb-5 leading-relaxed">
+          Add 2–6 photos covering left / front / right and upper / bite / lower.
+          We arrange them into a reference board for the AI guide.
+        </p>
+
+        <div className="rounded-card border border-border bg-muted/30 px-3 py-2 mb-5">
+          <span className="mono-label text-muted-foreground text-[10px]">DISCLAIMER</span>
+          <p className="text-xs text-foreground mt-0.5">
+            AI-generated visual guide based on captured mouth images. Not a medical scan.
+          </p>
+        </div>
+
+        <input
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            void handlePhotoFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+
+        {photoAssets.length === 0 ? (
+          <button
+            onClick={() => photoInputRef.current?.click()}
+            className="w-full rounded-card border border-dashed border-border bg-card hover:border-primary/60 transition px-4 py-10 flex flex-col items-center gap-3"
+          >
+            <ImagePlus className="w-6 h-6 text-primary" />
+            <span className="mono-label text-[11px] text-foreground">CHOOSE PHOTOS</span>
+            <span className="text-xs text-muted-foreground">From your camera roll or files</span>
+          </button>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="mono-label text-foreground text-[10px]">
+                {photoAssets.length} PHOTO{photoAssets.length === 1 ? "" : "S"}
+              </span>
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                className="mono-label text-[10px] text-primary hover:underline flex items-center gap-1"
+              >
+                <ImagePlus className="w-3 h-3" /> ADD MORE
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              {photoAssets.map((a) => (
+                <div key={a.id} className="relative rounded-md overflow-hidden border border-border bg-muted/20">
+                  <img src={a.thumbDataUrl} alt={a.name} className="w-full h-20 object-cover" />
+                  <button
+                    onClick={() => setPhotoAssets((prev) => prev.filter((x) => x.id !== a.id))}
+                    className="absolute top-0.5 right-0.5 bg-background/80 rounded-full p-0.5"
+                    aria-label="Remove"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                  <select
+                    value={a.cell ?? ""}
+                    onChange={(e) =>
+                      setPhotoAssets((prev) =>
+                        prev.map((x) =>
+                          x.id === a.id
+                            ? { ...x, cell: (e.target.value || null) as BoardCellKey | null }
+                            : x,
+                        ),
+                      )
+                    }
+                    className="w-full text-[9px] bg-background border-t border-border py-0.5 px-1 mono-label"
+                  >
+                    <option value="">UNASSIGNED</option>
+                    {BOARD_CELLS.map((c) => (
+                      <option key={c.key} value={c.key}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <Button
+              onClick={submitAiGuidePhotos}
+              className="w-full rounded-pill mono-label bg-primary text-primary-foreground"
+            >
+              Build AI Guide
+            </Button>
+          </>
+        )}
 
         <PatientBottomNav />
       </div>
