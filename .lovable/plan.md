@@ -1,36 +1,55 @@
-# Fix: Marble generating teeth from non-dental images
+## Backend task: add scans DELETE RLS policy + verify AI Guide contract
 
-## Root cause
+### 1. Apply migration: scans DELETE policy
 
-In `supabase/functions/generate-visual-guide/index.ts` we send a hardcoded `text_prompt` on every dispatch:
+`public.scans` has SELECT/INSERT/UPDATE policies but no DELETE policy, so patient scan deletion is silently denied by RLS. Apply via `supabase--migration`:
 
-> "Photoreal intra-oral dental cavity reference board — six standardized clinical views, soft diffuse lighting, neutral white balance."
+```sql
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE policyname = 'Scan delete' AND tablename = 'scans' AND schemaname = 'public'
+  ) THEN
+    CREATE POLICY "Scan delete" ON public.scans
+      FOR DELETE TO authenticated
+      USING (
+        public.has_role(auth.uid(), 'admin')
+        OR patient_id = public.get_patient_id_for_user(auth.uid())
+      );
+  END IF;
+END $$;
+```
 
-Marble weights `text_prompt` very heavily — when the image content (e.g. cafe / desk photos) doesn't match, the text wins and you get a teeth-flavoured world. The reference repo `image-blaster` does **not** force a domain prompt; per Marble docs, omitting `text_prompt` lets the model auto-caption the actual image.
+Note: `supabase/migrations/20260518090000_scans_delete_policy.sql` is already in the repo, but the live DB still needs the policy applied via the migration tool.
 
-So the bias is entirely server-side. The board composer (`referenceBoard.ts`) faithfully tiles whatever images the user gave — no teeth are baked in there.
+### 2. Verify after apply
 
-## Fix
+- `supabase--read_query`: `SELECT policyname, cmd FROM pg_policies WHERE tablename='scans' AND schemaname='public'` — confirm `Scan delete` is present alongside the existing three.
+- Confirm `scan_reviews.scan_id` FK to `scans(id)` is `ON DELETE CASCADE` (so deleting a sent scan doesn't FK-error). If not cascading, flag it — do not silently change it.
+- Confirm storage policies `Patients write own scan-reference-boards` and `Patients update own scan-reference-boards` exist on `storage.objects` for bucket `scan-reference-boards` with `(storage.foldername(name))[1] = patient_id::text` check.
 
-In `generate-visual-guide/index.ts`:
+### 3. Verify AI Guide edge function contract
 
-1. **Remove the dental `text_prompt`.** Send `world_prompt` with only `type` + `image_prompt`:
-   ```ts
-   world_prompt: {
-     type: "image",
-     image_prompt: { source: "uri", uri: signed.signedUrl },
-   }
-   ```
-   Marble will auto-caption from the board image itself.
+The new client (`AiGuideResultViewer`) polls `scans.generation_status`, `generative_scene_url`, `generative_glb_url`, `generation_error`. Confirm `generate-visual-guide` + `visual-guide-poll` still write exactly these columns:
 
-2. Keep `display_name` as `Dental Visual Guide ${scan_id}` (display-only, not sent to the model).
+- `generate-visual-guide` on dispatch → `generation_status = 'generating_scene'`, `generation_engine = 'worldlabs_marble'`, `generation_job_id` set, `generation_started_at` set. On failure → `generation_status = 'failed'`, `generation_error` populated.
+- `visual-guide-poll` on success → `generation_status = 'render_ready'`, `generative_scene_url` (path in `generated-scenes`), `generative_glb_url` (path in `generated-assets`), `generative_assets` jsonb. On failure → `failed` + `generation_error`. On timeout (>30min) → `failed`.
 
-3. No changes needed to `visual-guide-poll`, `referenceBoard.ts`, or the client.
+These match the current edge function code on disk — no code change needed. Verify by:
+- `supabase--edge_function_logs` on `generate-visual-guide` and `visual-guide-poll` for recent invocations.
+- Optionally `supabase--read_query` for a recent scan row with `generation_status IS NOT NULL` to confirm columns populate as expected.
 
-## Why not "fix" the prompt instead
+### 4. Do NOT
 
-A neutral prompt ("photoreal scene from the reference image") still competes with the image and can drift. The cleanest match to image-blaster's working behaviour — and to the docs' guidance ("omit `text_prompt` so Marble auto-captions from your image") — is to drop it entirely. We can reintroduce a per-mode prompt later if a real dental board needs reinforcement.
+- Do not recreate the `scan-reference-boards`, `generated-scenes`, `generated-assets` buckets — they already exist.
+- Do not duplicate storage policies.
+- Do not modify edge function code as part of this task.
 
-## Verification
+### Deliverable
 
-After deploy, run the same flow with the cafe images: the generated world should reflect the desk/cafe scene, not teeth.
+Report back the full policy list on `public.scans` after migration, plus confirmation that the storage policies and `scan_reviews` FK cascade are in place.
+
+### Open question for the user
+
+Fast-forward this branch onto `main` after verification, or leave on `claude/reorganize-dentalflow-ui-z62rd`?
