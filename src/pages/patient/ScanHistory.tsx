@@ -4,11 +4,11 @@ import { PillNav } from "@/components/ui/pill-nav";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { TeethVisualization, type ToothStatus, type ToothDetection } from "@/components/3d/TeethVisualization";
 import { DetectionTagSheet } from "@/components/patient/DetectionTagSheet";
+import { ScanResultTabs } from "@/components/scanning/ScanResultTabs";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow, format } from "date-fns";
 import { ChevronDown, ChevronUp, Camera, RotateCw, Sparkles, Send, Trash2, CheckSquare, Square, X } from "lucide-react";
 import { logError } from "@/lib/logger";
@@ -35,24 +35,10 @@ type ReviewRow = {
   doctor_id: string;
 };
 
-/** Map AI analysis teeth array to toothData for 3D visualization */
-function aiTeethToToothData(teeth: any[]): Record<string, ToothStatus> {
-  const map: Record<string, ToothStatus> = {};
-  if (!Array.isArray(teeth)) return map;
-  for (const t of teeth) {
-    const id = t.id;
-    if (!id) continue;
-    const status = t.status;
-    if (status === "on_track" || status === "healthy") map[id] = "on_track";
-    else if (status === "deviation") map[id] = "deviation";
-    else map[id] = "attention";
-  }
-  return map;
-}
-
 export default function ScanHistory() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("all");
   const [scans, setScans] = useState<ScanRow[]>([]);
   const [allScans, setAllScans] = useState<ScanRow[]>([]);
@@ -60,7 +46,6 @@ export default function ScanHistory() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, ReviewRow | null>>({});
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [highlightedTag, setHighlightedTag] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
@@ -125,18 +110,31 @@ export default function ScanHistory() {
     })();
   }, [user, activeTab]);
 
-  const toggleExpand = async (scanId: string) => {
-    if (expandedId === scanId) { setExpandedId(null); setHighlightedTag(null); return; }
-    setExpandedId(scanId);
-    setHighlightedTag(null);
-    if (!reviews[scanId]) {
-      const { data } = await supabase
-        .from("scan_reviews")
-        .select("review_notes, response_video_url, doctor_id")
-        .eq("scan_id", scanId).limit(1).maybeSingle();
-      setReviews((r) => ({ ...r, [scanId]: data || null }));
-    }
+  const loadReview = async (scanId: string) => {
+    if (reviews[scanId] !== undefined) return;
+    const { data } = await supabase
+      .from("scan_reviews")
+      .select("review_notes, response_video_url, doctor_id")
+      .eq("scan_id", scanId).limit(1).maybeSingle();
+    setReviews((r) => ({ ...r, [scanId]: data || null }));
   };
+
+  const toggleExpand = async (scanId: string) => {
+    if (expandedId === scanId) { setExpandedId(null); return; }
+    setExpandedId(scanId);
+    await loadReview(scanId);
+  };
+
+  // Auto-expand a scan when arriving via ?scan=<id> (e.g. straight from a
+  // capture, or the "scan ready" toast) so results show without an extra tap.
+  useEffect(() => {
+    const target = searchParams.get("scan");
+    if (target) {
+      setExpandedId(target);
+      void loadReview(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const deleteScanRecord = async (scan: ScanRow) => {
     const zones: Array<{ zone: string; path: string | null }> = Array.isArray(scan.zones_captured) ? scan.zones_captured : [];
@@ -238,35 +236,6 @@ export default function ScanHistory() {
     { id: "pending", label: `PENDING (${counts.pending})` },
     { id: "flagged", label: `FLAGGED (${counts.flagged})` },
   ];
-
-  /** Get toothData for a scan, with optional tag highlight */
-  const getToothData = (scan: ScanRow): Record<string, ToothStatus> => {
-    const base = aiTeethToToothData(scan.ai_analysis?.teeth || []);
-    if (!highlightedTag || expandedId !== scan.id) return base;
-    const teeth = scan.ai_analysis?.teeth || [];
-    const affected = teeth.filter((t: any) =>
-      t.zone?.toLowerCase().includes(highlightedTag.toLowerCase()) ||
-      (Array.isArray(t.detections) && t.detections.some((d: any) => d.type === highlightedTag.toLowerCase().replace(" ", "_"))) ||
-      t.status !== "healthy"
-    );
-    const highlighted: Record<string, ToothStatus> = {};
-    for (const t of affected) {
-      if (t.id) highlighted[t.id] = "attention";
-    }
-    return { ...base, ...highlighted };
-  };
-
-  /** Get detectionData for a scan's 3D overlay */
-  const getDetectionData = (scan: ScanRow): Record<string, ToothDetection[]> => {
-    const map: Record<string, ToothDetection[]> = {};
-    const teeth = scan.ai_analysis?.teeth || [];
-    for (const t of teeth) {
-      if (t.id && Array.isArray(t.detections) && t.detections.length > 0) {
-        map[t.id] = t.detections;
-      }
-    }
-    return map;
-  };
 
   return (
     <div className="min-h-screen bg-background px-5 py-8 max-w-[480px] mx-auto pb-24">
@@ -410,60 +379,40 @@ export default function ScanHistory() {
 
               {!selectMode && expandedId === scan.id && (
                 <div className="px-4 pb-4 border-t border-border pt-3 space-y-3">
-                  <div className="rounded-lg overflow-hidden bg-card border border-border dark">
-                    <div className="px-3 pt-3 pb-1 bg-card">
-                      <TeethVisualization compact showLegend showToggle={false} toothData={getToothData(scan)} detectionData={getDetectionData(scan)} />
-                    </div>
-                    <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
+                  {scan.quality_score != null && (
+                    <div>
                       <div className="flex items-center justify-between mb-1">
                         <span className="mono-label text-muted-foreground">QUALITY</span>
                         <span className="mono-label font-semibold text-foreground">
-                          {scan.quality_score != null ? `${Math.round(scan.quality_score)}%` : "—"}
+                          {`${Math.round(scan.quality_score)}%`}
                         </span>
                       </div>
                       <div className="h-1 rounded-full overflow-hidden bg-muted">
                         <div
                           className={`h-full rounded-full transition-all ${
-                            (scan.quality_score ?? 0) >= 80 ? "bg-status-success" : (scan.quality_score ?? 0) >= 50 ? "bg-status-warning" : "bg-status-danger"
+                            scan.quality_score >= 80 ? "bg-status-success" : scan.quality_score >= 50 ? "bg-status-warning" : "bg-status-danger"
                           }`}
-                          style={{ width: `${scan.quality_score ?? 0}%` }}
+                          style={{ width: `${scan.quality_score}%` }}
                         />
                       </div>
                     </div>
-                    {scan.detection_tags && scan.detection_tags.length > 0 && (
-                      <div className="px-4 pb-3 flex flex-wrap gap-1.5" style={{ background: "hsl(var(--card))" }}>
-                        {scan.detection_tags.map((tag, i) => (
-                          <button
-                            key={i}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setHighlightedTag(highlightedTag === tag ? null : tag);
-                            }}
-                            className={`mono-label px-2 py-0.5 rounded-full transition ${
-                              highlightedTag === tag
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-primary/15 text-primary hover:bg-primary/25"
-                            }`}
-                          >
-                            {tag}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {highlightedTag && (
-                      <div className="px-4 pb-3" style={{ background: "hsl(var(--card))" }}>
-                        <p className="text-xs text-muted-foreground">
-                          Tap a tag to highlight affected teeth. Tap again to deselect.
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setSelectedTag(highlightedTag); }}
-                            className="ml-1 text-primary underline"
-                          >
-                            Learn more
-                          </button>
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  )}
+
+                  {scan.detection_tags && scan.detection_tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {scan.detection_tags.map((tag, i) => (
+                        <button
+                          key={i}
+                          onClick={(e) => { e.stopPropagation(); setSelectedTag(tag); }}
+                          className="mono-label px-2 py-0.5 rounded-full bg-primary/15 text-primary hover:bg-primary/25 transition"
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <ScanResultTabs scanId={scan.id} />
 
                   {!scan.sent_to_doctor ? (
                     <div className="space-y-2">
@@ -495,9 +444,6 @@ export default function ScanHistory() {
                           size="sm" className="rounded-pill mono-label bg-primary text-primary-foreground"
                         >
                           <Send className="w-3 h-3 mr-1" />Send to Doctor
-                        </Button>
-                        <Button onClick={() => navigate(`/patient/scans/${scan.id}/results`)} size="sm" variant="outline" className="rounded-pill mono-label">
-                          View Results
                         </Button>
                       </div>
                       {/* Delete — only for unsent scans */}

@@ -13,7 +13,6 @@ import Landing from "@/pages/Landing";
 import PatientHome from "@/pages/patient/Home";
 import Onboarding from "@/pages/patient/Onboarding";
 import ScanHistory from "@/pages/patient/ScanHistory";
-import ScanResults from "@/pages/patient/ScanResults";
 import ScanSubmission from "@/pages/patient/ScanSubmission";
 import Progress from "@/pages/patient/Progress";
 import PatientChat from "@/pages/patient/Chat";
@@ -98,7 +97,6 @@ const App = () => (
             <Route path="/patient" element={<PatientHome />} />
             <Route path="/patient/onboarding" element={<Onboarding />} />
             <Route path="/patient/scans" element={<ScanHistory />} />
-            <Route path="/patient/scans/:scanId/results" element={<ScanResults />} />
             <Route path="/patient/scan" element={<ScanSubmission />} />
             <Route path="/patient/progress" element={<Progress />} />
             <Route path="/patient/chat" element={<PatientChat />} />

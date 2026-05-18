@@ -45,7 +45,7 @@ export function useScanCompletionWatcher() {
                 action: (
                   <ToastAction
                     altText="View"
-                    onClick={() => navigate(`/patient/scans/${next.id}/results`)}
+                    onClick={() => navigate(`/patient/scans?scan=${next.id}`)}
                   >
                     View
                   </ToastAction>

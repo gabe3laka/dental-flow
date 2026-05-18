@@ -160,6 +160,32 @@ export function autoTagCellFromName(name: string): BoardCellKey | null {
   return null;
 }
 
+/**
+ * Auto-compose a board from an unlabeled set of frames (e.g. sampled from a
+ * scan video). Frames are ranked by sharpness and spread across the 6 board
+ * cells in capture order, so a single panning clip yields a usable board with
+ * no manual tagging. Used by the unified scan-capture flow.
+ */
+export async function composeBoardFromFrames(
+  frames: HTMLCanvasElement[],
+): Promise<Blob> {
+  const scored = frames
+    .map((source) => ({ source, sharpness: estimateSharpness(source) }))
+    .filter((f) => f.sharpness > 0)
+    .sort((a, b) => b.sharpness - a.sharpness);
+
+  const assignments = {} as Record<BoardCellKey, CellAssignment>;
+  BOARD_CELLS.forEach(({ key }, idx) => {
+    const pick = scored[idx];
+    assignments[key] = {
+      key,
+      source: pick?.source ?? null,
+      quality: pick ? qualityFor(pick.sharpness) : "missing",
+    };
+  });
+  return composeBoard(assignments);
+}
+
 /** Compose a 2x3 board PNG Blob from current assignments. */
 export async function composeBoard(
   assignments: Record<BoardCellKey, CellAssignment>,

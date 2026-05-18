@@ -8,6 +8,7 @@ import { toast } from "@/hooks/use-toast";
 import { logError } from "@/lib/logger";
 import { FlipHorizontal, Loader2, Video, Upload, Camera } from "lucide-react";
 import type { ScanType } from "@/lib/scanning/types";
+import { sampleVideoFrames, composeBoardFromFrames } from "@/lib/scanning/referenceBoard";
 
 const MIN_DURATION_SEC = 10;
 const TARGET_DURATION_SEC = 34;
@@ -102,46 +103,12 @@ export default function ScanSubmission() {
   const [scanType, setScanType] = useState<ScanType>("scope");
   const [inputSource, setInputSource] = useState<InputSource>("live");
   const [pipeline, setPipeline] = useState<Pipeline>(() => loadPipelinePref());
-  const [creatingAiGuide, setCreatingAiGuide] = useState(false);
 
   function selectPipeline(key: Pipeline) {
     setPipeline(key);
     try { localStorage.setItem(PIPELINE_PREF_KEY, key); } catch { /* ignore */ }
   }
 
-  /** AI Guide path: create a draft scan row and route to its ScanResults
-   *  with the AI Guide tab pre-selected. The existing AiVisualGuidePanel
-   *  takes over from there (photo/video upload, board compose, dispatch). */
-  const startAiGuideFlow = useCallback(async () => {
-    if (!user) return;
-    setCreatingAiGuide(true);
-    try {
-      const { data: patient } = await supabase
-        .from("patients")
-        .select("id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (!patient) throw new Error("Patient record not found");
-      const { data: scanRow, error } = await supabase
-        .from("scans")
-        .insert({
-          patient_id: patient.id,
-          status: "pending",
-          source: "ai_guide",
-          scan_type: scanType,
-          generation_status: "awaiting_reference_board",
-        } as never)
-        .select("id")
-        .single();
-      if (error || !scanRow?.id) throw error ?? new Error("Could not create scan");
-      navigate(`/patient/scans/${scanRow.id}/results?tab=ai-guide`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Could not start AI Guide";
-      logError(e, { operation: "ScanSubmission/startAiGuideFlow", userId: user?.id });
-      toast({ title: "Could not start AI Guide", description: msg, variant: "destructive" });
-      setCreatingAiGuide(false);
-    }
-  }, [user, scanType, navigate]);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraError, setCameraError] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
@@ -421,7 +388,8 @@ export default function ScanSubmission() {
       // so persist scan_type = scanType for both paths and only differentiate
       // via `source`.
       const pipelineScanType: ScanType = scanType;
-      const sourceTag: string = isUpload ? "upload_video" : scanType;
+      const sourceTag: string =
+        pipeline === "aiGuide" ? "ai_guide" : isUpload ? "upload_video" : scanType;
 
       // 3. Insert scans row
       const { data: scanRow, error: insErr } = await supabase
@@ -513,20 +481,58 @@ export default function ScanSubmission() {
           console.warn("[scan-dispatch] SPLAT_ENABLED is false — skipping reconstruct-splat. Set VITE_ENABLE_SPLAT=true in build env.");
         }
 
-        // 5c. AI Guide path is no longer dispatched from this screen — see
-        //     startAiGuideFlow() above, which routes directly into the
-        //     AiVisualGuidePanel before any video capture happens.
+        // 5c. AI Guide path — same capture UI as 3D Map / 3D Plus. We auto-
+        //     build a reference board from frames sampled out of the captured
+        //     video (no manual photo tagging) and dispatch generation here, so
+        //     nothing about AI Guide depends on an existing scan record.
+        if (pipeline === "aiGuide") {
+          try {
+            const frames = await sampleVideoFrames(recordedBlob as File, 12);
+            const board = await composeBoardFromFrames(frames);
+            const boardPath = `${patient.id}/${scanRow.id}/board-${Date.now()}.png`;
+            const { error: boardErr } = await supabase.storage
+              .from("scan-reference-boards")
+              .upload(boardPath, board, { contentType: "image/png", upsert: true });
+            if (boardErr) throw boardErr;
+            await supabase
+              .from("scans")
+              .update({
+                reference_board_url: boardPath,
+                generation_status: "reference_board_created",
+                generation_error: null,
+              } as never)
+              .eq("id", scanRow.id);
+            await supabase.functions.invoke("generate-visual-guide", {
+              body: {
+                scan_id: scanRow.id,
+                patient_id: patient.id,
+                reference_board_url: boardPath,
+                mode: "dental_visual_guide",
+              },
+            });
+          } catch (e) {
+            console.error("[scan-dispatch] generate-visual-guide threw", e);
+            logError(e, {
+              operation: "ScanSubmission/dispatchAiGuide",
+              extra: { scanId: scanRow.id },
+            });
+          }
+        }
 
         // 6. Kick off the existing AI analysis on the keyframes, in parallel
         //    with reconstruction. Both update the scans row independently.
-        try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
-        // TODO(phase2): extract keyframes from uploaded video to restore analyze-scan-teeth.
-        if (!isUpload) {
-          try {
-            await supabase.functions.invoke("analyze-scan-teeth", {
-              body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
-            });
-          } catch { /* non-blocking */ }
+        //    Skipped for AI Guide — it's a generative guide, not a dental
+        //    analysis of the captured frames.
+        if (pipeline !== "aiGuide") {
+          try { await supabase.functions.invoke("analyze-scan-quality", { body: { scan_id: scanRow.id } }); } catch { /* non-blocking */ }
+          // TODO(phase2): extract keyframes from uploaded video to restore analyze-scan-teeth.
+          if (!isUpload) {
+            try {
+              await supabase.functions.invoke("analyze-scan-teeth", {
+                body: { scan_id: scanRow.id, treatment_plan: (patient as { treatment_category?: string | null }).treatment_category || "Standard" },
+              });
+            } catch { /* non-blocking */ }
+          }
         }
       }
 
@@ -534,11 +540,12 @@ export default function ScanSubmission() {
       const parts: string[] = [];
       if (pipeline === "lingbot" && LINGBOT_ENABLED) parts.push("3D Map");
       if (pipeline === "splat" && SPLAT_ENABLED) parts.push("3D Plus");
+      if (pipeline === "aiGuide") parts.push("AI Guide");
       toast({
         title: "Scan uploaded!",
         description: parts.length ? `Building: ${parts.join(" · ")}…` : "Analyzing your scan…",
       });
-      navigate(`/patient/scans/${scanRow?.id}/results`);
+      navigate(`/patient/scans${scanRow?.id ? `?scan=${scanRow.id}` : ""}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Submission failed";
       logError(e, { operation: "ScanSubmission/handleSubmit", userId: user?.id });
@@ -552,9 +559,9 @@ export default function ScanSubmission() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 py-12 max-w-[480px] mx-auto">
         <span className="mono-label text-primary text-[10px] tracking-widest mb-3">DENTAL MAPPING</span>
-        <h1 className="font-display text-2xl font-semibold text-foreground mb-3">3D Map Scan</h1>
+        <h1 className="font-display text-2xl font-semibold text-foreground mb-3">New Scan</h1>
         <p className="text-muted-foreground text-sm text-center mb-8 leading-relaxed max-w-xs">
-          Slowly pan your phone around your mouth for {TARGET_DURATION_SEC} seconds. We turn the video into a 3D map of your teeth.
+          Slowly pan your phone around your mouth for {TARGET_DURATION_SEC} seconds. We turn the video into the output you pick below.
         </p>
 
         {/* Persistent disclaimer */}
@@ -619,35 +626,14 @@ export default function ScanSubmission() {
           </div>
           <p className="text-[10px] text-muted-foreground mt-2 font-mono">
             {pipeline === "aiGuide"
-              ? "AI Guide uses its own photo + video uploader on the next step."
+              ? "Capture once — we sample frames to build your AI guide."
               : "Capture once — the scan video powers the selected pipeline."}
           </p>
         </div>
 
-        {/* Input picker — only for video-based pipelines. AI Guide branches off
-            into its own panel via startAiGuideFlow(). */}
-        {pipeline === "aiGuide" ? (
-          <div className="w-full mb-4">
-            <button
-              onClick={startAiGuideFlow}
-              disabled={creatingAiGuide}
-              className="w-full rounded-card border border-primary bg-primary text-primary-foreground px-4 py-3 flex items-center justify-center gap-2 text-sm font-medium transition disabled:opacity-60"
-            >
-              {creatingAiGuide ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Opening AI Guide…
-                </>
-              ) : (
-                <>Continue to AI Guide →</>
-              )}
-            </button>
-            <p className="text-[10px] text-muted-foreground mt-2 font-mono text-center">
-              You'll upload mouth photos or a short clip on the next screen.
-            </p>
-          </div>
-        ) : (
-          <div className="w-full mb-4 grid grid-cols-1 gap-2">
+        {/* Input picker — Live Camera or Upload Video, same for every
+            pipeline including AI Guide. */}
+        <div className="w-full mb-4 grid grid-cols-1 gap-2">
             <button
               onClick={() => { setInputSource("live"); setPhase("recording"); }}
               className="rounded-card border border-border bg-card hover:border-primary/40 px-4 py-3 flex items-center gap-3 text-left transition"
@@ -676,8 +662,7 @@ export default function ScanSubmission() {
                 </span>
               </span>
             </button>
-          </div>
-        )}
+        </div>
 
         <button
           onClick={() => navigate(-1)}
@@ -782,7 +767,13 @@ export default function ScanSubmission() {
             disabled={elapsed < effectiveMin}
             className="flex-1 rounded-pill mono-label bg-primary text-primary-foreground"
           >
-            {elapsed < effectiveMin ? `Need ≥${effectiveMin}s` : "Build 3D Map"}
+            {elapsed < effectiveMin
+              ? `Need ≥${effectiveMin}s`
+              : pipeline === "splat"
+                ? "Build 3D Plus"
+                : pipeline === "aiGuide"
+                  ? "Build AI Guide"
+                  : "Build 3D Map"}
           </Button>
         </div>
 
@@ -804,7 +795,7 @@ export default function ScanSubmission() {
         </div>
         <div className="text-center space-y-2">
           <span className="font-mono text-white text-base tracking-widest block">UPLOADING SCAN · {uploadPercent}%</span>
-          <p className="text-white/40 text-xs tracking-wide">Building your 3D map next</p>
+          <p className="text-white/40 text-xs tracking-wide">Processing your scan next</p>
         </div>
         <Loader2 className="w-4 h-4 text-white/50 animate-spin" />
       </div>
